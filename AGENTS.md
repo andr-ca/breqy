@@ -3,7 +3,7 @@
 ## Project Folder Structure
 
 ```
-breqy/
+./
 ├─ AGENTS.md
 ├─ README.md
 ├─ pyproject.toml
