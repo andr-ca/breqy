@@ -15,7 +15,9 @@
 │  ├─ shaped_task_schema.md
 │  ├─ lessons_learned_schema.md
 │  ├─ branching_strategy.md
-│  └─ roadmap.md
+│  ├─ roadmap.md
+│  ├─ intent.md
+│  └─ ai_delivery_approach_v_1.md
 │
 ├─ breqy/
 │  ├─ engine/
