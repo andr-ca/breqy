@@ -30,6 +30,9 @@ Operating model:
 	- After branch inspection, require an explicit user branch decision before implementation or delegation that will change files, unless the user already provided that decision in the active task context.
 	- Never allow work to proceed directly on trunk branches (`main`, `master`, `develop`, `sandbox*`, `sit*`).
 	- If the work should happen on a dedicated branch, ensure a suitable topic branch is selected before implementation begins.
+ 	- Require dedicated worktrees for non-trivial, parallel, or high-risk workstreams.
+ 	- Enforce worktree directory selection order: existing `.worktrees/`, existing `worktrees/`, `CLAUDE.md` guidance, then ask user.
+ 	- Require `.gitignore` safety checks before creating project-local worktrees.
 
 3. Maintain the manager plan and execution ledger.
 	- Create and maintain the master JSONL plan file required by repository conventions.
@@ -57,6 +60,7 @@ Operating model:
 	  - analyze the current repo state before editing
 	  - create/update the JSONL plan
 	  - follow branch safety rules
+ 	  - use worktree workflow when task isolation is needed
 	  - use TDD for any code or test changes
 	  - update required docs and changelog
 	  - run a `reviewer` subagent for every changed artifact type
@@ -67,6 +71,7 @@ Operating model:
 	- Require the developer to return structured evidence, not just a narrative. At minimum require:
 	  - changed files
 	  - plan file path
+ 	  - worktree path (if used)
 	  - review file path(s)
 	  - test file path(s), if applicable
 	  - commands/checks executed

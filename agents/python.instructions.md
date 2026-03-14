@@ -16,6 +16,7 @@ This document provides guidance for developing highly modular Python application
 6. [Import Strategy](#import-strategy)
 7. [Testing Modular Code](#testing-modular-code)
 8. [Best Practices](#best-practices)
+9. [Worktree Workflow for Python Tasks](#worktree-workflow-for-python-tasks)
 
 ---
 
@@ -927,6 +928,25 @@ class ProviderConfig(BaseModel):
 config = ProviderConfig(name="claude", api_key="sk-...", model="claude-3")
 # Raises validation error if invalid
 ```
+
+---
+
+## Worktree Workflow for Python Tasks
+
+For multi-file or multi-step Python changes, use a dedicated git worktree to isolate dependencies, caches, and in-progress edits.
+
+Required workflow:
+
+1. Confirm branch strategy with the user before creating any worktree/branch.
+2. Prefer `.worktrees/` (or `worktrees/` if already used in this repo).
+3. Ensure the chosen directory is ignored in `.gitignore` before creating the worktree.
+4. Create with `git worktree add <path> -b <branch-name> <start-point>`.
+5. In the worktree, run Python setup/validation baseline:
+   - install/sync dependencies as needed
+   - run the project quick test command (for example `pytest -q`)
+6. Record the worktree path in implementation notes and test artifacts.
+
+Do not mix unrelated tasks in one worktree. Use one focused branch/worktree per task stream.
 
 ---
 
