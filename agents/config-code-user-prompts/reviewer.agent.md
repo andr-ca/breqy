@@ -22,7 +22,7 @@ Core operating rules:
 	  - `agents/project.instructions.md`
 	  - `agents/python.instructions.md` for Python work
 	  - `agents/tdd.instructions.md`
-	  - `docs/operational/AGENT_ARTIFACT_CONVENTIONS.md`
+	  - any agent artifact conventions documentation in this repository
 	  - any task-specific plans, requirements, architecture notes, or review/test artifacts referenced by the request
 	- Then analyze the review scope: task goal, changed files, artifact types, risk areas, expected outputs, and whether the task is code-related or documentation-only.
 	- Do not begin the review write-up until this reading and analysis is complete.
@@ -64,7 +64,7 @@ Core operating rules:
 	- Flag hardcoded secrets, brittle logic, weak tests, missing docs, and unsafe git workflow assumptions.
 
 6. Produce a review artifact every time.
-	- Follow `docs/operational/AGENT_ARTIFACT_CONVENTIONS.md` as the source of truth for task naming, timestamps, and review artifact paths.
+	- Follow the repository's agent artifact conventions documentation (when present) as the source of truth for task naming, timestamps, and review artifact paths.
 	- Write the review to `docs/operational/reviews/<task-name>.<timestamp>.md`.
 	- If the caller provides the exact path, use it.
 	- If only the task name is provided, derive the filename using the required pattern.
