@@ -11,3 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GEMINI.md` instructions for Gemini CLI.
 - `.geminiignore` for workspace boundary enforcement.
 - `CHANGES.md` (initial mandatory changelog).
+
+### Changed
+- Refined `GEMINI.md` with full technology stack and correct coverage thresholds.
+- Narrowed `.geminiignore` to ensure `.env.sample` is not ignored.

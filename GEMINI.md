@@ -32,11 +32,13 @@ Implementation MUST follow the **Red-Green-Refactor** cycle for every feature, f
 
 ## 📊 QUALITY GATES & COVERAGE
 
-| Category | Threshold |
-|---|---|
-| Business Logic (`services/`, `validators/`, `utils/`, etc.) | **100% Coverage** |
-| Components / UI Logic | **80% Coverage** |
-| Overall Project | **80% Coverage** |
+Coverage thresholds (strictly matching [agents/core.instructions.md](agents/core.instructions.md)):
+
+| Code Category | Statement | Branch | Function | Line |
+|---|---:|---:|---:|---:|
+| Business Logic (services, validators, utils, rules, shared logic) | 100% | 100% | 100% | 100% |
+| Components / UI Logic | 80% | 80% | 80% | 80% |
+| Overall Project | 80% | 80% | 80% | 80% |
 
 **Validation:** Run `pytest` with coverage reporting to ensure these thresholds are met before proposing a merge.
 
@@ -53,8 +55,12 @@ Implementation MUST follow the **Red-Green-Refactor** cycle for every feature, f
 ## 🔧 TECHNOLOGY STACK SUMMARY
 
 - **Language:** Python 3.12+ (strictly typed)
-- **Typing:** Pydantic v2
+- **Typing:** Pydantic v2 (models, events, config)
+- **IDs:** python-ulid
+- **Logging:** structlog
+- **DI:** injector library or manual constructor injection
 - **Persistence:** aiosqlite (SQLite with WAL)
+- **Secrets:** keyring (abstracted behind `SecretProvider`)
 - **TUI:** Textual
 - **Testing:** pytest + pytest-asyncio
 - **Lint/Format:** ruff
