@@ -1,4 +1,4 @@
-# AI-Assisted Delivery Approach v2
+# AI-Assisted Delivery Approach v1
 
 ## Purpose
 
