@@ -147,23 +147,6 @@ def get_active_block() -> Optional[dict]:
         return None
 
 
-def get_recent_blocks() -> list[dict]:
-    """Get recent blocks to find the next window start."""
-    try:
-        result = subprocess.run(
-            ["ccusage", "blocks", "--json", "--recent", "--offline"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            return []
-        data = json.loads(result.stdout)
-        return data.get("blocks", [])
-    except Exception:
-        return []
-
-
 def block_time_remaining(block: dict) -> float:
     """Seconds remaining in a billing block."""
     end = datetime.fromisoformat(block["endTime"].replace("Z", "+00:00"))
