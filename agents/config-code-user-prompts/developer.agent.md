@@ -1,4 +1,3 @@
-```chatagent
 ---
 name: developer
 description: Primary delivery agent for implementation tasks, planning, TDD execution, validation, git workflow, and PR preparation.
