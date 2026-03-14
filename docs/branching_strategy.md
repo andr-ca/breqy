@@ -33,7 +33,7 @@ Rules:
 
 ## Branch Types and Naming
 
-Use short kebab-case names with clear intent:
+Use short kebab-case names with clear intent for descriptive slugs (the part after the prefix):
 
 - `feat/<short-kebab>`
 - `fix/<short-kebab>`
@@ -42,13 +42,14 @@ Use short kebab-case names with clear intent:
 - `chore/<short-kebab>`
 - `refactor/<short-kebab>`
 - `test/<short-kebab>`
-- `release/<version-or-date>`
+- `release/<version-or-date>` (where `<version-or-date>` is a semantic version such as `1.2.3` or a date such as `2024-03-01` — this identifier is not kebab-case and is explicitly allowed)
 
 Recommended format when task IDs exist:
 
 - `feat/brq-144-session-resume-flow`
 - `fix/brq-201-reconnect-duplication`
 - `docs/branching-strategy`
+- `release/1.2.3`
 
 ## Branch Source and Target Rules
 
