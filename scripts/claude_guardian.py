@@ -157,7 +157,7 @@ def block_time_remaining(block: dict) -> float:
 def detect_rate_limit(exit_code: int, stderr_text: str) -> bool:
     """Check if an agent exit looks like a rate limit."""
     lower = stderr_text.lower()
-    return any(sig in lower for sig in RATE_LIMIT_SIGNALS)
+    return exit_code != 0 and any(sig in lower for sig in RATE_LIMIT_SIGNALS)
 
 
 def make_log_dir(base_dir: str) -> str:
