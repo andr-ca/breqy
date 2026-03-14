@@ -155,6 +155,39 @@ Key safety rules:
 
 ---
 
+## 🌲 WORKTREE WORKFLOW (MANDATORY WHEN ISOLATION IS NEEDED)
+
+Use a dedicated worktree when:
+- work is non-trivial and may take multiple commits
+- tasks are parallelized across branches
+- the current workspace has unrelated local changes
+- the user explicitly asks for isolated execution
+
+Directory selection order (required):
+1. Use `.worktrees/` if it exists.
+2. Else use `worktrees/` if it exists.
+3. Else check `CLAUDE.md` for worktree location guidance.
+4. Else ask the user where to create worktrees.
+
+Safety checks before creating a project-local worktree (`.worktrees/` or `worktrees/`):
+1. Verify `.gitignore` includes the chosen directory entry (`.worktrees/` or `worktrees/`).
+2. If missing, add it immediately before creating the worktree.
+3. Keep this ignore change tracked in the same branch unless the user asks otherwise.
+
+Required creation sequence:
+1. Confirm branch strategy with the user (from branch-check section).
+2. Create the branch/worktree with `git worktree add <path> -b <branch-name> <start-point>`.
+3. `cd` into the worktree and run project setup commands if needed.
+4. Run baseline validation (at minimum the project’s quick test command) and report result.
+5. Continue implementation only after the baseline state is known.
+
+Worktree hygiene:
+- Do not edit files in the original workspace after starting isolated work unless intentionally coordinating both.
+- Report the full worktree path in progress updates.
+- Remove finished worktrees only after merge/close and user confirmation.
+
+---
+
 ## 🔴 TDD CHECKPOINT (BEFORE IMPLEMENTATION)
 
 Confirm all answers are “yes”:

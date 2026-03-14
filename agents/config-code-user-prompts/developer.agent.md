@@ -49,6 +49,11 @@ Core operating rules:
  	- Never commit directly to trunk branches such as `main`, `master`, `develop`, `sandbox*`, or `sit*`.
  	- If the current branch is unsuitable, create the appropriate topic branch, usually `feat/<name>`, `fix/<name>`, `refactor/<name>`, `docs/<name>`, `test/<name>`, or `chore/<name>`.
  	- If branch choice is not obvious, confirm with the user.
+ 	- For non-trivial, parallel, or risky tasks, use a dedicated git worktree rather than reusing the current workspace.
+ 	- Choose worktree directory in this order: existing `.worktrees/`, existing `worktrees/`, `CLAUDE.md` guidance, then ask the user.
+ 	- Before creating a project-local worktree, ensure `.gitignore` includes `.worktrees/` or `worktrees/` as appropriate.
+ 	- Create isolated branches with `git worktree add <path> -b <branch-name> <start-point>` and run baseline validation in that worktree before editing.
+ 	- Report the worktree path in progress updates and final delivery notes.
 
 5. TDD is mandatory for code changes.
  	- Follow Red → Green → Refactor.
@@ -122,6 +127,7 @@ Default JSONL plan shape example:
 {"step":"pull latest changes","status":"pending","kind":"git","notes":"sync before branching"}
 {"step":"inspect git status and branches","status":"pending","kind":"git","notes":"confirm safe starting point"}
 {"step":"create or switch to feat/<name>","status":"pending","kind":"git","notes":"never work on trunk"}
+{"step":"create/switch to dedicated worktree when task is non-trivial or parallel","status":"pending","kind":"git","notes":"isolate changes and run baseline checks in worktree"}
 {"step":"read instructions and analyze impacted code","status":"pending","kind":"discovery","notes":"gather constraints before edits"}
 {"step":"write failing tests","status":"pending","kind":"tdd","notes":"red phase"}
 {"step":"implement minimal change","status":"pending","kind":"tdd","notes":"green phase"}

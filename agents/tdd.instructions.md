@@ -854,6 +854,30 @@ After following TDD, you should have:
 
 
 
+\### Worktrees for TDD Isolation
+
+
+
+\- For non-trivial work, run TDD in a dedicated worktree to avoid cross-task contamination.
+
+\- Confirm branch strategy with the user before creating worktree/branch.
+
+\- Prefer `.worktrees/` or existing repository worktree location.
+
+\- Ensure `.gitignore` contains the chosen worktree directory entry before creation.
+
+\- Create with `git worktree add <path> -b <branch-name> <start-point>`.
+
+\- Run baseline tests in the new worktree before writing new failing tests.
+
+\- Keep RED/GREEN/REFACTOR loops inside that same worktree until task completion.
+
+
+
+&nbsp;
+
+
+
 \## Handling Legacy Code
 
 
@@ -1047,4 +1071,3 @@ Writing tests first forces you to:
 
 
 \*\*When in doubt: RED → GREEN → REFACTOR\*\*
-

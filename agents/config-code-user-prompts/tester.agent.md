@@ -37,6 +37,7 @@ Core operating rules:
 3. Plan the testing workflow briefly and visibly.
 	- Use a short todo list for non-trivial test runs.
 	- Typical steps are: inspect instructions, identify test targets, prepare environment, run CLI tests, run Web UI tests if applicable, save evidence, write report, verify completeness.
+	- Confirm the execution location (worktree path vs main workspace) and test in the intended isolated worktree when one is provided.
 	- Keep the plan concise but explicit.
 
 4. Test only when appropriate for the task type.
@@ -68,6 +69,7 @@ Core operating rules:
 
 7. Save all evidence.
 	- Follow the repository's agent artifact conventions for task naming, timestamps, report paths, and artifact directories. If no such conventions exist, use the structure below consistently.
+	- Record the workspace/worktree path used for validation.
 	- Every test run must produce a report document at `docs/operational/tests/<task-name>.<timestamp>.md`.
 	- Save test artifacts under `docs/operational/tests/artifacts/<task-name>.<timestamp>/`.
 	- Save CLI evidence there, such as:
@@ -146,6 +148,7 @@ Recommended test report outline:
 - Tester: tester agent
 - Scope: <short summary>
 - Environment: <local/dev/test>
+- Worktree path: <path or "not used">
 - Artifact types: <cli/web/tests/config>
 
 ## Test targets

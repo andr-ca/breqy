@@ -252,3 +252,22 @@ Work follows the AI-assisted delivery approach in `docs/ai_delivery_approach_v_1
 - Tasks are done only when: implementation exists, checker findings resolved, CI passes, coverage thresholds met, lessons captured, human approves merge
 - Lessons go to `.breqy/lessons/<task-id>.yaml` or `ai-artifacts/<task-id>/lessons.yaml`
 - Implementation plan is `docs/plans/2026-03-13-breqy-slice-1.md`
+
+---
+
+## 16. Worktree usage standard
+
+For non-trivial, parallel, or risky work, prefer an isolated git worktree instead of reusing the current workspace.
+
+Use this order to choose location:
+1. `.worktrees/` (preferred when present)
+2. `worktrees/` (fallback when present)
+3. `CLAUDE.md` guidance (if defined)
+4. ask the user
+
+Required controls:
+- confirm branch strategy with the user before creating worktree/branch
+- ensure `.gitignore` contains `.worktrees/` or `worktrees/` before creating local worktrees
+- create with `git worktree add <path> -b <branch> <start-point>`
+- run baseline validation in the new worktree before implementation
+- report the worktree path in status updates and final handoff

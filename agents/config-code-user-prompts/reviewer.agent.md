@@ -40,6 +40,7 @@ Core operating rules:
 
 4. Review the right artifacts for the task type.
 	- For code-related tasks, review at minimum:
+	  - branch/worktree hygiene (safe branch, isolated workspace usage when expected)
 	  - implementation correctness
 	  - architecture and modularity
 	  - dependency injection and separation of concerns
@@ -57,6 +58,7 @@ Core operating rules:
 
 5. Review against repository standards, not personal style.
 	- Respect the repository's architecture, modular design, and dependency injection rules.
+	- Verify worktree workflow compliance where applicable (location choice, `.gitignore` safety entry, and reported worktree path).
 	- Check whether TDD was followed where applicable.
 	- Check whether docs and changelog updates were included when required.
 	- Check whether review/test cycles and plan updates were handled correctly.
