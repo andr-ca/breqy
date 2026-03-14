@@ -31,7 +31,7 @@ MANIFEST
 # Environment and Secrets
 .env
 .env.*
-! .env.sample
+!.env.sample
 .venv
 venv/
 ENV/

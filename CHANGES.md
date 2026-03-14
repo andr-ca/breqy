@@ -13,5 +13,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CHANGES.md` (initial mandatory changelog).
 
 ### Changed
-- Refined `GEMINI.md` with full technology stack and correct coverage thresholds.
-- Narrowed `.geminiignore` to ensure `.env.sample` is not ignored.
+- Refined `GEMINI.md` with full technology stack, correct coverage thresholds, and fixed table formatting.
+- Narrowed `.geminiignore` to ensure `.env.sample` is unignored by removing the leading space in the negation pattern.
