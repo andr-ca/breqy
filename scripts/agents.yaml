@@ -16,7 +16,7 @@ permission_mode: acceptEdits
 
 agents:
   - name: backend
-    project_dir: /home/andrey/projects/breqy
+    project_dir: .
     prompt: >
       Continue. Check AGENTS.md for project context and folder structure.
     # Prompt sent when resuming after a rate limit (uses --resume + -p)
@@ -25,11 +25,11 @@ agents:
     # model: claude-sonnet-4-20250514   # optional: override default model
 
   # - name: frontend
-  #   project_dir: /home/andrey/projects/breqy
+  #   project_dir: .
   #   prompt: >
   #     Work on the TUI module. Check AGENTS.md for context.
 
   # - name: tests
-  #   project_dir: /home/andrey/projects/breqy
+  #   project_dir: .
   #   prompt: >
   #     Write and run tests for all implemented modules.
