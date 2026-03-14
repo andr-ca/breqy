@@ -1,0 +1,35 @@
+# Claude Session Guardian - Agent Configuration
+#
+# Each agent defines a Claude Code instance that will be spawned
+# and automatically respawned when 5-hour session limits are hit.
+
+# Global settings
+poll_interval: 30        # seconds between checking agent status
+cooldown_buffer: 120     # extra seconds to wait after block expires before respawning
+max_respawns: 50         # max respawn attempts per agent (0 = unlimited)
+
+# Permission mode for Claude Code (applies to all agents).
+# Options: default, acceptEdits, bypassPermissions, plan, auto
+# Use "acceptEdits" to auto-accept file edits without prompting.
+# Use "bypassPermissions" for fully autonomous (no prompts at all).
+permission_mode: acceptEdits
+
+agents:
+  - name: backend
+    project_dir: .
+    prompt: >
+      Continue. Check AGENTS.md for project context and folder structure.
+    # Prompt sent when resuming after a rate limit (uses --resume + -p)
+    resume_prompt: >
+      You were interrupted by a rate limit. Continue where you left off.
+    # model: claude-sonnet-4-20250514   # optional: override default model
+
+  # - name: frontend
+  #   project_dir: .
+  #   prompt: >
+  #     Work on the TUI module. Check AGENTS.md for context.
+
+  # - name: tests
+  #   project_dir: .
+  #   prompt: >
+  #     Write and run tests for all implemented modules.

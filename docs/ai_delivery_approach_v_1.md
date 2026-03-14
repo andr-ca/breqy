@@ -534,8 +534,10 @@ For the first implementation, the orchestrator should be primarily a determinist
 ## 7.4 Suggested modules
 
 ```text
-/orchestrator
+system/orchestrator/
+  __init__.py
   main.py
+  config.py
   state_machine.py
   router.py
   task_loader.py
@@ -543,7 +545,16 @@ For the first implementation, the orchestrator should be primarily a determinist
   branch_manager.py
   github_adapter.py
   ci_adapter.py
+  session_manager.py
+  event_log.py
+  runners/
+    base.py
+    claude_runner.py
+    codex_runner.py
+    gemini_runner.py
+    copilot_runner.py
   agent_adapters/
+    base.py
     planner.py
     doer.py
     checker.py
@@ -552,7 +563,12 @@ For the first implementation, the orchestrator should be primarily a determinist
     lessons.py
   prompts/
   schemas/
+  tui/
+    app.py
+    panels/
 ```
+
+See `docs/superpowers/specs/2026-03-14-orchestrator-design.md` for the full design.
 
 ## 7.5 Example routing logic
 
