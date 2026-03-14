@@ -1,24 +1,24 @@
-\# Test-Driven Development (TDD) Instructions
+# Test-Driven Development (TDD) Instructions
 
 
 
-&nbsp;
 
 
 
-\## Core Principle
+
+## Core Principle
 
 
 
-&nbsp;
 
 
 
-\*\*Write the test FIRST, then write the code to make it pass.\*\*
+
+**Write the test FIRST, then write the code to make it pass.**
 
 
 
-&nbsp;
+
 
 
 
@@ -26,43 +26,43 @@ This applies to ALL development work:
 
 
 
-\- New features
+- New features
 
 
 
-\- Bug fixes
+- Bug fixes
 
 
 
-\- Refactoring
+- Refactoring
 
 
 
-\- Code improvements
+- Code improvements
 
 
 
-&nbsp;
 
 
 
-\## The Red-Green-Refactor Cycle
+
+## The Red-Green-Refactor Cycle
 
 
 
-&nbsp;
 
 
 
-\### 1. 🔴 RED - Write a Failing Test
+
+### 1. 🔴 RED - Write a Failing Test
 
 
 
-\*\*BEFORE writing any implementation code:\*\*
+**BEFORE writing any implementation code:**
 
 
 
-1\. Understand the requirement or bug
+1. Understand the requirement or bug
 
 
 
