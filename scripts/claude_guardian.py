@@ -418,7 +418,7 @@ def spawn_agent(state: AgentState, log_dir: str, dry_run: bool = False) -> None:
 
 
 def collect_agent_output(state: AgentState) -> tuple[str, str]:
-    """Read stdout/stderr from agent log files + in-memory stderr."""
+    """Read stdout/stderr from agent log files, with in-memory stderr as fallback."""
     stdout_text = ""
     stderr_text = ""
     try:
@@ -431,9 +431,9 @@ def collect_agent_output(state: AgentState) -> tuple[str, str]:
             stderr_text = Path(state.stderr_path).read_text()
     except Exception:
         pass
-    # Also include in-memory stderr captured by reader thread
-    if state.stderr_lines:
-        stderr_text += "\n" + "\n".join(state.stderr_lines)
+    # Use in-memory stderr captured by reader thread only if file content is unavailable
+    if not stderr_text and state.stderr_lines:
+        stderr_text = "\n".join(state.stderr_lines)
     return stdout_text, stderr_text
 
 
