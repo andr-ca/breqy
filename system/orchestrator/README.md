@@ -15,20 +15,24 @@ Automated AI delivery workflow that drives tasks from intake to merge using mult
 
 ## Quick start
 
+All commands run from the **repo root** (the directory containing `pyproject.toml`).
+
 ```bash
 # Install
 uv sync
 
-# Copy and edit the config
-cp system/orchestrator/orchestrator.yaml my-orchestrator.yaml
+# Copy and edit the config — keep it at the repo root
+cp system/orchestrator/orchestrator.yaml orchestrator.yaml
 # Edit: set github.repo to your repo (owner/name)
 
-# Run with TUI
-uv run breqy-orchestrator --config my-orchestrator.yaml
+# Run with TUI (from repo root)
+uv run breqy-orchestrator --config orchestrator.yaml
 
 # Run without TUI (headless)
-uv run breqy-orchestrator --config my-orchestrator.yaml --no-tui
+uv run breqy-orchestrator --config orchestrator.yaml --no-tui
 ```
+
+> The `--config` path is relative to your **current working directory** when you run the command.
 
 ---
 
