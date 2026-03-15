@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class TaskState(str, Enum):
+class TaskState(StrEnum):
     NEW = "NEW"
     READY_FOR_SHAPING = "READY_FOR_SHAPING"
     READY_FOR_BRANCH_PREP = "READY_FOR_BRANCH_PREP"
@@ -160,9 +160,11 @@ class ConcreteStateMachine(StateMachine):
             )
         updates: dict = {"state": to}
         # Increment rework_count on rework transitions
-        if task.state in (TaskState.CHECK_FAILED, TaskState.TEST_FAILED) and to == TaskState.READY_FOR_DOER:
+        rework_states = (TaskState.CHECK_FAILED, TaskState.TEST_FAILED)
+        if task.state in rework_states and to == TaskState.READY_FOR_DOER:
             updates["rework_count"] = task.rework_count + 1
-        if task.state == TaskState.QA_FAILED and to in (TaskState.READY_FOR_DOER, TaskState.READY_FOR_QA_AUTOMATION):
+        qa_rework_targets = (TaskState.READY_FOR_DOER, TaskState.READY_FOR_QA_AUTOMATION)
+        if task.state == TaskState.QA_FAILED and to in qa_rework_targets:
             updates["rework_count"] = task.rework_count + 1
         # Increment retry_count on retry transition
         if task.state == TaskState.RETRY_PENDING and to == TaskState.DOER_IN_PROGRESS:

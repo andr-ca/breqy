@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import json
 import subprocess
+
 from pydantic import BaseModel
 
 
@@ -19,7 +21,9 @@ class GitHubAdapter:
         result.check_returncode()
         return result.stdout.strip()
 
-    def set_task_state(self, issue_number: int, new_state: str, old_state: str | None = None) -> None:
+    def set_task_state(
+        self, issue_number: int, new_state: str, old_state: str | None = None
+    ) -> None:
         """Swap state labels. Remove old_state label (if given) then add new_state label."""
         if old_state:
             self._run(

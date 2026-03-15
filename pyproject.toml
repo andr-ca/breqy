@@ -18,6 +18,9 @@ dependencies = [
     "keyring>=25.0.0",
 ]
 
+[project.scripts]
+breqy-orchestrator = "system.orchestrator.main:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",

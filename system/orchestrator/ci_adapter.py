@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from system.orchestrator.event_log import EventLog
 
 
 class CiRun(BaseModel):
@@ -18,7 +23,7 @@ class CIAdapter:
         self,
         repo: str,
         poll_interval_seconds: int = 60,
-        event_log: "EventLog | None" = None,
+        event_log: EventLog | None = None,
         task_id: str = "",
     ) -> None:
         self._repo = repo
