@@ -1,6 +1,8 @@
 # system/orchestrator/tui/panels/log_panel.py
 from __future__ import annotations
 
+import contextlib
+
 from textual.widget import Widget
 from textual.widgets import RichLog
 
@@ -24,8 +26,9 @@ class LogPanel(Widget):
     def handle_event(self, event: OrchestratorEvent) -> None:
         colour = _COLOURS.get(event.event_type, "white")
         ts = event.timestamp[11:19]   # HH:MM:SS
-        msg = f"[{colour}]{ts}  {event.event_type:<22} {event.task_id}  {event.notes[:50]}[/{colour}]"
-        try:
+        msg = (
+            f"[{colour}]{ts}  {event.event_type:<22} "
+            f"{event.task_id}  {event.notes[:50]}[/{colour}]"
+        )
+        with contextlib.suppress(Exception):
             self.query_one("#event-log", RichLog).write(msg)
-        except Exception:
-            pass

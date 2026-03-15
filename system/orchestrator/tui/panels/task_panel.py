@@ -1,6 +1,8 @@
 # system/orchestrator/tui/panels/task_panel.py
 from __future__ import annotations
 
+import contextlib
+
 from textual.widget import Widget
 from textual.widgets import Static
 
@@ -33,7 +35,5 @@ class TaskPanel(Widget):
                 f"Branch: {task.branch or '—'}\n"
                 f"PR:     {task.pr_url or '—'}"
             )
-            try:
+            with contextlib.suppress(Exception):
                 self.query_one("#task-info", Static).update(info)
-            except Exception:
-                pass
