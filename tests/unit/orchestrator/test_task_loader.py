@@ -1,9 +1,9 @@
+
 import pytest
 import yaml
-from pathlib import Path
-from system.orchestrator.task_loader import TaskLoader
-from system.orchestrator.local_task_loader import LocalYamlTaskLoader
 
+from system.orchestrator.local_task_loader import LocalYamlTaskLoader
+from system.orchestrator.task_loader import TaskLoader
 
 SAMPLE_TASK = {
     "task_id": "BRQ-1",
