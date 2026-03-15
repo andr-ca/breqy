@@ -3,6 +3,14 @@ from pathlib import Path
 from pydantic import ValidationError
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.schemas.run_result import RunResult, RunContext
+from system.orchestrator.schemas.artifacts import (
+    ParsedOutput,
+    ReviewArtifact,
+    TestArtifact,
+    QaArtifact,
+    LessonsArtifact,
+    MergeReadinessArtifact,
+)
 
 
 def test_task_envelope_minimal():
@@ -79,3 +87,58 @@ def test_run_context_extra_env_independent():
     ctx2 = RunContext(task_id="BRQ-2", role="doer", work_dir=Path("/tmp"))
     ctx1.extra_env["KEY"] = "val"
     assert "KEY" not in ctx2.extra_env
+
+
+def test_parsed_output_pass():
+    p = ParsedOutput(status="pass", artifact_paths=["ai-artifacts/BRQ-1/doer-report.json"])
+    assert p.failure_source is None
+    assert p.notes == ""
+
+
+def test_parsed_output_fail_with_source():
+    p = ParsedOutput(
+        status="fail",
+        artifact_paths=[],
+        failure_source="broken_implementation",
+        notes="Tests failing",
+    )
+    assert p.failure_source == "broken_implementation"
+
+
+def test_parsed_output_invalid_status():
+    with pytest.raises(ValidationError):
+        ParsedOutput(status="maybe", artifact_paths=[])
+
+
+def test_review_artifact():
+    r = ReviewArtifact(status="pass", findings=[], summary="LGTM")
+    assert r.status == "pass"
+
+
+def test_test_artifact():
+    t = TestArtifact(status="fail", tests_run=10, tests_failed=2)
+    assert t.tests_failed == 2
+
+
+def test_qa_artifact_failure_source():
+    q = QaArtifact(status="fail", failure_source="broken_automation")
+    assert q.failure_source == "broken_automation"
+
+
+def test_lessons_artifact():
+    la = LessonsArtifact(task_id="BRQ-1", lessons=["Use mocks carefully"])
+    assert la.instruction_update_proposed is False
+
+
+def test_merge_readiness_artifact_pass():
+    m = MergeReadinessArtifact(
+        task_id="BRQ-1",
+        checked_at="2026-03-14T14:00:00Z",
+        artifacts_present=["task-envelope", "doer-report"],
+        branch="feat/BRQ-1-test",
+        merge_target="dev",
+        ci_conclusion="success",
+        branch_is_current=True,
+        verdict="pass",
+    )
+    assert m.verdict == "pass"
