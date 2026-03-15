@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json as _json
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -34,3 +35,17 @@ class AgentAdapter(ABC):
 
     @abstractmethod
     def parse_output(self, result: RunResult) -> ParsedOutput: ...
+
+
+def _parse_generic(result: RunResult) -> ParsedOutput:
+    """Default parse: look for {status: pass/fail} JSON in output."""
+    try:
+        data = _json.loads(result.output)
+        return ParsedOutput(
+            status=data.get("status", "fail"),
+            artifact_paths=data.get("artifact_paths", []),
+            notes=data.get("notes", ""),
+        )
+    except (_json.JSONDecodeError, KeyError):
+        status = "pass" if result.exit_code == 0 else "fail"
+        return ParsedOutput(status=status, artifact_paths=[], notes=result.output[:200])
