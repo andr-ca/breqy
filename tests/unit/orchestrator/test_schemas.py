@@ -11,6 +11,7 @@ from system.orchestrator.schemas.artifacts import (
     LessonsArtifact,
     MergeReadinessArtifact,
 )
+from system.orchestrator.schemas.events import OrchestratorEvent
 
 
 def test_task_envelope_minimal():
@@ -142,3 +143,32 @@ def test_merge_readiness_artifact_pass():
         verdict="pass",
     )
     assert m.verdict == "pass"
+
+
+def test_orchestrator_event_minimal():
+    e = OrchestratorEvent(task_id="BRQ-1", event_type="state_transition")
+    assert e.event_id        # ULID generated
+    assert e.timestamp       # ISO8601 generated
+    assert e.from_state is None
+    assert e.artifact_paths == []
+
+
+def test_orchestrator_event_full():
+    e = OrchestratorEvent(
+        task_id="BRQ-144",
+        event_type="state_transition",
+        from_state="READY_FOR_DOER",
+        to_state="DOER_IN_PROGRESS",
+        role="doer",
+        agent_type="claude",
+        artifact_paths=["ai-artifacts/BRQ-144/doer-report.json"],
+        notes="Starting doer run",
+    )
+    assert e.to_state == "DOER_IN_PROGRESS"
+    assert len(e.artifact_paths) == 1
+
+
+def test_orchestrator_event_unique_ids():
+    e1 = OrchestratorEvent(task_id="BRQ-1", event_type="agent_spawn")
+    e2 = OrchestratorEvent(task_id="BRQ-1", event_type="agent_spawn")
+    assert e1.event_id != e2.event_id
