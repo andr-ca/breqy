@@ -1,6 +1,8 @@
 import pytest
+from pathlib import Path
 from pydantic import ValidationError
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
+from system.orchestrator.schemas.run_result import RunResult, RunContext
 
 
 def test_task_envelope_minimal():
@@ -47,10 +49,6 @@ def test_task_envelope_valid_task_types():
 def test_task_envelope_invalid_task_type():
     with pytest.raises(ValidationError):
         TaskEnvelope(task_id="BRQ-1", title="t", task_type="unknown", component="backend")
-
-
-from pathlib import Path
-from system.orchestrator.schemas.run_result import RunResult, RunContext
 
 
 def test_run_result_completed():
