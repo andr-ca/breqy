@@ -1,0 +1,54 @@
+# system/orchestrator/orchestrator.yaml
+github:
+  repo: owner/repo          # EDIT: your GitHub repo (owner/name)
+  managed_label: orchestrator:managed
+  ci_timeout_minutes: 30
+  ci_poll_interval_seconds: 60
+
+orchestrator:
+  poll_interval_seconds: 30
+  max_rework_loops: 3
+  max_retries: 3
+  retry_backoff_seconds: 60
+  artifact_base: ai-artifacts
+  event_log: .breqy/orchestrator/events.jsonl
+  runtime_state: .breqy/orchestrator/runtime-state.yaml
+  task_fallback_dir: system/orchestrator/tasks
+  branch_stale_days: 3
+
+agent_defaults:
+  planner:       claude
+  doer:          claude
+  checker:       codex
+  tester:        gemini
+  qa_automation: claude
+  lessons:       claude
+
+routing_rules:
+  feature:
+    backend:
+      planner:       claude
+      doer:          claude
+      checker:       codex
+      tester:        gemini
+      qa_automation: claude
+      lessons:       claude
+    tui:
+      planner:       claude
+      doer:          claude
+      checker:       qwen
+      tester:        gemini
+      qa_automation: gemini
+      lessons:       claude
+  bug:
+    low_risk:
+      doer:          copilot
+      checker:       codex
+      tester:        gemini
+      lessons:       claude
+  refactor:
+    service:
+      doer:          qwen
+      checker:       codex
+      tester:        gemini
+      lessons:       claude
