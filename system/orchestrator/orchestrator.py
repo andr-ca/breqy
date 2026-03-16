@@ -182,6 +182,17 @@ class OrchestratorLoop:
                     notes=f"GitHub label sync failed: {exc}",
                 ))
 
+    def _do_transition(self, task: Task, to: TaskState) -> Task:
+        """Transition + emit state_transition event + sync GitHub label."""
+        old_state = str(task.state)
+        task = self._sm.transition(task, to)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id, event_type="state_transition",
+            from_state=old_state, to_state=str(to),
+        ))
+        self._sync_github_label(task, old_state=old_state)
+        return task
+
     def run(
         self,
         tasks: list[tuple[Task, TaskEnvelope]],
@@ -206,11 +217,7 @@ class OrchestratorLoop:
 
         if task.state == TaskState.NEW:
             if self.check_dependency_gate(task, all_tasks):
-                task = self._sm.transition(task, TaskState.READY_FOR_SHAPING)
-                self._emit(OrchestratorEvent(
-                    task_id=task.task_id, event_type="state_transition",
-                    from_state="NEW", to_state="READY_FOR_SHAPING",
-                ))
+                task = self._do_transition(task, TaskState.READY_FOR_SHAPING)
             else:
                 self._emit(OrchestratorEvent(
                     task_id=task.task_id, event_type="dependency_wait",
@@ -508,6 +515,83 @@ class OrchestratorLoop:
                 task = self._sm.force_block(task)
                 self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
                     notes=f"QA_FAILED blocked: failure_source={task.failure_source}"))
+            return task
+
+        if task.state == TaskState.READY_FOR_MERGE_REVIEW:
+            branch = task.branch or ""
+            ci_green = False
+            if self._ci:
+                ci_green = self._ci.wait_for_green(
+                    branch, timeout_minutes=self._config.github.ci_timeout_minutes
+                )
+            else:
+                ci_green = self.check_merge_readiness(task, branch)
+
+            if not ci_green:
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="ci_result",
+                    notes=f"CI not green for {branch}; staying in READY_FOR_MERGE_REVIEW"))
+                return task
+
+            import datetime as _dt
+            required = ["task-envelope", "doer-report", "checker-report",
+                        "deterministic-test-report", "qa-automation-report", "lessons"]
+            present = [n for n in required if self._artifact_store.exists(task.task_id, n)]
+            merge_target = (
+                self._branch_manager.merge_target(env.task_type)
+                if self._branch_manager else "dev"
+            )
+            branch_is_current = (
+                not self._branch_manager or
+                not self._branch_manager.is_stale(branch, self._config.orchestrator.branch_stale_days)
+            )
+            artifact = MergeReadinessArtifact(
+                task_id=task.task_id,
+                checked_at=_dt.datetime.now(_dt.UTC).isoformat(),
+                artifacts_present=present,
+                branch=branch,
+                merge_target=merge_target,
+                ci_conclusion="success",
+                branch_is_current=branch_is_current,
+                verdict="pass",
+            )
+            self._artifact_store.write(task.task_id, "merge-readiness", artifact)
+            task = self._do_transition(task, TaskState.READY_FOR_LESSONS)
+            return task
+
+        if task.state == TaskState.READY_FOR_LESSONS:
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_spawn", role="lessons"))
+            try:
+                self._run_role(task, env, "lessons")
+            except Exception as exc:  # noqa: BLE001
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"lessons exception: {exc}"))
+                return task
+            task = self._do_transition(task, TaskState.READY_FOR_HUMAN_REVIEW)
+            return task
+
+        if task.state == TaskState.READY_FOR_HUMAN_REVIEW:
+            if not self._gh:
+                return task
+            if not task.pr_url and task.branch:
+                try:
+                    pr_url = self._gh.create_pr(
+                        branch=task.branch,
+                        title=f"{env.task_id}: {env.title}",
+                        body=(
+                            f"Automated PR for task {env.task_id}.\n\nAcceptance criteria:\n" +
+                            "\n".join(f"- {c}" for c in env.acceptance_criteria)
+                        ),
+                    )
+                    task = task.model_copy(update={"pr_url": pr_url})
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="artifact_written",
+                        notes=f"PR created: {pr_url}"))
+                except Exception as exc:  # noqa: BLE001
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="error",
+                        notes=f"create_pr failed: {exc}"))
+                    return task
+            if task.pr_url and self._gh.pr_is_merged(task.pr_url):
+                task = self._do_transition(task, TaskState.DONE)
             return task
 
         return task

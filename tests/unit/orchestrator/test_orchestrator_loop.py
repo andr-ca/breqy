@@ -812,6 +812,181 @@ def test_tick_qa_failed_exhausted_rework_blocks(tmp_path):
     assert result.state == TaskState.BLOCKED
 
 
+def test_tick_merge_review_ci_green_transitions_to_lessons(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.ci_adapter import CIAdapter
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_ci = MagicMock(spec=CIAdapter)
+    mock_ci.wait_for_green.return_value = True
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        ci_adapter=mock_ci,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t")
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_LESSONS
+    assert loop._artifact_store.exists("BRQ-1", "merge-readiness")
+
+
+def test_tick_merge_review_ci_not_green_stays(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.ci_adapter import CIAdapter
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_ci = MagicMock(spec=CIAdapter)
+    mock_ci.wait_for_green.return_value = False
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        ci_adapter=mock_ci,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t")
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_MERGE_REVIEW
+
+
+def test_tick_merge_review_no_ci_uses_existing_artifact(tmp_path):
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    store = ArtifactStore(base=tmp_path / "art")
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=store,
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        ci_adapter=None,
+    )
+    store.write("BRQ-1", "merge-readiness", MergeReadinessArtifact(
+        task_id="BRQ-1", checked_at="2026-03-16T00:00:00Z",
+        artifacts_present=[], branch="feat/BRQ-1-t",
+        merge_target="dev", ci_conclusion="success",
+        branch_is_current=True, verdict="pass",
+    ))
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t")
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_LESSONS
+
+
+def test_tick_lessons_invokes_adapter_and_transitions(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"lessons": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_LESSONS)
+    with patch.object(loop, "_run_role", return_value=ParsedOutput(status="pass", artifact_paths=[])):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_HUMAN_REVIEW
+
+
+def test_tick_human_review_transitions_done_when_pr_merged(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.github_adapter import GitHubAdapter
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_gh = MagicMock(spec=GitHubAdapter)
+    mock_gh.pr_is_merged.return_value = True
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        github_adapter=mock_gh,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_HUMAN_REVIEW,
+                pr_url="https://github.com/owner/repo/pull/42")
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.DONE
+
+
+def test_tick_human_review_stays_when_pr_not_merged(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.github_adapter import GitHubAdapter
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_gh = MagicMock(spec=GitHubAdapter)
+    mock_gh.pr_is_merged.return_value = False
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        github_adapter=mock_gh,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_HUMAN_REVIEW,
+                pr_url="https://github.com/owner/repo/pull/42")
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_HUMAN_REVIEW
+
+
+def test_tick_human_review_creates_pr_when_missing(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.github_adapter import GitHubAdapter
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_gh = MagicMock(spec=GitHubAdapter)
+    mock_gh.create_pr.return_value = "https://github.com/owner/repo/pull/99"
+    mock_gh.pr_is_merged.return_value = False
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        github_adapter=mock_gh,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_HUMAN_REVIEW,
+                branch="feat/BRQ-1-t", pr_url=None)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    mock_gh.create_pr.assert_called_once()
+    assert result.pr_url == "https://github.com/owner/repo/pull/99"
+
+
+def test_github_label_sync_called_on_transition(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.github_adapter import GitHubAdapter
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_gh = MagicMock(spec=GitHubAdapter)
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        github_adapter=mock_gh,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend",
+                       github_issue_number=7)
+    task = Task(task_id="BRQ-1", state=TaskState.NEW, github_issue_number=7)
+    loop._tick(task, env, {"BRQ-1": (task, env)})
+    mock_gh.set_task_state.assert_called_once_with(
+        7, new_state="READY_FOR_SHAPING", old_state="NEW"
+    )
+
+
 def test_persist_state_writes_yaml(tmp_path):
     import yaml
     cfg = OrchestratorConfig(
