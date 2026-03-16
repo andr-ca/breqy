@@ -22,6 +22,7 @@ class ClaudeRunner(AgentRunner):
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, cwd=context.work_dir, env=self._env(context),
         )
+        self.proc = proc
         output_lines: list[str] = []
         assert proc.stdout is not None
         for line in proc.stdout:

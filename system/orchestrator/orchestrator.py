@@ -3,15 +3,23 @@ from __future__ import annotations
 import queue
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from system.orchestrator.artifact_store import ArtifactStore
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.router import Router
+from system.orchestrator.runners.base import AgentRunner
 from system.orchestrator.schemas.artifacts import MergeReadinessArtifact
 from system.orchestrator.schemas.events import OrchestratorEvent
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
+
+if TYPE_CHECKING:
+    from system.orchestrator.branch_manager import BranchManager
+    from system.orchestrator.ci_adapter import CIAdapter
+    from system.orchestrator.github_adapter import GitHubAdapter
+    from system.orchestrator.session_manager import SessionManager
 
 
 class OrchestratorLoop:
@@ -22,6 +30,11 @@ class OrchestratorLoop:
         artifact_store: ArtifactStore,
         event_log: EventLog,
         event_queue: queue.Queue,
+        *,
+        branch_manager: BranchManager | None = None,
+        github_adapter: GitHubAdapter | None = None,
+        ci_adapter: CIAdapter | None = None,
+        session_manager: SessionManager | None = None,
     ) -> None:
         self._config = config
         self._sm = state_machine
@@ -30,7 +43,12 @@ class OrchestratorLoop:
         self._queue = event_queue
         self._stop_event = threading.Event()
         self._router = Router(config=config)
-        self._current_process = None   # set by runner layer
+        self._branch_manager = branch_manager
+        self._gh = github_adapter
+        self._ci = ci_adapter
+        self._session_manager = session_manager
+        self._current_runner: AgentRunner | None = None
+        self._retry_after: dict[str, float] = {}
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -38,12 +56,13 @@ class OrchestratorLoop:
     def force_kill_current(self) -> None:
         """Force-terminate any in-flight runner subprocess."""
         import subprocess as _sp
-        if self._current_process and self._current_process.poll() is None:
-            self._current_process.terminate()
+        runner = self._current_runner
+        if runner and runner.proc and runner.proc.poll() is None:
+            runner.proc.terminate()
             try:
-                self._current_process.wait(timeout=5)
+                runner.proc.wait(timeout=5)
             except _sp.TimeoutExpired:
-                self._current_process.kill()
+                runner.proc.kill()
 
     def flush(self, config: OrchestratorConfig) -> None:
         """Flush event log and write runtime-state.yaml."""

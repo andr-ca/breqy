@@ -1,13 +1,19 @@
 import queue
+import subprocess
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from system.orchestrator.artifact_store import ArtifactStore
+from system.orchestrator.branch_manager import BranchManager
+from system.orchestrator.ci_adapter import CIAdapter
 from system.orchestrator.config import GitHubConfig, OrchestratorConfig
 from system.orchestrator.event_log import EventLog
+from system.orchestrator.github_adapter import GitHubAdapter
 from system.orchestrator.orchestrator import OrchestratorLoop
 from system.orchestrator.schemas.artifacts import MergeReadinessArtifact
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
+from system.orchestrator.session_manager import SessionManager
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
 
 
@@ -94,3 +100,44 @@ def test_merge_readiness_check_missing(loop, task_env):
     task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW)
     result = loop.check_merge_readiness(task, branch="feat/BRQ-1-test")
     assert result is False
+
+
+def test_loop_constructor_accepts_optional_deps(loop):
+    # The fixture-constructed loop has None deps by default
+    assert loop._branch_manager is None
+    assert loop._gh is None
+    assert loop._ci is None
+    assert loop._session_manager is None
+
+
+def test_loop_force_kill_uses_runner_proc(tmp_path):
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    store = ArtifactStore(base=tmp_path / "artifacts")
+    log = EventLog(path=tmp_path / "events.jsonl")
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm, artifact_store=store,
+        event_log=log, event_queue=queue.Queue(),
+    )
+    mock_runner = MagicMock()
+    mock_proc = MagicMock(spec=subprocess.Popen)
+    mock_proc.poll.return_value = None   # still running
+    mock_runner.proc = mock_proc
+    loop._current_runner = mock_runner
+    loop.force_kill_current()
+    mock_proc.terminate.assert_called_once()
+
+
+def test_claude_runner_sets_proc_on_run(tmp_path):
+    from system.orchestrator.runners.claude_runner import ClaudeRunner
+    from system.orchestrator.schemas.run_result import RunContext
+    runner = ClaudeRunner()
+    ctx = RunContext(task_id="t1", role="doer", work_dir=tmp_path)
+    with patch("system.orchestrator.runners.claude_runner.subprocess.Popen") as mock_popen:
+        mock_proc = MagicMock()
+        mock_proc.stdout = iter(["line1\n"])
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = None
+        mock_popen.return_value = mock_proc
+        runner.run("prompt", ctx)
+    assert runner.proc is mock_proc

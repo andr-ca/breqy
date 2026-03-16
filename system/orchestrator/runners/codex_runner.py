@@ -14,6 +14,7 @@ class CodexRunner(AgentRunner):
             ["codex", prompt], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, cwd=context.work_dir, env=env,
         )
+        self.proc = proc
         assert proc.stdout is not None
         output = proc.stdout.read()
         proc.wait()
