@@ -203,6 +203,154 @@ def test_run_role_calls_runner_and_returns_parsed_output(tmp_path):
     mock_runner.run.assert_called_once()
 
 
+def test_tick_shaping_invokes_planner_and_transitions_to_branch_prep(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"planner": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    parsed = ParsedOutput(status="pass", artifact_paths=[])
+    with patch.object(loop, "_run_role", return_value=parsed) as mock_run:
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_BRANCH_PREP
+    mock_run.assert_called_once_with(task, env, "planner")
+
+
+def test_tick_shaping_skipped_when_planner_not_configured(tmp_path):
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude"},   # no planner
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_BRANCH_PREP
+
+
+def test_tick_shaping_blocks_on_planner_failure(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"planner": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    parsed = ParsedOutput(status="fail", artifact_paths=[])
+    with patch.object(loop, "_run_role", return_value=parsed):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.BLOCKED
+
+
+def test_tick_branch_prep_creates_branch_and_transitions(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.branch_manager import BranchManager
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_bm = MagicMock(spec=BranchManager)
+    mock_bm.branch_exists.return_value = False
+    mock_bm.create_branch.return_value = "feat/BRQ-1-test-task"
+    mock_bm.is_stale.return_value = False
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        branch_manager=mock_bm,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="Test Task", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_TEST_CASE_DESIGN
+    assert result.branch == "feat/BRQ-1-test-task"
+
+
+def test_tick_branch_prep_uses_existing_branch(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.branch_manager import BranchManager
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_bm = MagicMock(spec=BranchManager)
+    mock_bm.branch_exists.return_value = True
+    mock_bm.is_stale.return_value = False
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        branch_manager=mock_bm,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="Test Task", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP,
+                branch="feat/BRQ-1-test-task")
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_TEST_CASE_DESIGN
+    mock_bm.create_branch.assert_not_called()
+
+
+def test_tick_branch_prep_rebases_stale_branch(tmp_path):
+    from unittest.mock import MagicMock
+    from system.orchestrator.branch_manager import BranchManager
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    mock_bm = MagicMock(spec=BranchManager)
+    mock_bm.branch_exists.return_value = True
+    mock_bm.is_stale.return_value = True
+    mock_bm.merge_target.return_value = "dev"
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        branch_manager=mock_bm,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP,
+                branch="feat/BRQ-1-t")
+    loop._tick(task, env, {"BRQ-1": (task, env)})
+    mock_bm.rebase.assert_called_once_with("feat/BRQ-1-t", "dev")
+
+
+def test_tick_branch_prep_blocks_on_no_branch_manager(tmp_path):
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+        branch_manager=None,
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.BLOCKED
+
+
 def test_persist_state_writes_yaml(tmp_path):
     import yaml
     cfg = OrchestratorConfig(

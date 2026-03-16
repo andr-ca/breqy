@@ -15,8 +15,9 @@ from system.orchestrator.schemas.events import OrchestratorEvent
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
 
+from system.orchestrator.branch_manager import BranchManager
+
 if TYPE_CHECKING:
-    from system.orchestrator.branch_manager import BranchManager
     from system.orchestrator.ci_adapter import CIAdapter
     from system.orchestrator.github_adapter import GitHubAdapter
     from system.orchestrator.session_manager import SessionManager
@@ -215,4 +216,67 @@ class OrchestratorLoop:
                     task_id=task.task_id, event_type="dependency_wait",
                     notes="Waiting for dependencies",
                 ))
+            return task
+
+        if task.state == TaskState.READY_FOR_SHAPING:
+            if not self._role_configured(env.task_type, env.component, "planner"):
+                task = self._sm.transition(task, TaskState.READY_FOR_BRANCH_PREP)
+                self._emit(OrchestratorEvent(
+                    task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_SHAPING", to_state="READY_FOR_BRANCH_PREP",
+                    notes="planner role not configured — shaping skipped",
+                ))
+            else:
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_spawn", role="planner"))
+                try:
+                    parsed = self._run_role(task, env, "planner")
+                except Exception as exc:  # noqa: BLE001
+                    task = self._sm.force_block(task)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                        notes=f"planner raised exception: {exc}"))
+                    return task
+                if parsed.status == "pass":
+                    task = self._sm.transition(task, TaskState.READY_FOR_BRANCH_PREP)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                        from_state="READY_FOR_SHAPING", to_state="READY_FOR_BRANCH_PREP"))
+                else:
+                    task = self._sm.force_block(task)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                        notes=f"planner returned fail: {parsed.notes}"))
+            return task
+
+        if task.state == TaskState.READY_FOR_BRANCH_PREP:
+            if not self._branch_manager:
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes="branch_manager not injected"))
+                return task
+            bm = self._branch_manager
+            slug = BranchManager.make_slug(env.title)
+            if task.branch and bm.branch_exists(task.branch):
+                branch = task.branch
+            else:
+                try:
+                    branch = bm.create_branch(env.task_id, env.task_type, slug)
+                except Exception as exc:  # noqa: BLE001
+                    task = self._sm.force_block(task)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                        notes=f"create_branch failed: {exc}"))
+                    return task
+            if bm.is_stale(branch, self._config.orchestrator.branch_stale_days):
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="stale_warning",
+                    notes=f"branch {branch} is stale; rebasing onto {bm.merge_target(env.task_type)}"))
+                try:
+                    bm.rebase(branch, bm.merge_target(env.task_type))
+                except Exception as exc:  # noqa: BLE001
+                    task = self._sm.force_block(task)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                        notes=f"rebase failed: {exc}"))
+                    return task
+            task = task.model_copy(update={"branch": branch})
+            task = self._sm.transition(task, TaskState.READY_FOR_TEST_CASE_DESIGN)
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_BRANCH_PREP", to_state="READY_FOR_TEST_CASE_DESIGN"))
+            return task
+
         return task
