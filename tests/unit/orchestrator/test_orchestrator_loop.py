@@ -351,6 +351,145 @@ def test_tick_branch_prep_blocks_on_no_branch_manager(tmp_path):
     assert result.state == TaskState.BLOCKED
 
 
+def test_tick_test_case_design_invokes_tester_and_transitions(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"tester": "gemini"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TEST_CASE_DESIGN, branch="feat/BRQ-1-t")
+    parsed = ParsedOutput(status="pass", artifact_paths=["test-cases.yaml"])
+    with patch.object(loop, "_run_role", return_value=parsed):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_DOER
+
+
+def test_tick_test_case_design_blocks_on_fail(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"tester": "gemini"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TEST_CASE_DESIGN)
+    parsed = ParsedOutput(status="fail", artifact_paths=[])
+    with patch.object(loop, "_run_role", return_value=parsed):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.BLOCKED
+
+
+def test_tick_doer_transitions_runs_and_advances_to_checker(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    parsed = ParsedOutput(status="pass", artifact_paths=[], session_id="ses-1")
+    with patch.object(loop, "_run_role", return_value=parsed):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_CHECKER
+    assert result.session_id == "ses-1"
+
+
+def test_tick_doer_rate_limited_goes_to_retry_pending(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    parsed = ParsedOutput(status="fail", artifact_paths=[], notes="rate_limited")
+    with patch.object(loop, "_run_role", return_value=parsed):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.RETRY_PENDING
+
+
+def test_tick_doer_exhausted_retries_goes_blocked(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude"},
+        orchestrator=OrchestratorSettings(max_retries=3),
+    )
+    sm = ConcreteStateMachine(max_retries=3)
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    # Task already at max_retries — retry_count must be at max before the transition
+    # When READY_FOR_DOER sees rate_limited: tries to go RETRY_PENDING, but
+    # ConcreteStateMachine.can_transition(DOER_IN_PROGRESS -> RETRY_PENDING) checks retry_count < max_retries
+    # We need to simulate exhaustion: set retry_count = max_retries on a DOER_IN_PROGRESS task
+    task = Task(task_id="BRQ-1", state=TaskState.DOER_IN_PROGRESS, retry_count=3)
+    parsed = ParsedOutput(status="fail", artifact_paths=[], notes="rate_limited")
+    with patch.object(loop, "_run_role", return_value=parsed):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.BLOCKED
+
+
+def test_tick_doer_in_progress_reruns_if_artifact_missing(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.DOER_IN_PROGRESS)
+    parsed = ParsedOutput(status="pass", artifact_paths=[])
+    with patch.object(loop, "_run_role", return_value=parsed) as mock_run:
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_CHECKER
+    mock_run.assert_called_once_with(task, env, "doer")
+
+
 def test_persist_state_writes_yaml(tmp_path):
     import yaml
     cfg = OrchestratorConfig(

@@ -279,4 +279,85 @@ class OrchestratorLoop:
                 from_state="READY_FOR_BRANCH_PREP", to_state="READY_FOR_TEST_CASE_DESIGN"))
             return task
 
+        if task.state == TaskState.READY_FOR_TEST_CASE_DESIGN:
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_spawn", role="tester"))
+            try:
+                parsed = self._run_role(task, env, "tester")
+            except Exception as exc:  # noqa: BLE001
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"tester (test-cases) failed: {exc}"))
+                return task
+            if parsed.status == "pass":
+                task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_TEST_CASE_DESIGN", to_state="READY_FOR_DOER"))
+            else:
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"tester returned fail: {parsed.notes}"))
+            return task
+
+        def _do_run_doer(task: Task) -> Task:
+            """Run doer subprocess and advance task state. Closes over self and env."""
+            import time as _time
+            # Transition to DOER_IN_PROGRESS if coming from READY_FOR_DOER
+            if task.state == TaskState.READY_FOR_DOER:
+                prior_state = str(task.state)
+                task = self._sm.transition(task, TaskState.DOER_IN_PROGRESS)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state=prior_state, to_state="DOER_IN_PROGRESS"))
+            try:
+                parsed = self._run_role(task, env, "doer")
+                err_notes = parsed.notes
+            except Exception as exc:  # noqa: BLE001
+                parsed = None
+                err_notes = str(exc)
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_complete",
+                role="doer", notes=err_notes))
+            if parsed and parsed.status == "pass":
+                if parsed.session_id:
+                    task = task.model_copy(update={"session_id": parsed.session_id})
+                task = self._sm.transition(task, TaskState.READY_FOR_CHECKER)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="DOER_IN_PROGRESS", to_state="READY_FOR_CHECKER"))
+            elif parsed and "rate_limited" in parsed.notes:
+                if self._sm.can_transition(task, TaskState.BLOCKED):
+                    # retry_count >= max_retries → exhausted
+                    task = self._sm.force_block(task)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                        notes="max retries exceeded"))
+                else:
+                    task = self._sm.transition(task, TaskState.RETRY_PENDING)
+                    self._retry_after[task.task_id] = (
+                        _time.monotonic() + self._config.orchestrator.retry_backoff_seconds
+                    )
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="retry_pending",
+                        notes=f"rate limited; retry after {self._config.orchestrator.retry_backoff_seconds}s"))
+            else:
+                if self._sm.can_transition(task, TaskState.BLOCKED):
+                    task = self._sm.force_block(task)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                        notes=f"doer failed and retries exhausted: {err_notes}"))
+                else:
+                    task = self._sm.transition(task, TaskState.RETRY_PENDING)
+                    self._retry_after[task.task_id] = (
+                        _time.monotonic() + self._config.orchestrator.retry_backoff_seconds
+                    )
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="retry_pending",
+                        notes=f"doer failed; retry pending: {err_notes}"))
+            return task
+
+        if task.state == TaskState.READY_FOR_DOER:
+            return _do_run_doer(task)
+
+        if task.state == TaskState.DOER_IN_PROGRESS:
+            if not self._artifact_store.exists(task.task_id, "doer-report"):
+                return _do_run_doer(task)
+            task = self._sm.transition(task, TaskState.READY_FOR_CHECKER)
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                from_state="DOER_IN_PROGRESS", to_state="READY_FOR_CHECKER",
+                notes="restart recovery: doer-report found"))
+            return task
+
         return task
