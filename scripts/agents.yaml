@@ -1,35 +1,192 @@
-# Claude Session Guardian - Agent Configuration
+# Multi-Agent Orchestration Configuration
 #
-# Each agent defines a Claude Code instance that will be spawned
-# and automatically respawned when 5-hour session limits are hit.
+# Supports Claude Code, Qwen Code, and other AI agents.
+# Each agent defines an AI instance that can be spawned for specific roles
+# in the delivery workflow (Orchestrator, Doer, Checker, Tester, etc.).
+# Agents can be auto-respawned when session limits are hit.
 
 # Global settings
 poll_interval: 30        # seconds between checking agent status
 cooldown_buffer: 120     # extra seconds to wait after block expires before respawning
 max_respawns: 50         # max respawn attempts per agent (0 = unlimited)
 
-# Permission mode for Claude Code (applies to all agents).
+# Permission mode (applies to all agents).
 # Options: default, acceptEdits, bypassPermissions, plan, auto
 # Use "acceptEdits" to auto-accept file edits without prompting.
 # Use "bypassPermissions" for fully autonomous (no prompts at all).
 permission_mode: acceptEdits
 
+# Default agent routing for the delivery workflow.
+# Maps task types and components to agent roles.
+# See docs/ai_delivery_approach_v_1.md for full routing documentation.
+routing:
+  feature:
+    backend:
+      doer: qwen
+      checker: claude
+      tester: qwen
+      qa: api
+    tui:
+      doer: qwen
+      checker: claude
+      tester: qwen
+      qa: tui
+  bug:
+    low_risk:
+      doer: qwen
+      checker: claude
+      tester: ci
+  refactor:
+    service:
+      doer: qwen
+      checker: claude
+      tester: qwen
+      qa: no_regression
+
 agents:
-  - name: backend
+  # ==================== QWEN AGENTS ====================
+
+  - name: qwen-orchestrator
     project_dir: .
     prompt: >
-      Continue. Check AGENTS.md for project context and folder structure.
-    # Prompt sent when resuming after a rate limit (uses --resume + -p)
+      Act as Orchestrator. Read agents/my-instructions.md and docs/ai_delivery_approach_v_1.md.
+      Manage workflow state, route tasks to agents, enforce completion gates.
+      Before any work: check branch status, confirm branch strategy with user.
+      Follow TDD mandatory, documentation mandatory, coverage thresholds.
     resume_prompt: >
-      You were interrupted by a rate limit. Continue where you left off.
+      You were interrupted. Review agents/my-instructions.md and docs/ai_delivery_approach_v_1.md.
+      Resume orchestration: check task states, invoke next agents, collect artifacts.
+    role: orchestrator
+    instructions:
+      - agents/my-instructions.md
+      - agents/core.instructions.md
+      - agents/project.instructions.md
+      - docs/ai_delivery_approach_v_1.md
+
+  - name: qwen-doer
+    project_dir: .
+    prompt: >
+      Act as Doer. Read agents/my-instructions.md.
+      Implement with TDD: write tests first (RED), implement minimum code (GREEN), refactor.
+      Before any work: check branch status, confirm branch strategy.
+      Always use reviewer and tester subagents for code changes.
+      Update JSONL plan at agents/docs/feat-<name>.jsonl.
+      Document changes in docs/ and CHANGES.md.
+    resume_prompt: >
+      You were interrupted. Review agents/my-instructions.md and the JSONL plan.
+      Resume implementation following TDD. Run reviewer and tester cycles.
+    role: doer
+    instructions:
+      - agents/my-instructions.md
+      - agents/core.instructions.md
+      - agents/project.instructions.md
+      - agents/python.instructions.md
+      - agents/tdd.instructions.md
+
+  - name: qwen-checker
+    project_dir: .
+    prompt: >
+      Act as Checker. Read agents/my-instructions.md.
+      Review independently: correctness, architecture, tests, documentation.
+      Produce structured review at docs/operational/reviews/<task-name>.<timestamp>.md.
+      Classify findings by severity (critical, high, medium, low, note).
+      Provide clear verdict: clean or changes required.
+    resume_prompt: >
+      You were interrupted. Review agents/my-instructions.md and the review artifact.
+      Complete the structured review with findings and verdict.
+    role: checker
+    instructions:
+      - agents/my-instructions.md
+      - agents/core.instructions.md
+      - agents/project.instructions.md
+
+  - name: qwen-tester
+    project_dir: .
+    prompt: >
+      Act as Tester. Read agents/my-instructions.md.
+      Execute validation: CLI commands, UI flows, unit/integration tests.
+      Capture evidence: command outputs, screenshots, test reports.
+      Save test report at docs/operational/tests/<task-name>.<timestamp>.md.
+      Save artifacts at docs/operational/tests/artifacts/<task-name>.<timestamp>/.
+      Verify coverage thresholds: 100% business logic, 80% overall.
+    resume_prompt: >
+      You were interrupted. Review agents/my-instructions.md and test artifacts.
+      Complete validation and produce test report with evidence.
+    role: tester
+    instructions:
+      - agents/my-instructions.md
+      - agents/core.instructions.md
+      - agents/tdd.instructions.md
+
+  - name: qwen-planner
+    project_dir: .
+    prompt: >
+      Act as Planner/Shaper. Read agents/my-instructions.md and docs/ai_delivery_approach_v_1.md.
+      Break PRD/features into executable slices. Define acceptance criteria.
+      Identify dependencies, test obligations, risks, open questions.
+      Produce shaped task envelopes with: objective, scope, files to change,
+      acceptance criteria, required test levels, done evidence.
+    resume_prompt: >
+      You were interrupted. Review shaped tasks and complete task envelopes.
+      Ensure all shaped tasks have minimum schema per ai_delivery_approach_v_1.md.
+    role: planner
+    instructions:
+      - agents/my-instructions.md
+      - agents/project.instructions.md
+      - docs/ai_delivery_approach_v_1.md
+      - docs/shaped_task_schema.md
+
+  - name: qwen-lessons
+    project_dir: .
+    prompt: >
+      Act as Lessons Learned role. Read agents/my-instructions.md.
+      Analyze what went wrong, what went well, repeated patterns.
+      Capture lessons in machine-readable format at .breqy/lessons/<task-id>.yaml.
+      Propose instruction updates, test improvements, skill enhancements.
+      Classify root causes: missing_test, weak_review, ambiguous_requirement, etc.
+    resume_prompt: >
+      You were interrupted. Review task artifacts and complete lessons capture.
+      Ensure lessons are structured per ai_delivery_approach_v_1.md schema.
+    role: lessons
+    instructions:
+      - agents/my-instructions.md
+      - docs/ai_delivery_approach_v_1.md
+      - docs/lessons_learned_schema.md
+
+  # ==================== CLAUDE AGENTS ====================
+
+  - name: claude-doer
+    project_dir: .
+    prompt: >
+      Act as Doer. Implement features following TDD.
+      Write tests first, implement minimum code, refactor.
+      Check branch status before any work. Document changes.
+    resume_prompt: >
+      You were interrupted. Resume implementation following TDD.
+    role: doer
     # model: claude-sonnet-4-20250514   # optional: override default model
 
-  # - name: frontend
-  #   project_dir: .
-  #   prompt: >
-  #     Work on the TUI module. Check AGENTS.md for context.
+  - name: claude-checker
+    project_dir: .
+    prompt: >
+      Act as Checker. Review independently.
+      Assess correctness, architecture, tests, documentation.
+      Produce structured review with severity-classified findings.
+    role: checker
 
-  # - name: tests
+  # ==================== ADDITIONAL AGENTS ====================
+  # Uncomment and configure as needed for your workflow.
+
+  # - name: gemini-tester
   #   project_dir: .
   #   prompt: >
-  #     Write and run tests for all implemented modules.
+  #     Act as Tester. Execute validation, capture evidence.
+  #     Run CLI and UI tests, save reports and artifacts.
+  #   role: tester
+
+  # - name: codex-reviewer
+  #   project_dir: .
+  #   prompt: >
+  #     Act as Checker. Static analysis, security review.
+  #     Run linters, type checkers, security scanners.
+  #   role: checker

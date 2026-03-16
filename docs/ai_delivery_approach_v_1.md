@@ -553,6 +553,7 @@ system/orchestrator/
     codex_runner.py
     gemini_runner.py
     copilot_runner.py
+    qwen_runner.py
   agent_adapters/
     base.py
     planner.py
@@ -603,6 +604,177 @@ routing_rules:
       tester: gemini
       qa: no_regression
 ```
+
+## 7.6 Qwen as an Orchestrator Agent Option
+
+Qwen Code is available as a first-class agent option within the orchestrator's routing system. The orchestrator can route tasks to Qwen for any role in the delivery workflow.
+
+### 7.6.1 Available Qwen Roles
+
+| Role | Description | When to Use |
+|---|---|---|
+| `qwen-orchestrator` | Workflow state management, task routing | Primary orchestration |
+| `qwen-planner` | PRD breakdown, task shaping | Feature planning |
+| `qwen-doer` | TDD implementation | Feature/bug/fix implementation |
+| `qwen-checker` | Independent review | Code/design review |
+| `qwen-tester` | Validation execution | Test execution, coverage |
+| `qwen-lessons` | Lessons capture | Post-completion learning |
+
+### 7.6.2 Routing Qwen Tasks
+
+Configure Qwen in routing rules alongside other providers:
+
+```yaml
+routing_rules:
+  feature:
+    backend:
+      # Option 1: Qwen as primary doer
+      doer: qwen
+      checker: claude        # Different model for independence
+      tester: qwen
+      qa: api
+    tui:
+      doer: qwen
+      checker: claude
+      tester: qwen
+      qa: tui
+  bug:
+    low_risk:
+      doer: qwen
+      checker: claude
+      tester: ci
+  refactor:
+    service:
+      doer: qwen
+      checker: claude
+      tester: qwen
+      qa: no_regression
+```
+
+### 7.6.3 Qwen Strengths for Routing Decisions
+
+**Use Qwen as Doer when:**
+- Deep repository context is needed (reads all instruction files)
+- TDD discipline is critical (enforces Red-Green-Refactor)
+- Branch safety is important (always checks branch first)
+- Documentation completeness matters
+
+**Use Qwen as Checker when:**
+- Independent review from different model perspective
+- Structured findings with severity classification
+- Architecture and TDD compliance validation
+
+**Use Qwen as Tester when:**
+- Coverage threshold enforcement needed
+- Evidence capture (outputs, screenshots) required
+- CLI and UI validation workflows
+
+**Use Qwen as Planner when:**
+- PRD needs breakdown into executable slices
+- Acceptance criteria must be testable
+- Dependencies and risks need identification
+
+### 7.6.4 Multi-Provider Routing (Recommended)
+
+For best independence, route different roles to different providers:
+
+```yaml
+# Recommended: Different providers for Doer/Checker independence
+routing_rules:
+  feature:
+    backend:
+      doer: qwen          # Qwen implements with TDD
+      checker: claude     # Claude reviews independently
+      tester: gemini      # Gemini validates
+  bug:
+    medium_risk:
+      doer: qwen
+      checker: codex
+      tester: qwen
+```
+
+### 7.6.5 Qwen Configuration in agents.yaml
+
+```yaml
+# scripts/agents.yaml
+agents:
+  - name: qwen-doer
+    project_dir: .
+    prompt: |
+      Act as Doer. Read agents/my-instructions.md.
+      Implement with TDD: write tests first (RED), implement minimum code (GREEN), refactor.
+    role: doer
+    instructions:
+      - agents/my-instructions.md
+      - agents/core.instructions.md
+      - agents/project.instructions.md
+      - agents/python.instructions.md
+      - agents/tdd.instructions.md
+
+  - name: qwen-checker
+    project_dir: .
+    prompt: |
+      Act as Checker. Read agents/my-instructions.md.
+      Review independently: correctness, architecture, tests, documentation.
+    role: checker
+    instructions:
+      - agents/my-instructions.md
+      - agents/core.instructions.md
+      - agents/project.instructions.md
+
+  - name: qwen-tester
+    project_dir: .
+    prompt: |
+      Act as Tester. Read agents/my-instructions.md.
+      Execute validation: CLI commands, UI flows, unit/integration tests.
+    role: tester
+    instructions:
+      - agents/my-instructions.md
+      - agents/core.instructions.md
+      - agents/tdd.instructions.md
+```
+
+### 7.6.6 Qwen Runner Module
+
+The Qwen runner is implemented at `system/orchestrator/runners/qwen_runner.py`:
+
+```python
+from system.orchestrator.runners.qwen_runner import QwenRunner, QwenRunnerConfig
+
+# Create Qwen runner for Doer role
+config = QwenRunnerConfig(
+    name="qwen-doer",
+    project_dir=Path("."),
+    prompt="Implement feature X with TDD",
+    instructions=[
+        "agents/my-instructions.md",
+        "agents/core.instructions.md",
+    ],
+    role="doer",
+)
+runner = QwenRunner(config)
+result = await runner.run()
+```
+
+### 7.6.7 Qwen Artifact Output
+
+Qwen produces artifacts following repository conventions:
+
+| Artifact Type | Location | Format |
+|---|---|---|
+| Plan files | `agents/docs/feat-<name>.jsonl` | JSONL |
+| Review files | `docs/operational/reviews/<task-name>.<timestamp>.md` | Markdown |
+| Test reports | `docs/operational/tests/<task-name>.<timestamp>.md` | Markdown |
+| Test artifacts | `docs/operational/tests/artifacts/<task-name>.<timestamp>/` | Screenshots, logs |
+| Lessons | `.breqy/lessons/<task-id>.yaml` | YAML |
+
+### 7.6.8 Integration Checklist
+
+- [x] Qwen instructions documented (`agents/my-instructions.md`)
+- [x] Qwen runner implemented (`system/orchestrator/runners/qwen_runner.py`)
+- [x] Routing configuration added (`scripts/agents.yaml`)
+- [x] AI delivery approach updated (`docs/ai_delivery_approach_v_1.md`)
+- [x] Integration guide created (`docs/qwen_integration.md`)
 
 ---
 
