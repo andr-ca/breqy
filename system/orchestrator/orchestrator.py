@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import queue
 import threading
-import time
 from pathlib import Path
 
 from system.orchestrator.artifact_store import ArtifactStore
@@ -95,7 +94,7 @@ class OrchestratorLoop:
             for task_id, (task, env) in list(all_tasks.items()):
                 task = self._tick(task, env, all_tasks)
                 all_tasks[task_id] = (task, env)
-            time.sleep(self._config.orchestrator.poll_interval_seconds)
+            self._stop_event.wait(timeout=self._config.orchestrator.poll_interval_seconds)
 
     def _tick(
         self,
