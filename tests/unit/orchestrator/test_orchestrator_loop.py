@@ -7,7 +7,7 @@ import pytest
 from system.orchestrator.artifact_store import ArtifactStore
 from system.orchestrator.branch_manager import BranchManager
 from system.orchestrator.ci_adapter import CIAdapter
-from system.orchestrator.config import GitHubConfig, OrchestratorConfig
+from system.orchestrator.config import GitHubConfig, OrchestratorConfig, OrchestratorSettings
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.github_adapter import GitHubAdapter
 from system.orchestrator.orchestrator import OrchestratorLoop
@@ -141,3 +141,84 @@ def test_claude_runner_sets_proc_on_run(tmp_path):
         mock_popen.return_value = mock_proc
         runner.run("prompt", ctx)
     assert runner.proc is mock_proc
+
+
+def test_role_configured_with_agent_defaults(tmp_path):
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"planner": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    assert loop._role_configured("feature", "backend", "planner") is True
+    assert loop._role_configured("feature", "backend", "qa_automation") is False
+
+
+def test_role_configured_with_routing_rules(tmp_path):
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        routing_rules={"feature": {"backend": {"planner": "claude"}}},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    assert loop._role_configured("feature", "backend", "planner") is True
+
+
+def test_run_role_calls_runner_and_returns_parsed_output(tmp_path):
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    from system.orchestrator.schemas.run_result import RunResult
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    store = ArtifactStore(base=tmp_path / "artifacts")
+    log = EventLog(path=tmp_path / "events.jsonl")
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm, artifact_store=store,
+        event_log=log, event_queue=queue.Queue(),
+    )
+    mock_runner = MagicMock()
+    mock_runner.run.return_value = RunResult(
+        status="completed", output='{"status":"pass","artifact_paths":[]}', exit_code=0
+    )
+    mock_adapter = MagicMock()
+    mock_adapter.build_prompt.return_value = "do the work"
+    mock_adapter.parse_output.return_value = ParsedOutput(status="pass", artifact_paths=[])
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    with patch.object(loop._router, "resolve", return_value=(mock_runner, mock_adapter)):
+        result = loop._run_role(task, env, "doer")
+    assert result.status == "pass"
+    mock_runner.run.assert_called_once()
+
+
+def test_persist_state_writes_yaml(tmp_path):
+    import yaml
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        orchestrator=OrchestratorSettings(runtime_state=str(tmp_path / "state.yaml")),
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    loop._persist_state({"BRQ-1": (task, env)})
+    data = yaml.safe_load((tmp_path / "state.yaml").read_text())
+    assert "BRQ-1" in data["tasks"]
+    assert data["tasks"]["BRQ-1"]["state"] == "READY_FOR_DOER"

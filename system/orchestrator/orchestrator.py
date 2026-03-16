@@ -10,7 +10,7 @@ from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.router import Router
 from system.orchestrator.runners.base import AgentRunner
-from system.orchestrator.schemas.artifacts import MergeReadinessArtifact
+from system.orchestrator.schemas.artifacts import MergeReadinessArtifact, ParsedOutput
 from system.orchestrator.schemas.events import OrchestratorEvent
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
@@ -102,6 +102,84 @@ class OrchestratorLoop:
     def _emit(self, event: OrchestratorEvent) -> None:
         self._log.append(event)
         self._queue.put_nowait(event)
+
+    def _role_configured(self, task_type: str, component: str, role: str) -> bool:
+        """Return True if role has a runner configured in routing_rules or agent_defaults."""
+        specific = (
+            self._config.routing_rules
+            .get(task_type, {})
+            .get(component, {})
+            .get(role)
+        )
+        default = self._config.agent_defaults.get(role)
+        return bool(specific or default)
+
+    def _run_role(self, task: Task, env: TaskEnvelope, role: str) -> ParsedOutput:
+        """Resolve runner+adapter, build prompt, run, parse and return output."""
+        from pathlib import Path as _Path
+
+        from system.orchestrator.agent_adapters.base import TaskContext
+        from system.orchestrator.schemas.run_result import RunContext
+
+        runner, adapter = self._router.resolve(env.task_type, env.component, role)
+        prior: dict[str, str] = {}
+        task_dir = _Path(self._config.orchestrator.artifact_base) / task.task_id
+        if task_dir.exists():
+            for p in task_dir.iterdir():
+                prior[p.stem] = str(p)
+        ctx = TaskContext(task=env, prior_artifacts=prior, rework_count=task.rework_count)
+        prompt = adapter.build_prompt(env, ctx)
+        run_ctx = RunContext(
+            task_id=task.task_id, role=role, work_dir=_Path("."), session_id=task.session_id,
+        )
+        self._current_runner = runner
+        try:
+            result = runner.run(prompt, run_ctx)
+        finally:
+            self._current_runner = None
+        return adapter.parse_output(result)
+
+    def _persist_state(self, all_tasks: dict[str, tuple[Task, TaskEnvelope]]) -> None:
+        """Write runtime-state.yaml with per-task state and counts."""
+        import datetime
+
+        import yaml as _yaml
+        from pathlib import Path as _Path
+
+        state_path = _Path(self._config.orchestrator.runtime_state)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        tasks_data = {
+            tid: {
+                "state": str(t.state),
+                "rework_count": t.rework_count,
+                "retry_count": t.retry_count,
+                "session_id": t.session_id,
+                "branch": t.branch,
+                "pr_url": t.pr_url,
+                "github_issue_number": t.github_issue_number,
+                "failure_source": t.failure_source,
+            }
+            for tid, (t, _) in all_tasks.items()
+        }
+        state_path.write_text(_yaml.dump({
+            "updated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "tasks": tasks_data,
+        }))
+
+    def _sync_github_label(self, task: Task, old_state: str) -> None:
+        """Sync the GitHub Issue state label if GitHub adapter is configured."""
+        if self._gh and task.github_issue_number:
+            try:
+                self._gh.set_task_state(
+                    task.github_issue_number,
+                    new_state=task.state,
+                    old_state=old_state,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._emit(OrchestratorEvent(
+                    task_id=task.task_id, event_type="error",
+                    notes=f"GitHub label sync failed: {exc}",
+                ))
 
     def run(
         self,
