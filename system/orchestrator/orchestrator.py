@@ -360,4 +360,108 @@ class OrchestratorLoop:
                 notes="restart recovery: doer-report found"))
             return task
 
+        if task.state == TaskState.READY_FOR_CHECKER:
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_spawn", role="checker"))
+            try:
+                parsed = self._run_role(task, env, "checker")
+            except Exception as exc:  # noqa: BLE001
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"checker exception: {exc}"))
+                return task
+            if parsed.status == "pass":
+                task = self._sm.transition(task, TaskState.READY_FOR_TESTER)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_CHECKER", to_state="READY_FOR_TESTER"))
+            else:
+                task = self._sm.transition(task, TaskState.CHECK_FAILED)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_CHECKER", to_state="CHECK_FAILED", notes=parsed.notes))
+            return task
+
+        if task.state == TaskState.CHECK_FAILED:
+            if self._sm.can_transition(task, TaskState.READY_FOR_DOER):
+                task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="rework_loop",
+                    from_state="CHECK_FAILED", to_state="READY_FOR_DOER",
+                    notes=f"rework {task.rework_count}"))
+            else:
+                task = self._sm.transition(task, TaskState.BLOCKED)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes="max rework loops exceeded (checker)"))
+            return task
+
+        if task.state == TaskState.RETRY_PENDING:
+            import time as _time
+            retry_after = self._retry_after.get(task.task_id, 0.0)
+            if _time.monotonic() < retry_after:
+                return task  # backoff not elapsed
+            # Re-run doer from RETRY_PENDING
+            # First advance to DOER_IN_PROGRESS (incrementing retry_count via state machine)
+            task = self._sm.transition(task, TaskState.DOER_IN_PROGRESS)
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                from_state="RETRY_PENDING", to_state="DOER_IN_PROGRESS"))
+            try:
+                parsed = self._run_role(task, env, "doer")
+                err_notes = parsed.notes
+            except Exception as exc:  # noqa: BLE001
+                parsed = None
+                err_notes = str(exc)
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_complete",
+                role="doer", notes=err_notes))
+            if parsed and parsed.status == "pass":
+                if parsed.session_id:
+                    task = task.model_copy(update={"session_id": parsed.session_id})
+                task = self._sm.transition(task, TaskState.READY_FOR_CHECKER)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="DOER_IN_PROGRESS", to_state="READY_FOR_CHECKER"))
+            elif parsed and "rate_limited" in parsed.notes:
+                if self._sm.can_transition(task, TaskState.BLOCKED):
+                    task = self._sm.force_block(task)
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                        notes="rate limit retries exhausted"))
+                else:
+                    task = self._sm.transition(task, TaskState.RETRY_PENDING)
+                    self._retry_after[task.task_id] = (
+                        _time.monotonic() + self._config.orchestrator.retry_backoff_seconds
+                    )
+                    self._emit(OrchestratorEvent(task_id=task.task_id, event_type="retry_pending",
+                        notes="rate limited again"))
+            else:
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"doer failed on retry: {err_notes}"))
+            return task
+
+        if task.state == TaskState.READY_FOR_TESTER:
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_spawn", role="tester"))
+            try:
+                parsed = self._run_role(task, env, "tester")
+            except Exception as exc:  # noqa: BLE001
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"tester exception: {exc}"))
+                return task
+            if parsed.status == "pass":
+                task = self._sm.transition(task, TaskState.READY_FOR_QA_AUTOMATION)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_TESTER", to_state="READY_FOR_QA_AUTOMATION"))
+            else:
+                task = self._sm.transition(task, TaskState.TEST_FAILED)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_TESTER", to_state="TEST_FAILED", notes=parsed.notes))
+            return task
+
+        if task.state == TaskState.TEST_FAILED:
+            if self._sm.can_transition(task, TaskState.READY_FOR_DOER):
+                task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="rework_loop",
+                    from_state="TEST_FAILED", to_state="READY_FOR_DOER",
+                    notes=f"rework {task.rework_count}"))
+            else:
+                task = self._sm.transition(task, TaskState.BLOCKED)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes="max rework loops exceeded (tester)"))
+            return task
+
         return task

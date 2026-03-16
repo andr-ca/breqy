@@ -490,6 +490,199 @@ def test_tick_doer_in_progress_reruns_if_artifact_missing(tmp_path):
     mock_run.assert_called_once_with(task, env, "doer")
 
 
+def test_tick_checker_pass_transitions_to_tester(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"checker": "codex"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_CHECKER)
+    with patch.object(loop, "_run_role", return_value=ParsedOutput(status="pass", artifact_paths=[])):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_TESTER
+
+
+def test_tick_checker_fail_transitions_to_check_failed(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"checker": "codex"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_CHECKER)
+    with patch.object(loop, "_run_role", return_value=ParsedOutput(status="fail", artifact_paths=[])):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.CHECK_FAILED
+
+
+def test_tick_check_failed_reworks_to_doer(tmp_path):
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.CHECK_FAILED, rework_count=0)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_DOER
+    assert result.rework_count == 1
+
+
+def test_tick_check_failed_blocks_when_rework_exhausted(tmp_path):
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        orchestrator=OrchestratorSettings(max_rework_loops=3),
+    )
+    sm = ConcreteStateMachine(max_rework_loops=3)
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.CHECK_FAILED, rework_count=3)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.BLOCKED
+
+
+def test_tick_retry_pending_retries_after_backoff(tmp_path):
+    import time
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude"},
+        orchestrator=OrchestratorSettings(retry_backoff_seconds=0),
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.RETRY_PENDING, retry_count=0)
+    loop._retry_after["BRQ-1"] = time.monotonic() - 1  # already expired
+    with patch.object(loop, "_run_role", return_value=ParsedOutput(status="pass", artifact_paths=[])):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_CHECKER
+
+
+def test_tick_retry_pending_waits_when_backoff_not_elapsed(tmp_path):
+    import time
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.RETRY_PENDING, retry_count=0)
+    loop._retry_after["BRQ-1"] = time.monotonic() + 9999  # far future
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.RETRY_PENDING  # unchanged
+
+
+def test_tick_tester_pass_transitions_to_qa(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"tester": "gemini"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TESTER)
+    with patch.object(loop, "_run_role", return_value=ParsedOutput(status="pass", artifact_paths=[])):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_QA_AUTOMATION
+
+
+def test_tick_tester_fail_transitions_to_test_failed(tmp_path):
+    from unittest.mock import patch
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"tester": "gemini"},
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TESTER)
+    with patch.object(loop, "_run_role", return_value=ParsedOutput(status="fail", artifact_paths=[])):
+        result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.TEST_FAILED
+
+
+def test_tick_test_failed_reworks(tmp_path):
+    cfg = OrchestratorConfig(github=GitHubConfig(repo="owner/repo"))
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.TEST_FAILED, rework_count=0)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.READY_FOR_DOER
+    assert result.rework_count == 1
+
+
+def test_tick_test_failed_blocks_when_exhausted(tmp_path):
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        orchestrator=OrchestratorSettings(max_rework_loops=3),
+    )
+    sm = ConcreteStateMachine(max_rework_loops=3)
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.TEST_FAILED, rework_count=3)
+    result = loop._tick(task, env, {"BRQ-1": (task, env)})
+    assert result.state == TaskState.BLOCKED
+
+
 def test_persist_state_writes_yaml(tmp_path):
     import yaml
     cfg = OrchestratorConfig(
