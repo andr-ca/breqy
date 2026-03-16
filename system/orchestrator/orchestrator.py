@@ -464,4 +464,50 @@ class OrchestratorLoop:
                     notes="max rework loops exceeded (tester)"))
             return task
 
+        if task.state == TaskState.READY_FOR_QA_AUTOMATION:
+            if not self._role_configured(env.task_type, env.component, "qa_automation"):
+                task = self._sm.transition(task, TaskState.READY_FOR_MERGE_REVIEW)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_QA_AUTOMATION", to_state="READY_FOR_MERGE_REVIEW",
+                    notes="qa_automation role not configured — skipped"))
+                return task
+            self._emit(OrchestratorEvent(task_id=task.task_id, event_type="agent_spawn",
+                role="qa_automation"))
+            try:
+                parsed = self._run_role(task, env, "qa_automation")
+            except Exception as exc:  # noqa: BLE001
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"qa_automation exception: {exc}"))
+                return task
+            if parsed.status == "pass":
+                task = self._sm.transition(task, TaskState.READY_FOR_MERGE_REVIEW)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_QA_AUTOMATION", to_state="READY_FOR_MERGE_REVIEW"))
+            else:
+                failure_source = parsed.failure_source or "broken_implementation"
+                task = task.model_copy(update={"failure_source": failure_source})
+                task = self._sm.transition(task, TaskState.QA_FAILED)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="state_transition",
+                    from_state="READY_FOR_QA_AUTOMATION", to_state="QA_FAILED",
+                    notes=f"failure_source={failure_source}"))
+            return task
+
+        if task.state == TaskState.QA_FAILED:
+            if self._sm.can_transition(task, TaskState.READY_FOR_DOER):
+                task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="rework_loop",
+                    from_state="QA_FAILED", to_state="READY_FOR_DOER",
+                    notes=f"rework {task.rework_count}"))
+            elif self._sm.can_transition(task, TaskState.READY_FOR_QA_AUTOMATION):
+                task = self._sm.transition(task, TaskState.READY_FOR_QA_AUTOMATION)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="rework_loop",
+                    from_state="QA_FAILED", to_state="READY_FOR_QA_AUTOMATION",
+                    notes=f"rework {task.rework_count}"))
+            else:
+                task = self._sm.force_block(task)
+                self._emit(OrchestratorEvent(task_id=task.task_id, event_type="blocked",
+                    notes=f"QA_FAILED blocked: failure_source={task.failure_source}"))
+            return task
+
         return task
