@@ -1006,3 +1006,26 @@ def test_persist_state_writes_yaml(tmp_path):
     data = yaml.safe_load((tmp_path / "state.yaml").read_text())
     assert "BRQ-1" in data["tasks"]
     assert data["tasks"]["BRQ-1"]["state"] == "READY_FOR_DOER"
+
+
+def test_run_calls_persist_state_after_poll_cycle(tmp_path):
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        orchestrator=OrchestratorSettings(poll_interval_seconds=0),
+    )
+    sm = ConcreteStateMachine()
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=ArtifactStore(base=tmp_path / "art"),
+        event_log=EventLog(path=tmp_path / "events.jsonl"),
+        event_queue=queue.Queue(),
+    )
+    called = []
+    def capturing_persist(all_tasks):
+        called.append(True)
+        loop.stop()
+    loop._persist_state = capturing_persist
+    env = TaskEnvelope(task_id="BRQ-1", title="T", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.DONE)
+    loop.run([(task, env)])
+    assert len(called) >= 1

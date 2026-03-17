@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from system.orchestrator.artifact_store import ArtifactStore
+from system.orchestrator.branch_manager import BranchManager
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.router import Router
@@ -14,8 +15,6 @@ from system.orchestrator.schemas.artifacts import MergeReadinessArtifact, Parsed
 from system.orchestrator.schemas.events import OrchestratorEvent
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
-
-from system.orchestrator.branch_manager import BranchManager
 
 if TYPE_CHECKING:
     from system.orchestrator.ci_adapter import CIAdapter
@@ -143,9 +142,9 @@ class OrchestratorLoop:
     def _persist_state(self, all_tasks: dict[str, tuple[Task, TaskEnvelope]]) -> None:
         """Write runtime-state.yaml with per-task state and counts."""
         import datetime
+        from pathlib import Path as _Path
 
         import yaml as _yaml
-        from pathlib import Path as _Path
 
         state_path = _Path(self._config.orchestrator.runtime_state)
         state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -203,6 +202,7 @@ class OrchestratorLoop:
             for task_id, (task, env) in list(all_tasks.items()):
                 task = self._tick(task, env, all_tasks)
                 all_tasks[task_id] = (task, env)
+            self._persist_state(all_tasks)
             self._stop_event.wait(timeout=self._config.orchestrator.poll_interval_seconds)
 
     def _tick(

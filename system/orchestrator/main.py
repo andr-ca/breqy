@@ -15,11 +15,15 @@ import threading
 from pathlib import Path
 
 from system.orchestrator.artifact_store import ArtifactStore
+from system.orchestrator.branch_manager import BranchManager
+from system.orchestrator.ci_adapter import CIAdapter
 from system.orchestrator.config import load_config
 from system.orchestrator.event_log import EventLog
+from system.orchestrator.github_adapter import GitHubAdapter
 from system.orchestrator.github_task_loader import GitHubTaskLoader
 from system.orchestrator.local_task_loader import LocalYamlTaskLoader
 from system.orchestrator.orchestrator import OrchestratorLoop
+from system.orchestrator.session_manager import SessionManager
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
 from system.orchestrator.task_loader import CompositeTaskLoader
 
@@ -33,12 +37,24 @@ def _build_loop(cfg_path: Path):
     store = ArtifactStore(base=Path(cfg.orchestrator.artifact_base))
     log = EventLog(path=Path(cfg.orchestrator.event_log))
     eq: queue.Queue = queue.Queue(maxsize=1000)
+    branch_manager = BranchManager(repo_root=Path("."))
+    github_adapter = GitHubAdapter(repo=cfg.github.repo)
+    ci_adapter = CIAdapter(
+        repo=cfg.github.repo,
+        poll_interval_seconds=cfg.github.ci_poll_interval_seconds,
+        event_log=log,
+    )
+    session_manager = SessionManager()
     loop = OrchestratorLoop(
         config=cfg,
         state_machine=sm,
         artifact_store=store,
         event_log=log,
         event_queue=eq,
+        branch_manager=branch_manager,
+        github_adapter=github_adapter,
+        ci_adapter=ci_adapter,
+        session_manager=session_manager,
     )
     return loop, eq, cfg
 
