@@ -1,4 +1,5 @@
 from __future__ import annotations
+from system.orchestrator.auth.credential_store import CredentialStore
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.runners.base import AgentRunner
 from system.orchestrator.runners.claude_runner import ClaudeRunner
@@ -33,8 +34,11 @@ _ADAPTERS: dict[str, type[AgentAdapter]] = {
 
 
 class Router:
-    def __init__(self, config: OrchestratorConfig) -> None:
+    def __init__(
+        self, config: OrchestratorConfig, credential_store: CredentialStore | None = None
+    ) -> None:
         self._config = config
+        self._store = credential_store
 
     def resolve(
         self, task_type: str, component: str, role: str
@@ -50,4 +54,4 @@ class Router:
         )
         runner_cls = _RUNNERS.get(agent_type, ClaudeRunner)
         adapter_cls = _ADAPTERS[role]
-        return runner_cls(), adapter_cls()
+        return runner_cls(credential_store=self._store), adapter_cls()

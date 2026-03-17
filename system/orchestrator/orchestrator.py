@@ -5,6 +5,7 @@ import threading
 import time
 from pathlib import Path
 from system.orchestrator.artifact_store import ArtifactStore
+from system.orchestrator.auth.credential_store import CredentialStore
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.router import Router
@@ -22,6 +23,7 @@ class OrchestratorLoop:
         artifact_store: ArtifactStore,
         event_log: EventLog,
         event_queue: queue.Queue,
+        credential_store: CredentialStore | None = None,
     ) -> None:
         self._config = config
         self._sm = state_machine
@@ -29,7 +31,7 @@ class OrchestratorLoop:
         self._log = event_log
         self._queue = event_queue
         self._stop_event = threading.Event()
-        self._router = Router(config=config)
+        self._router = Router(config=config, credential_store=credential_store)
         self._current_process = None   # set by runner layer
 
     def stop(self) -> None:
