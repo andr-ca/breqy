@@ -51,3 +51,39 @@ def test_task_envelope_valid_task_types():
 def test_task_envelope_invalid_task_type():
     with pytest.raises(ValidationError):
         TaskEnvelope(task_id="BRQ-1", title="t", task_type="unknown", component="backend")
+
+
+# --- RunResult / RunContext ---
+from pathlib import Path
+
+from system.orchestrator.schemas.run_result import RunContext, RunResult
+
+
+def test_run_result_completed():
+    r = RunResult(status="completed", output="done", exit_code=0)
+    assert r.session_id is None
+    assert r.artifacts_written == []
+
+
+def test_run_result_rate_limited():
+    r = RunResult(status="rate_limited", output="", exit_code=1, session_id="sid-abc")
+    assert r.status == "rate_limited"
+    assert r.session_id == "sid-abc"
+
+
+def test_run_result_invalid_status():
+    with pytest.raises(ValidationError):
+        RunResult(status="unknown", output="", exit_code=0)
+
+
+def test_run_context_defaults():
+    ctx = RunContext(task_id="BRQ-1", role="doer", work_dir=Path("/tmp"))
+    assert ctx.session_id is None
+    assert ctx.extra_env == {}
+
+
+def test_run_context_extra_env_independent():
+    ctx1 = RunContext(task_id="BRQ-1", role="doer", work_dir=Path("/tmp"))
+    ctx2 = RunContext(task_id="BRQ-2", role="doer", work_dir=Path("/tmp"))
+    ctx1.extra_env["KEY"] = "val"
+    assert "KEY" not in ctx2.extra_env
