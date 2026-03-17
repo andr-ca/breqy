@@ -27,6 +27,11 @@ def test_device_code_response_fields():
     assert dcr.user_code == "ABCD-1234"
 
 
+def test_auth_provider_is_abstract():
+    import inspect
+    assert inspect.isabstract(AuthProvider)
+
+
 def test_device_flow_provider_is_abstract():
     import inspect
     assert inspect.isabstract(DeviceFlowProvider)

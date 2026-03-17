@@ -10,8 +10,7 @@ def test_get_returns_none_when_not_set():
 
 
 def test_set_stores_token():
-    with patch("keyring.get_password", return_value=None), \
-         patch("keyring.set_password") as mock_set:
+    with patch("keyring.set_password") as mock_set:
         store = CredentialStore()
         store.set("copilot", "ghu_token")
         mock_set.assert_called_once_with("breqy", "copilot", "ghu_token")
@@ -24,8 +23,7 @@ def test_get_returns_stored_token():
 
 
 def test_delete_removes_token():
-    with patch("keyring.get_password", return_value=None), \
-         patch("keyring.delete_password") as mock_del:
+    with patch("keyring.delete_password") as mock_del:
         store = CredentialStore()
         store.delete("copilot")
         mock_del.assert_called_once_with("breqy", "copilot")
@@ -33,7 +31,6 @@ def test_delete_removes_token():
 
 def test_delete_ignores_not_found():
     import keyring.errors
-    with patch("keyring.get_password", return_value=None), \
-         patch("keyring.delete_password", side_effect=keyring.errors.PasswordDeleteError):
+    with patch("keyring.delete_password", side_effect=keyring.errors.PasswordDeleteError):
         store = CredentialStore()
         store.delete("copilot")  # must not raise

@@ -21,8 +21,11 @@ class DeviceCodeResponse:
 
 
 class AuthProvider(ABC):
-    provider_name: str
     flow_type: AuthFlowType
+
+    @property
+    @abstractmethod
+    def provider_name(self) -> str: ...
 
     @abstractmethod
     def is_authenticated(self) -> bool: ...
@@ -41,17 +44,20 @@ class DeviceFlowProvider(AuthProvider):
     def request_device_code(self) -> DeviceCodeResponse: ...
 
     @abstractmethod
-    def poll_for_token(self, device_code: str) -> str | None: ...
+    def poll_for_token(self, device_code: str) -> str | None:
+        """Single poll attempt. Returns token string if authorized, None if still pending."""
 
 
 class PkceProvider(AuthProvider):
     flow_type = AuthFlowType.PKCE
 
     @abstractmethod
-    def get_auth_url(self) -> str: ...
+    def get_auth_url(self) -> str:
+        """Generate PKCE challenge, store verifier, return authorization URL."""
 
     @abstractmethod
-    def exchange_code(self, auth_code: str) -> None: ...
+    def exchange_code(self, auth_code: str) -> None:
+        """Exchange authorization code for token; store in CredentialStore."""
 
 
 class ApiKeyProvider(AuthProvider):
