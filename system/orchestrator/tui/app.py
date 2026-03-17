@@ -11,6 +11,9 @@ from system.orchestrator.tui.panels.pipeline_panel import PipelinePanel
 from system.orchestrator.tui.panels.task_panel import TaskPanel
 from system.orchestrator.tui.panels.agent_panel import AgentPanel
 from system.orchestrator.tui.panels.log_panel import LogPanel
+from system.orchestrator.auth import ALL_PROVIDER_CLASSES
+from system.orchestrator.auth.credential_store import CredentialStore
+from system.orchestrator.tui.panels.auth_panel import AuthPanel
 
 
 class OrchestratorApp(App):
@@ -20,12 +23,26 @@ class OrchestratorApp(App):
     #task { width: 65%; border: solid blue; }
     #agent { height: 25%; border: solid yellow; }
     #log { height: 15%; border: solid gray; }
+    #auth-overlay {
+        display: none;
+        layer: overlay;
+        height: 100%;
+        width: 100%;
+        border: double yellow;
+        background: $surface;
+    }
     """
 
-    def __init__(self, event_queue: queue.Queue, tasks: list[tuple[Task, TaskEnvelope]]) -> None:
+    BINDINGS = [
+        ("a", "toggle_auth", "Auth"),
+    ]
+
+    def __init__(self, event_queue: queue.Queue, tasks: list[tuple[Task, TaskEnvelope]], credential_store: CredentialStore | None = None) -> None:
         super().__init__()
         self._queue = event_queue
         self._tasks = tasks
+        store = credential_store or CredentialStore()
+        self._providers = {name: cls(credential_store=store) for name, cls in ALL_PROVIDER_CLASSES.items()}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -36,6 +53,11 @@ class OrchestratorApp(App):
             yield AgentPanel(id="agent")
             yield LogPanel(id="log")
         yield Footer()
+        yield AuthPanel(providers=self._providers, id="auth-overlay")
+
+    def action_toggle_auth(self) -> None:
+        panel = self.query_one("#auth-overlay", AuthPanel)
+        panel.display = not panel.display
 
     def on_mount(self) -> None:
         self.set_interval(0.5, self._poll_queue)
