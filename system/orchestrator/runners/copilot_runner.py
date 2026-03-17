@@ -3,13 +3,14 @@ import subprocess
 import os
 from system.orchestrator.runners.base import AgentRunner
 from system.orchestrator.schemas.run_result import RunContext, RunResult
+from system.orchestrator.auth.credential_store import CredentialStore
 
 _PROVIDER_NAME = "copilot"
 _ENV_KEY = "GITHUB_COPILOT_TOKEN"
 
 
 class CopilotRunner(AgentRunner):
-    def __init__(self, credential_store=None) -> None:
+    def __init__(self, credential_store: CredentialStore | None = None) -> None:
         self._store = credential_store
 
     def run(self, prompt: str, context: RunContext) -> RunResult:

@@ -2,6 +2,7 @@ from __future__ import annotations
 import subprocess
 from system.orchestrator.runners.base import AgentRunner
 from system.orchestrator.schemas.run_result import RunContext, RunResult
+from system.orchestrator.auth.credential_store import CredentialStore
 from system.orchestrator.session_manager import is_rate_limit_output
 
 _PROVIDER_NAME = "claude"
@@ -9,7 +10,7 @@ _ENV_KEY = "ANTHROPIC_API_KEY"
 
 
 class ClaudeRunner(AgentRunner):
-    def __init__(self, credential_store=None) -> None:
+    def __init__(self, credential_store: CredentialStore | None = None) -> None:
         self._store = credential_store
 
     def run(self, prompt: str, context: RunContext) -> RunResult:

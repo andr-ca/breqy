@@ -3,6 +3,7 @@ import subprocess
 import os
 from system.orchestrator.runners.base import AgentRunner
 from system.orchestrator.schemas.run_result import RunContext, RunResult
+from system.orchestrator.auth.credential_store import CredentialStore
 
 _PROVIDER_NAME = "qwen"
 _ENV_KEY = "DASHSCOPE_API_KEY"
@@ -11,7 +12,7 @@ _ENV_KEY = "DASHSCOPE_API_KEY"
 class QwenRunner(AgentRunner):
     """Qwen runner. Requires DASHSCOPE_API_KEY in environment."""
 
-    def __init__(self, credential_store=None) -> None:
+    def __init__(self, credential_store: CredentialStore | None = None) -> None:
         self._store = credential_store
 
     def run(self, prompt: str, context: RunContext) -> RunResult:
