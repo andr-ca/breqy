@@ -10,6 +10,7 @@ from system.orchestrator.tui.panels.pipeline_panel import PipelinePanel
 from system.orchestrator.tui.panels.task_panel import TaskPanel
 from system.orchestrator.tui.panels.agent_panel import AgentPanel
 from system.orchestrator.tui.panels.log_panel import LogPanel
+from system.orchestrator.tui.panels.auth_panel import AuthPanel
 
 
 def _make_task_and_env(task_id: str = "BRQ-1") -> tuple[Task, TaskEnvelope]:
