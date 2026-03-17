@@ -1,0 +1,77 @@
+# system/orchestrator/auth/claude_auth.py
+from __future__ import annotations
+import base64
+import hashlib
+import os
+from urllib.parse import urlencode
+import httpx
+from system.orchestrator.auth.base import PkceProvider
+from system.orchestrator.auth.credential_store import CredentialStore
+
+# Public OAuth app credentials for Claude/Anthropic
+# These are public application identifiers used in PKCE flow
+_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+_REDIRECT_URI = "https://platform.claude.com/oauth/code/callback"
+_AUTH_URL = "https://claude.ai/oauth/authorize"
+_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+_SCOPES = "openid profile email"
+
+
+class ClaudeAuth(PkceProvider):
+    """Claude/Anthropic authentication via PKCE Authorization Code flow.
+
+    The user visits a URL in their browser, approves, then pastes the
+    authorization code back into the TUI.
+    """
+
+    def __init__(self, credential_store: CredentialStore) -> None:
+        self._store = credential_store
+        self._code_verifier: str | None = None
+
+    @property
+    def provider_name(self) -> str:
+        return "claude"
+
+    def is_authenticated(self) -> bool:
+        return self._store.get(self.provider_name) is not None
+
+    def get_token(self) -> str | None:
+        return self._store.get(self.provider_name)
+
+    def revoke(self) -> None:
+        self._store.delete(self.provider_name)
+
+    def get_auth_url(self) -> str:
+        """Generate PKCE challenge, store verifier, return authorization URL."""
+        verifier = base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode()
+        digest = hashlib.sha256(verifier.encode()).digest()
+        challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+        self._code_verifier = verifier
+
+        params = {
+            "response_type": "code",
+            "client_id": _CLIENT_ID,
+            "redirect_uri": _REDIRECT_URI,
+            "scope": _SCOPES,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+        return f"{_AUTH_URL}?{urlencode(params)}"
+
+    def exchange_code(self, auth_code: str) -> None:
+        """Exchange authorization code for token; store in CredentialStore."""
+        resp = httpx.post(
+            _TOKEN_URL,
+            json={
+                "grant_type": "authorization_code",
+                "code": auth_code,
+                "code_verifier": self._code_verifier or "",
+                "client_id": _CLIENT_ID,
+                "redirect_uri": _REDIRECT_URI,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        token = data.get("access_token")
+        if token:
+            self._store.set(self.provider_name, token)
