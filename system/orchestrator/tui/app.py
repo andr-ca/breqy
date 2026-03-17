@@ -5,7 +5,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer
 from textual.containers import Horizontal, Vertical
 from system.orchestrator.schemas.events import OrchestratorEvent
-from system.orchestrator.state_machine import Task, TaskState
+from system.orchestrator.state_machine import Task
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.tui.panels.pipeline_panel import PipelinePanel
 from system.orchestrator.tui.panels.task_panel import TaskPanel

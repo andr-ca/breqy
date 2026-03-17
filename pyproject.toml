@@ -24,6 +24,12 @@ dev = [
     "mypy>=1.10.0",
 ]
 
+[project.scripts]
+breqy-orchestrator = "system.orchestrator.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["system", "breqy"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

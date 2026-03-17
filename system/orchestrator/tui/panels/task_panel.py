@@ -3,7 +3,7 @@ from __future__ import annotations
 from textual.widget import Widget
 from textual.widgets import Static
 from system.orchestrator.schemas.events import OrchestratorEvent
-from system.orchestrator.state_machine import Task, TaskState
+from system.orchestrator.state_machine import Task
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 
 
