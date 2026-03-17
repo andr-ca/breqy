@@ -133,12 +133,18 @@ class AuthPanel(Widget):
             code = self.query_one("#pkce-input", Input).value.strip()
             if code and self._active_provider:
                 provider = self._providers[self._active_provider]
-                provider.exchange_code(code)
-                self._on_auth_success()
+                try:
+                    provider.exchange_code(code)
+                    self._on_auth_success()
+                except Exception as e:
+                    self.query_one("#pkce-url", Static).update(f"[red]Error: {e}[/red]")
 
         elif btn_id == "key-submit":
             key = self.query_one("#key-input", Input).value.strip()
             if key and self._active_provider:
                 provider = self._providers[self._active_provider]
-                provider.set_key(key)
-                self._on_auth_success()
+                try:
+                    provider.set_key(key)
+                    self._on_auth_success()
+                except Exception as e:
+                    self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
