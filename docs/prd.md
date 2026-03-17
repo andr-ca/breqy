@@ -131,6 +131,15 @@ The first channel must be a separate TUI app that:
 #### Core streamed event contracts
 Slice 1 must define stable typed schemas for the core event types used by the engine, agents, and TUI. At minimum, this includes message events, task update events, approval events, control events, and tool invocation events. The TUI must render these from typed contracts rather than guessing from loosely shaped payloads.
 
+#### Runner authentication panel
+The orchestrator TUI must include a runner authentication panel that:
+- displays all configured runners with their authentication status (authenticated / unauthenticated / unknown)
+- allows the user to initiate authentication for any unauthenticated runner inline
+- for device flow providers (Copilot, Codex, Gemini): displays the verification URL (as a clickable OSC8 hyperlink) and user code, then polls for completion in the background
+- for PKCE providers (Claude): displays the authorization URL to open in a browser and provides an input field to paste the returned authorization code
+- for API-key providers (Qwen): displays a masked key input field
+- is reachable via the `breqy-orchestrator auth` CLI subcommand (standalone, outside the main loop TUI) and accessible from the main orchestrator TUI via a keybind
+
 At minimum, a tool invocation event must include stable identifiers and rendering fields such as: event ID, session ID, task ID if present, agent ID, tool name, invocation ID, status, timestamps, approval state when relevant, a human-readable summary, structured arguments or an argument reference, and result or error references when available.
 
 ### 5.3 Session behavior
@@ -288,13 +297,18 @@ Skills may only be invoked when the agent already has the required tools permitt
 The system must abstract model and provider integration so that any provider can be attached later.
 
 v1 initial provider direction:
-- GitHub Copilot / Codex-style device registration approach
+- All five orchestrator runners (Claude, Codex, Gemini, Copilot, Qwen) must support first-class authentication
+- Providers with OAuth 2.0 device flow (GitHub Copilot, OpenAI Codex, Google Gemini) must use RFC 8628 device authorization grant
+- Claude/Anthropic must use PKCE Authorization Code flow: the TUI displays a clickable URL; the user approves in a browser and pastes back the authorization code
+- Qwen/DashScope has no OAuth flow; the TUI must accept an API key via a masked input field
+- All credentials must be stored in the OS keyring via a `CredentialStore` abstraction; credentials must never be written to plain YAML or `.env` files by the system
 
 The inference interface must support streaming output from day one, including token or chunk streaming and tool-call deltas sufficient for an interactive TUI experience.
 
 Provider logic must be separated into:
 - provider adapter
-- auth and session mechanism
+- auth provider (device flow, PKCE, or key entry per provider)
+- credential store (keyring-backed)
 - selection policy
 - inference interface
 

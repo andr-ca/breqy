@@ -321,6 +321,52 @@ Use cases:
 - SSH-related secret handling
 - future external tool credentials
 
+## 12a. Runner authentication architecture
+
+### Overview
+All five orchestrator runners authenticate via an `AuthProvider` ABC. Each provider implementation encapsulates the full auth flow for that vendor. A shared `CredentialStore` wraps the OS keyring under a namespaced key per provider (`breqy/<provider>`).
+
+### `AuthProvider` ABC
+```
+AuthProvider
+  authenticate() -> None          # trigger the auth flow interactively
+  is_authenticated() -> bool      # check keyring for a valid token
+  get_token() -> str | None       # retrieve stored token (or None)
+  revoke() -> None                # delete token from keyring
+```
+
+### Concrete implementations
+
+| Provider | Auth flow | Endpoints |
+|---|---|---|
+| `GitHubCopilotAuth` | RFC 8628 device flow | `POST https://github.com/login/device/code` → poll `https://github.com/login/oauth/access_token` |
+| `CodexAuth` | OpenAI custom device flow | `POST https://auth.openai.com/api/accounts/deviceauth/usercode` → poll `/deviceauth/token` → PKCE exchange `/oauth/token` |
+| `ClaudeAuth` | PKCE Authorization Code | `https://claude.ai/oauth/authorize` (URL displayed, user pastes code back) → token at `https://platform.claude.com/v1/oauth/token` |
+| `GeminiAuth` | RFC 8628 device flow | `POST https://oauth2.googleapis.com/device/code` → poll `https://oauth2.googleapis.com/token` |
+| `QwenAuth` | API key (no OAuth) | User pastes key into TUI masked input; stored directly in keyring |
+
+### `CredentialStore`
+Thin wrapper around the `keyring` library:
+- `get(provider: str) -> str | None`
+- `set(provider: str, token: str) -> None`
+- `delete(provider: str) -> None`
+- Namespace: `breqy/<provider>` (e.g., `breqy/copilot`, `breqy/codex`)
+
+Injected into runners at construction time. Runners call `store.get(provider)` at run time and inject the token into the subprocess env dict — no change to subprocess invocation interface.
+
+### Auth TUI panel
+The `AuthPanel` Textual widget drives the interactive auth flow:
+- Renders a status table: one row per runner, showing authenticated / unauthenticated
+- On user action (select runner, press Enter): calls `provider.authenticate()`
+- **Device flow providers**: display `verification_uri` as OSC8 clickable hyperlink + `user_code`; spawn background polling coroutine; update row when polling completes
+- **PKCE (Claude)**: display authorization URL as OSC8 hyperlink; render `Input` widget for auth code paste; on submit call token exchange
+- **API key (Qwen)**: render masked `Input` widget; on submit call `store.set()`
+- `AuthPanel` is composed into `OrchestratorApp` and reachable via the `A` keybind
+- `breqy-orchestrator auth [provider]` CLI subcommand opens `AuthApp` (a minimal standalone Textual app wrapping only `AuthPanel`) without starting the orchestrator loop
+
+### Integration with runners
+Each runner receives a `CredentialStore` via constructor injection. The runner calls `store.get(self._provider)` before spawning the subprocess and merges the token into `extra_env`. Runners do not read from `.env` directly — the credential store is the sole source of truth for provider tokens at runtime.
+
 ## 13. Observability architecture
 v1 includes:
 - structured logs
@@ -394,6 +440,8 @@ Recommended core abstractions:
 - `AgentSpawner`
 - `ChannelAdapter`
 - `WorkspaceResolver`
+- `AuthProvider` — per-provider OAuth/key auth flow (device flow, PKCE, or key entry)
+- `CredentialStore` — keyring-backed token storage, injected into runners
 
 ## 16. Implementation guidance
 ### Start with Slice 1
