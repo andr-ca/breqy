@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Orchestrator runtime
+ai-artifacts/
+.breqy/orchestrator/
+system/orchestrator/tasks/*.yaml
