@@ -47,3 +47,15 @@ def test_auth_panel_status_summary():
     summary = panel.get_status_summary()
     assert summary["copilot"] is True
     assert summary["claude"] is False
+
+
+def test_auth_app_instantiates():
+    from system.orchestrator.tui.auth_app import AuthApp
+    with patch("keyring.get_password", return_value=None):
+        from system.orchestrator.auth import ALL_PROVIDER_CLASSES
+        from system.orchestrator.auth.credential_store import CredentialStore
+        store = CredentialStore()
+        providers = {name: cls(credential_store=store)
+                     for name, cls in ALL_PROVIDER_CLASSES.items()}
+        app = AuthApp(providers=providers)
+        assert app is not None

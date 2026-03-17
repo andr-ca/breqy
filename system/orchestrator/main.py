@@ -4,6 +4,9 @@ Orchestrator entry point.
 Usage:
     python -m system.orchestrator.main --config system/orchestrator/orchestrator.yaml
     python -m system.orchestrator.main --config system/orchestrator/orchestrator.yaml --no-tui
+    python -m system.orchestrator.main auth
+    python -m system.orchestrator.main auth claude
+    python -m system.orchestrator.main run --config system/orchestrator/orchestrator.yaml
 """
 from __future__ import annotations
 import argparse
@@ -20,6 +23,8 @@ from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskSt
 from system.orchestrator.task_loader import CompositeTaskLoader
 from system.orchestrator.github_task_loader import GitHubTaskLoader
 from system.orchestrator.local_task_loader import LocalYamlTaskLoader
+
+_PROVIDER_CHOICES = ["claude", "codex", "gemini", "copilot", "qwen"]
 
 
 def _build_loop(cfg_path: Path) -> tuple[OrchestratorLoop, queue.Queue, OrchestratorConfig]:
@@ -41,14 +46,8 @@ def _build_loop(cfg_path: Path) -> tuple[OrchestratorLoop, queue.Queue, Orchestr
     return loop, eq, cfg
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Breqy Orchestrator")
-    parser.add_argument("--config", default="system/orchestrator/orchestrator.yaml",
-                        help="Path to orchestrator.yaml")
-    parser.add_argument("--no-tui", action="store_true", help="Run without TUI")
-    args = parser.parse_args()
-
-    loop, eq, cfg = _build_loop(Path(args.config))
+def _run_orchestrator(cfg_path: str, no_tui: bool) -> None:
+    loop, eq, cfg = _build_loop(Path(cfg_path))
 
     # Load tasks
     github_loader = GitHubTaskLoader(
@@ -80,7 +79,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
-    if args.no_tui:
+    if no_tui:
         loop_thread.join()
         return
 
@@ -90,6 +89,59 @@ def main() -> None:
     app.run()
     loop.stop()
     loop_thread.join(timeout=30)
+
+
+def _run_auth(provider_filter: str | None = None) -> None:
+    from system.orchestrator.auth import ALL_PROVIDER_CLASSES
+    from system.orchestrator.auth.credential_store import CredentialStore
+    from system.orchestrator.tui.auth_app import AuthApp
+
+    store = CredentialStore()
+    if provider_filter:
+        cls = ALL_PROVIDER_CLASSES.get(provider_filter)
+        if cls is None:
+            print(f"Unknown provider: {provider_filter}")
+            return
+        providers = {provider_filter: cls(credential_store=store)}
+    else:
+        providers = {name: cls(credential_store=store)
+                     for name, cls in ALL_PROVIDER_CLASSES.items()}
+
+    app = AuthApp(providers=providers)
+    app.run()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Breqy Orchestrator")
+    # Top-level flags for backward compatibility (breqy-orchestrator --config X)
+    parser.add_argument("--config", default="system/orchestrator/orchestrator.yaml",
+                        help="Path to orchestrator.yaml")
+    parser.add_argument("--no-tui", action="store_true", help="Run without TUI")
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    # 'run' subcommand — mirrors top-level flags for symmetry
+    run_parser = subparsers.add_parser("run", help="Run the orchestrator loop")
+    run_parser.add_argument("--config", default="system/orchestrator/orchestrator.yaml",
+                            help="Path to orchestrator.yaml")
+    run_parser.add_argument("--no-tui", action="store_true", help="Run without TUI")
+
+    # 'auth' subcommand
+    auth_parser = subparsers.add_parser("auth", help="Manage provider authentication")
+    auth_parser.add_argument(
+        "provider", nargs="?", choices=_PROVIDER_CHOICES,
+        help="Specific provider to authenticate (omit to show all)"
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "auth":
+        _run_auth(getattr(args, "provider", None))
+    elif args.command == "run":
+        _run_orchestrator(args.config, args.no_tui)
+    else:
+        # No subcommand — use top-level flags (backward compat)
+        _run_orchestrator(args.config, args.no_tui)
 
 
 if __name__ == "__main__":
