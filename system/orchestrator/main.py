@@ -16,8 +16,10 @@ import sys
 import threading
 from pathlib import Path
 from system.orchestrator.artifact_store import ArtifactStore
+from system.orchestrator.ci_adapter import CIAdapter
 from system.orchestrator.config import load_config, OrchestratorConfig
 from system.orchestrator.event_log import EventLog
+from system.orchestrator.github_adapter import GitHubAdapter
 from system.orchestrator.orchestrator import OrchestratorLoop
 from system.orchestrator.state_machine import ConcreteStateMachine
 from system.orchestrator.branch_manager import BranchManager
@@ -64,6 +66,8 @@ def _run_orchestrator(cfg_path: str, no_tui: bool) -> None:
         event_queue=eq,
         loader=composite,
         branch_manager=BranchManager(repo_root=Path.cwd()),
+        ci_adapter=CIAdapter(repo=cfg.github.repo),
+        github_adapter=GitHubAdapter(repo=cfg.github.repo),
     )
 
     # Start orchestrator loop in background thread

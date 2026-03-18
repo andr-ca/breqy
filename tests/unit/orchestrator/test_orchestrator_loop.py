@@ -7,6 +7,29 @@ from system.orchestrator.state_machine import Task, TaskState, ConcreteStateMach
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.schemas.artifacts import ParsedOutput
 from system.orchestrator.schemas.run_result import RunResult
+from system.orchestrator.ci_adapter import CIAdapter
+from system.orchestrator.github_adapter import GitHubAdapter
+
+
+def _make_loop(tmp_path, ci_adapter=None, github_adapter=None, branch_manager=None):
+    from system.orchestrator.config import OrchestratorConfig, GitHubConfig
+    from system.orchestrator.artifact_store import ArtifactStore
+    from system.orchestrator.event_log import EventLog
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude", "checker": "codex"},
+    )
+    sm = ConcreteStateMachine()
+    store = ArtifactStore(base=tmp_path / "artifacts")
+    log = EventLog(path=tmp_path / "events.jsonl")
+    eq: queue.Queue = queue.Queue()
+    return OrchestratorLoop(
+        config=cfg, state_machine=sm, artifact_store=store,
+        event_log=log, event_queue=eq,
+        ci_adapter=ci_adapter,
+        github_adapter=github_adapter,
+        branch_manager=branch_manager,
+    )
 
 
 @pytest.fixture
@@ -220,3 +243,25 @@ def test_run_calls_sync_tasks_each_tick(loop):
     loop._loader.load_pending.side_effect = fake_load
     loop.run()
     assert call_count[0] == 1
+
+
+def test_loop_stores_ci_adapter(tmp_path):
+    mock_ci = MagicMock(spec=CIAdapter)
+    loop = _make_loop(tmp_path, ci_adapter=mock_ci)
+    assert loop._ci_adapter is mock_ci
+
+
+def test_loop_stores_github_adapter(tmp_path):
+    mock_gh = MagicMock(spec=GitHubAdapter)
+    loop = _make_loop(tmp_path, github_adapter=mock_gh)
+    assert loop._github_adapter is mock_gh
+
+
+def test_loop_ci_adapter_defaults_to_none(tmp_path):
+    loop = _make_loop(tmp_path)
+    assert loop._ci_adapter is None
+
+
+def test_loop_github_adapter_defaults_to_none(tmp_path):
+    loop = _make_loop(tmp_path)
+    assert loop._github_adapter is None

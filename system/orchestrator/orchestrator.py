@@ -7,8 +7,10 @@ from pathlib import Path
 from system.orchestrator.artifact_store import ArtifactStore
 from system.orchestrator.auth.credential_store import CredentialStore
 from system.orchestrator.branch_manager import BranchManager
+from system.orchestrator.ci_adapter import CIAdapter
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
+from system.orchestrator.github_adapter import GitHubAdapter
 from system.orchestrator.router import Router
 from system.orchestrator.schemas.artifacts import MergeReadinessArtifact
 from system.orchestrator.schemas.events import OrchestratorEvent
@@ -28,6 +30,8 @@ class OrchestratorLoop:
         credential_store: CredentialStore | None = None,
         loader: TaskLoader | None = None,
         branch_manager: BranchManager | None = None,
+        ci_adapter: CIAdapter | None = None,
+        github_adapter: GitHubAdapter | None = None,
     ) -> None:
         self._config = config
         self._sm = state_machine
@@ -39,6 +43,8 @@ class OrchestratorLoop:
         self._current_process = None   # set by runner layer
         self._loader = loader
         self._branch_manager = branch_manager
+        self._ci_adapter = ci_adapter
+        self._github_adapter = github_adapter
         self._current_task_id: str | None = None
 
     def stop(self) -> None:
