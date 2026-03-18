@@ -1,5 +1,6 @@
 # system/orchestrator/orchestrator.py
 from __future__ import annotations
+import datetime
 import queue
 import threading
 import time
@@ -65,7 +66,6 @@ class OrchestratorLoop:
     def flush(self, config: OrchestratorConfig) -> None:
         """Flush event log and write runtime-state.yaml."""
         import yaml as _yaml
-        import datetime
         state_path = Path(config.orchestrator.runtime_state)
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(_yaml.dump({
@@ -330,6 +330,58 @@ class OrchestratorLoop:
                 task_id=task.task_id, event_type="state_transition",
                 from_state="READY_FOR_QA_AUTOMATION", to_state="QA_FAILED",
             ))
+        return task
+
+    def _handle_ready_for_merge_review(self, task: Task, env: TaskEnvelope) -> Task:
+        # Create PR if not yet created
+        if task.pr_url is None:
+            if self._github_adapter is None:
+                return self._sm.force_block(task, notes="github_adapter not configured")
+            base = self._branch_manager.merge_target(env.task_type) if self._branch_manager else "dev"
+            pr_url = self._github_adapter.create_pr(
+                branch=task.branch or "",
+                base=base,
+                title=f"{env.task_id}: {env.title}",
+                body=f"Automated PR for task {env.task_id}.",
+            )
+            task = task.model_copy(update={"pr_url": pr_url})
+
+        # Non-blocking CI poll
+        if self._ci_adapter is None:
+            return self._sm.force_block(task, notes="ci_adapter not configured")
+        run = self._ci_adapter.get_latest_run(task.branch or "")
+        if run is None or run.status != "completed":
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="ci_poll",
+                notes=f"CI not complete yet for {task.branch}",
+            ))
+            return task  # stay in READY_FOR_MERGE_REVIEW
+
+        if run.conclusion != "success":
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="ci_result",
+                notes=f"CI failed: conclusion={run.conclusion}",
+            ))
+            return self._sm.force_block(task, notes=f"CI failed: {run.conclusion}")
+
+        # CI green — write merge-readiness artifact and advance
+        base = self._branch_manager.merge_target(env.task_type) if self._branch_manager else "dev"
+        artifact = MergeReadinessArtifact(
+            task_id=task.task_id,
+            checked_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            artifacts_present=[],
+            branch=task.branch or "",
+            merge_target=base,
+            ci_conclusion=run.conclusion,
+            branch_is_current=True,
+            verdict="pass",
+        )
+        self._artifact_store.write(task.task_id, "merge-readiness", artifact)
+        task = self._sm.transition(task, TaskState.READY_FOR_LESSONS)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id, event_type="state_transition",
+            from_state="READY_FOR_MERGE_REVIEW", to_state="READY_FOR_LESSONS",
+        ))
         return task
 
     def _handle_ready_for_lessons(self, task: Task, env: TaskEnvelope) -> Task:

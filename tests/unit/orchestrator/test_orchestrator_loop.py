@@ -705,3 +705,98 @@ def test_handle_lessons_pass_advances_to_human_review(tmp_path):
     env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
     result = loop._handle_ready_for_lessons(task, env)
     assert result.state == TaskState.READY_FOR_HUMAN_REVIEW
+
+
+# --- _handle_ready_for_merge_review ---
+
+from system.orchestrator.ci_adapter import CiRun
+
+
+def test_handle_merge_review_creates_pr_if_not_set(tmp_path):
+    mock_gh = MagicMock()
+    mock_gh.create_pr.return_value = "https://github.com/owner/repo/pull/7"
+    mock_ci = MagicMock()
+    mock_ci.get_latest_run.return_value = None  # CI not started yet
+    mock_bm = MagicMock()
+    mock_bm.merge_target.return_value = "dev"
+    loop = _make_loop(tmp_path, ci_adapter=mock_ci, github_adapter=mock_gh, branch_manager=mock_bm)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t", pr_url=None)
+    env = TaskEnvelope(task_id="BRQ-1", title="Add feature", task_type="feature", component="backend")
+    result = loop._handle_ready_for_merge_review(task, env)
+    mock_gh.create_pr.assert_called_once()
+    assert result.pr_url == "https://github.com/owner/repo/pull/7"
+    assert result.state == TaskState.READY_FOR_MERGE_REVIEW  # CI not done, stays
+
+
+def test_handle_merge_review_does_not_recreate_pr(tmp_path):
+    mock_gh = MagicMock()
+    mock_ci = MagicMock()
+    mock_ci.get_latest_run.return_value = None
+    mock_bm = MagicMock()
+    mock_bm.merge_target.return_value = "dev"
+    loop = _make_loop(tmp_path, ci_adapter=mock_ci, github_adapter=mock_gh, branch_manager=mock_bm)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t", pr_url="https://github.com/owner/repo/pull/5")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    loop._handle_ready_for_merge_review(task, env)
+    mock_gh.create_pr.assert_not_called()
+
+
+def test_handle_merge_review_stays_when_ci_in_progress(tmp_path):
+    mock_ci = MagicMock()
+    mock_ci.get_latest_run.return_value = CiRun(
+        run_id=1, status="in_progress", conclusion=None, branch="feat/BRQ-1-t"
+    )
+    mock_bm = MagicMock()
+    mock_bm.merge_target.return_value = "dev"
+    loop = _make_loop(tmp_path, ci_adapter=mock_ci, github_adapter=MagicMock(), branch_manager=mock_bm)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t", pr_url="https://github.com/owner/repo/pull/5")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_merge_review(task, env)
+    assert result.state == TaskState.READY_FOR_MERGE_REVIEW
+
+
+def test_handle_merge_review_advances_on_ci_green(tmp_path):
+    mock_ci = MagicMock()
+    mock_ci.get_latest_run.return_value = CiRun(
+        run_id=1, status="completed", conclusion="success", branch="feat/BRQ-1-t"
+    )
+    mock_bm = MagicMock()
+    mock_bm.merge_target.return_value = "dev"
+    loop = _make_loop(tmp_path, ci_adapter=mock_ci, github_adapter=MagicMock(), branch_manager=mock_bm)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t", pr_url="https://github.com/owner/repo/pull/5")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_merge_review(task, env)
+    assert result.state == TaskState.READY_FOR_LESSONS
+    # MergeReadinessArtifact written
+    from system.orchestrator.schemas.artifacts import MergeReadinessArtifact
+    artifact = loop._artifact_store.read("BRQ-1", "merge-readiness", MergeReadinessArtifact)
+    assert artifact is not None
+    assert artifact.verdict == "pass"
+
+
+def test_handle_merge_review_blocks_on_ci_failure(tmp_path):
+    mock_ci = MagicMock()
+    mock_ci.get_latest_run.return_value = CiRun(
+        run_id=1, status="completed", conclusion="failure", branch="feat/BRQ-1-t"
+    )
+    mock_bm = MagicMock()
+    mock_bm.merge_target.return_value = "dev"
+    loop = _make_loop(tmp_path, ci_adapter=mock_ci, github_adapter=MagicMock(), branch_manager=mock_bm)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t", pr_url="https://github.com/owner/repo/pull/5")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_merge_review(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+def test_handle_merge_review_blocks_when_ci_adapter_none(tmp_path):
+    loop = _make_loop(tmp_path)  # no ci_adapter
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t", pr_url="https://github.com/owner/repo/pull/5")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_merge_review(task, env)
+    assert result.state == TaskState.BLOCKED
