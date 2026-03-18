@@ -415,6 +415,14 @@ def test_handle_branch_prep_blocks_on_exception(tmp_path):
     assert result.state == TaskState.BLOCKED
 
 
+def test_handle_branch_prep_blocks_when_branch_manager_is_none(tmp_path):
+    loop = _make_loop(tmp_path)  # no branch_manager
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP)
+    env = TaskEnvelope(task_id="BRQ-1", title="Add feature", task_type="feature", component="backend")
+    result = loop._handle_ready_for_branch_prep(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
 # --- _handle_doer_in_progress ---
 
 def test_handle_doer_in_progress_transitions_to_retry_pending(tmp_path):
