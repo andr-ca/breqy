@@ -69,10 +69,15 @@ class CodexAuth(DeviceFlowProvider):
         if resp.status_code != 200:
             return None
         data = resp.json()
-        auth_code = data.get("authorization_code")
-        code_verifier = data.get("code_verifier")
+        # Accept both field name variants seen across implementations
+        auth_code = data.get("authorization_code") or data.get("code")
+        code_verifier = data.get("code_verifier") or data.get("verifier")
         if not auth_code or not code_verifier:
-            return None
+            # Authorized but unexpected format — surface the raw response as an error
+            raise RuntimeError(
+                f"Unexpected poll response (keys: {list(data.keys())}). "
+                "Please report this at github.com/your-org/breqy."
+            )
         return self._exchange_code(auth_code, code_verifier)
 
     def _exchange_code(self, code: str, code_verifier: str) -> str | None:
@@ -87,10 +92,11 @@ class CodexAuth(DeviceFlowProvider):
                 "redirect_uri": _REDIRECT_URI,
             },
         )
-        resp.raise_for_status()
+        if not resp.is_success:
+            raise RuntimeError(f"Token exchange failed {resp.status_code}: {resp.text[:200]}")
         data = resp.json()
         token = data.get("access_token")
-        if token:
-            self._store.set(self.provider_name, token)
-            return token
-        return None
+        if not token:
+            raise RuntimeError(f"No access_token in exchange response: {list(data.keys())}")
+        self._store.set(self.provider_name, token)
+        return token

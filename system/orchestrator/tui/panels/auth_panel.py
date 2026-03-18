@@ -179,7 +179,15 @@ class AuthPanel(Widget):
                 app.call_from_thread(_update_status, f"Checking… (attempt {attempt})")
                 try:
                     token = provider.poll_for_token(device_resp.device_code)
+                except RuntimeError as e:
+                    # Fatal: unexpected response format or exchange failure — stop polling
+                    app.call_from_thread(
+                        _update_status,
+                        f"[red]Auth failed: {markup_escape(str(e))}[/red]",
+                    )
+                    return
                 except Exception as e:
+                    # Transient: network error etc — keep retrying
                     app.call_from_thread(
                         _update_status,
                         f"[yellow]Poll error, retrying: {markup_escape(str(e))}[/yellow]",

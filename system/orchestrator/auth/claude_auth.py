@@ -14,8 +14,8 @@ from system.orchestrator.auth.credential_store import CredentialStore
 _CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 _REDIRECT_URI = "https://platform.claude.com/oauth/code/callback"
 _AUTH_URL = "https://claude.ai/oauth/authorize"
-_TOKEN_URL = "https://api.anthropic.com/oauth/token"
-_SCOPES = "org:create_api_key user:profile"
+_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+_SCOPES = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 
 
 class ClaudeAuth(PkceProvider):
@@ -70,12 +70,13 @@ class ClaudeAuth(PkceProvider):
         code = self._extract_code(raw_input)
         resp = httpx.post(
             _TOKEN_URL,
-            data={
+            json={
                 "grant_type": "authorization_code",
                 "code": code,
                 "code_verifier": self._code_verifier or "",
                 "client_id": _CLIENT_ID,
                 "redirect_uri": _REDIRECT_URI,
+                "state": self._state or "",
             },
         )
         resp.raise_for_status()
