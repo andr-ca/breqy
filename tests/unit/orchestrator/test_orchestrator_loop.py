@@ -873,3 +873,109 @@ def test_tick_returns_task_unchanged_for_blocked(tmp_path):
     env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
     result = loop._tick(task, env, {})
     assert result.state == TaskState.BLOCKED
+
+
+# ─── Integration tests ────────────────────────────────────────────────────────
+
+def _make_integration_loop(tmp_path):
+    """Full loop with all mocked adapters for integration testing."""
+    from system.orchestrator.config import OrchestratorConfig, GitHubConfig
+    from system.orchestrator.artifact_store import ArtifactStore
+    from system.orchestrator.event_log import EventLog
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        agent_defaults={"doer": "claude", "checker": "claude", "tester": "claude",
+                        "qa_automation": "claude", "lessons": "claude", "planner": "claude"},
+    )
+    sm = ConcreteStateMachine(max_rework_loops=3, max_retries=3)
+    store = ArtifactStore(base=tmp_path / "artifacts")
+    log = EventLog(path=tmp_path / "events.jsonl")
+    eq: queue.Queue = queue.Queue()
+
+    mock_bm = MagicMock()
+    mock_bm.make_slug.return_value = "add-feature"
+    mock_bm.create_branch.return_value = "feat/BRQ-1-add-feature"
+    mock_bm.merge_target.return_value = "dev"
+    mock_bm.diff.return_value = "diff text"
+
+    mock_ci = MagicMock()
+    from system.orchestrator.ci_adapter import CiRun
+    mock_ci.get_latest_run.return_value = CiRun(
+        run_id=1, status="completed", conclusion="success", branch="feat/BRQ-1-add-feature"
+    )
+
+    mock_gh = MagicMock()
+    mock_gh.create_pr.return_value = "https://github.com/owner/repo/pull/99"
+    mock_gh.merge_pr.return_value = None
+
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm, artifact_store=store, event_log=log, event_queue=eq,
+        branch_manager=mock_bm, ci_adapter=mock_ci, github_adapter=mock_gh,
+    )
+
+    # Mock router: all agents return pass
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    mock_runner = MagicMock()
+    mock_proc = MagicMock()
+    mock_proc.communicate.return_value = ('{"status": "pass", "notes": "done"}', None)
+    mock_proc.returncode = 0
+    mock_runner.start.return_value = mock_proc
+
+    mock_adapter = MagicMock()
+    mock_adapter.build_prompt.return_value = "prompt"
+    mock_adapter.parse_output.return_value = ParsedOutput(
+        status="pass", artifact_paths=[], notes="done"
+    )
+
+    loop._router = MagicMock()
+    loop._router.resolve.return_value = (mock_runner, mock_adapter)
+
+    return loop, sm
+
+
+def test_integration_happy_path_new_to_done(tmp_path):
+    """Task drives NEW → DONE through all states with all-passing mock agents."""
+    loop, sm = _make_integration_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.NEW)
+    env = TaskEnvelope(task_id="BRQ-1", title="Add feature", task_type="feature", component="backend")
+    all_tasks = {"BRQ-1": (task, env)}
+
+    # Drive task forward until DONE or BLOCKED (max 50 ticks to avoid infinite loops)
+    for _ in range(50):
+        task, env = all_tasks["BRQ-1"]
+        if task.state in (TaskState.DONE, TaskState.BLOCKED):
+            break
+        task = loop._tick(task, env, all_tasks)
+        all_tasks["BRQ-1"] = (task, env)
+
+    assert task.state == TaskState.DONE
+
+
+def test_integration_rework_loop_check_failed_blocks_after_3(tmp_path):
+    """Task blocked after 3 check failures (rework limit)."""
+    loop, sm = _make_integration_loop(tmp_path)
+
+    # Patch _run_agent: checker always fails, others pass
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+
+    def selective_run_agent(task, env, role, prior_artifacts=None):
+        if role == "checker":
+            return ParsedOutput(status="fail", artifact_paths=[], notes="check failed")
+        return ParsedOutput(status="pass", artifact_paths=[], notes="ok")
+
+    loop._run_agent = selective_run_agent
+
+    task = Task(task_id="BRQ-1", state=TaskState.NEW)
+    env = TaskEnvelope(task_id="BRQ-1", title="Add feature", task_type="feature", component="backend")
+    all_tasks = {"BRQ-1": (task, env)}
+
+    for _ in range(100):
+        task, env = all_tasks["BRQ-1"]
+        if task.state in (TaskState.DONE, TaskState.BLOCKED):
+            break
+        task = loop._tick(task, env, all_tasks)
+        all_tasks["BRQ-1"] = (task, env)
+
+    assert task.state == TaskState.BLOCKED
+    # rework_count should be 3 (incremented on each CHECK_FAILED → READY_FOR_DOER)
+    assert task.rework_count == 3
