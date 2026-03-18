@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from system.orchestrator.artifact_store import ArtifactStore
 from system.orchestrator.auth.credential_store import CredentialStore
+from system.orchestrator.branch_manager import BranchManager
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.router import Router
@@ -13,6 +14,7 @@ from system.orchestrator.schemas.artifacts import MergeReadinessArtifact
 from system.orchestrator.schemas.events import OrchestratorEvent
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
+from system.orchestrator.task_loader import TaskLoader
 
 
 class OrchestratorLoop:
@@ -24,6 +26,8 @@ class OrchestratorLoop:
         event_log: EventLog,
         event_queue: queue.Queue,
         credential_store: CredentialStore | None = None,
+        loader: TaskLoader | None = None,
+        branch_manager: BranchManager | None = None,
     ) -> None:
         self._config = config
         self._sm = state_machine
@@ -33,6 +37,9 @@ class OrchestratorLoop:
         self._stop_event = threading.Event()
         self._router = Router(config=config, credential_store=credential_store)
         self._current_process = None   # set by runner layer
+        self._loader = loader
+        self._branch_manager = branch_manager
+        self._current_task_id: str | None = None
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -82,6 +89,20 @@ class OrchestratorLoop:
     def _emit(self, event: OrchestratorEvent) -> None:
         self._log.append(event)
         self._queue.put_nowait(event)
+
+    def _cancel_task(self, task: Task, env: TaskEnvelope) -> None:
+        """Kill running process, delete git branch, emit task_cancelled event."""
+        if self._current_task_id == task.task_id:
+            self.force_kill_current()
+            self._current_process = None
+            self._current_task_id = None
+        if task.branch and self._branch_manager is not None:
+            self._branch_manager.delete_branch(task.branch)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id,
+            event_type="task_cancelled",
+            from_state=task.state.value,
+        ))
 
     def run(
         self,
