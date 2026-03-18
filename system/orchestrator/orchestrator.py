@@ -142,6 +142,9 @@ class OrchestratorLoop:
             role=role,
             agent_type=type(runner).__name__,
         ))
+        # NOTE: We call runner.start() (not runner.run()) to obtain the Popen handle for
+        # _cancel_task(). This bypasses ClaudeRunner.run()'s rate-limit detection — the
+        # adapter's parse_output() is responsible for handling rate-limit signals instead.
         try:
             proc = runner.start(prompt, run_context)
             self._current_process = proc
@@ -352,11 +355,11 @@ class OrchestratorLoop:
         return task
 
     def _handle_ready_for_merge_review(self, task: Task, env: TaskEnvelope) -> Task:
+        base = self._branch_manager.merge_target(env.task_type) if self._branch_manager else "dev"
         # Create PR if not yet created
         if task.pr_url is None:
             if self._github_adapter is None:
                 return self._sm.force_block(task, notes="github_adapter not configured")
-            base = self._branch_manager.merge_target(env.task_type) if self._branch_manager else "dev"
             pr_url = self._github_adapter.create_pr(
                 branch=task.branch or "",
                 base=base,
@@ -383,8 +386,7 @@ class OrchestratorLoop:
             ))
             return self._sm.force_block(task, notes=f"CI failed: {run.conclusion}")
 
-        # CI green — write merge-readiness artifact and advance
-        base = self._branch_manager.merge_target(env.task_type) if self._branch_manager else "dev"
+        # CI green — use base computed above (no second merge_target call)
         artifact = MergeReadinessArtifact(
             task_id=task.task_id,
             checked_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),

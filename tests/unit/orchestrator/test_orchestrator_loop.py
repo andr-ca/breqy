@@ -696,6 +696,17 @@ def test_handle_qa_fail_advances_to_qa_failed(tmp_path):
     assert result.state == TaskState.QA_FAILED
 
 
+# --- test_case_design fail ---
+
+def test_handle_test_case_design_fail_blocks(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_fail(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TEST_CASE_DESIGN)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_test_case_design(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
 # --- lessons ---
 
 def test_handle_lessons_pass_advances_to_human_review(tmp_path):
@@ -705,6 +716,15 @@ def test_handle_lessons_pass_advances_to_human_review(tmp_path):
     env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
     result = loop._handle_ready_for_lessons(task, env)
     assert result.state == TaskState.READY_FOR_HUMAN_REVIEW
+
+
+def test_handle_lessons_fail_blocks(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_fail(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_LESSONS)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_lessons(task, env)
+    assert result.state == TaskState.BLOCKED
 
 
 # --- _handle_ready_for_merge_review ---
