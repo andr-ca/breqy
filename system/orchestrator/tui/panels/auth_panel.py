@@ -6,11 +6,16 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import DataTable, Static, Input, Button, ContentSwitcher
 from textual.containers import Vertical, Horizontal
+from textual.message import Message
 from system.orchestrator.auth.base import AuthFlowType, AuthProvider, DeviceCodeResponse
 
 
 class AuthPanel(Widget):
     """Interactive authentication panel for all runner providers."""
+
+    BINDINGS = [
+        ("escape", "cancel_auth", "Back"),
+    ]
 
     def __init__(self, providers: dict[str, AuthProvider], **kwargs) -> None:
         super().__init__(**kwargs)
@@ -18,6 +23,7 @@ class AuthPanel(Widget):
         self._active_provider: str | None = None
         self._active_device_code: str | None = None
         self._poll_thread: threading.Thread | None = None
+        self._current_view: str = "status"
 
     def get_status_summary(self) -> dict[str, bool]:
         """Return {provider_name: is_authenticated} for all providers."""
@@ -66,7 +72,22 @@ class AuthPanel(Widget):
             table.add_row(name, provider.flow_type.value, status, key=name)
 
     def _show_view(self, view_id: str) -> None:
-        self.query_one("#auth-switcher", ContentSwitcher).current = view_id
+        self._current_view = view_id
+        switcher = self.query_one("#auth-switcher", ContentSwitcher)
+        switcher.current = view_id
+        # Auto-focus first interactive element in the view
+        if view_id == "status":
+            table = self.query_one("#auth-table", DataTable)
+            table.focus()
+        elif view_id == "device-flow":
+            btn = self.query_one("#df-cancel", Button)
+            btn.focus()
+        elif view_id == "pkce-flow":
+            input_widget = self.query_one("#pkce-input", Input)
+            input_widget.focus()
+        elif view_id == "api-key-flow":
+            input_widget = self.query_one("#key-input", Input)
+            input_widget.focus()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         provider_name = str(event.row_key.value)
@@ -128,23 +149,42 @@ class AuthPanel(Widget):
 
         if btn_id in ("df-cancel", "pkce-cancel", "key-cancel"):
             self._show_view("status")
-
         elif btn_id == "pkce-submit":
-            code = self.query_one("#pkce-input", Input).value.strip()
-            if code and self._active_provider:
-                provider = self._providers[self._active_provider]
-                try:
-                    provider.exchange_code(code)
-                    self._on_auth_success()
-                except Exception as e:
-                    self.query_one("#pkce-url", Static).update(f"[red]Error: {e}[/red]")
-
+            self._submit_pkce()
         elif btn_id == "key-submit":
-            key = self.query_one("#key-input", Input).value.strip()
-            if key and self._active_provider:
-                provider = self._providers[self._active_provider]
-                try:
-                    provider.set_key(key)
-                    self._on_auth_success()
-                except Exception as e:
-                    self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
+            self._submit_api_key()
+
+    def action_cancel_auth(self) -> None:
+        """Handle Escape key — go back to status view."""
+        if self._current_view != "status":
+            self._show_view("status")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter in input fields — submit the form."""
+        input_id = event.input.id
+        if input_id == "pkce-input":
+            self._submit_pkce()
+        elif input_id == "key-input":
+            self._submit_api_key()
+
+    def _submit_pkce(self) -> None:
+        """Submit PKCE authorization code."""
+        code = self.query_one("#pkce-input", Input).value.strip()
+        if code and self._active_provider:
+            provider = self._providers[self._active_provider]
+            try:
+                provider.exchange_code(code)
+                self._on_auth_success()
+            except Exception as e:
+                self.query_one("#pkce-url", Static).update(f"[red]Error: {e}[/red]")
+
+    def _submit_api_key(self) -> None:
+        """Submit API key."""
+        key = self.query_one("#key-input", Input).value.strip()
+        if key and self._active_provider:
+            provider = self._providers[self._active_provider]
+            try:
+                provider.set_key(key)
+                self._on_auth_success()
+            except Exception as e:
+                self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
