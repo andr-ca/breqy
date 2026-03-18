@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import secrets
 from urllib.parse import urlencode
 import httpx
 from system.orchestrator.auth.base import PkceProvider
@@ -27,6 +28,7 @@ class ClaudeAuth(PkceProvider):
     def __init__(self, credential_store: CredentialStore) -> None:
         self._store = credential_store
         self._code_verifier: str | None = None
+        self._state: str | None = None
 
     @property
     def provider_name(self) -> str:
@@ -47,6 +49,7 @@ class ClaudeAuth(PkceProvider):
         digest = hashlib.sha256(verifier.encode()).digest()
         challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
         self._code_verifier = verifier
+        self._state = secrets.token_urlsafe(32)
 
         params = {
             "response_type": "code",
@@ -55,6 +58,7 @@ class ClaudeAuth(PkceProvider):
             "scope": _SCOPES,
             "code_challenge": challenge,
             "code_challenge_method": "S256",
+            "state": self._state,
         }
         return f"{_AUTH_URL}?{urlencode(params)}"
 

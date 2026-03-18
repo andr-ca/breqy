@@ -46,6 +46,7 @@ class AuthPanel(Widget):
                 yield Static("", id="df-url")
                 yield Static("", id="df-code")
                 yield Static("Waiting for authorization…", id="df-status")
+                yield Static("Press [b]c[/b] to copy code · [b]Esc[/b] to cancel", id="df-hint")
                 yield Button("Cancel", id="df-cancel", variant="error")
 
             with Vertical(id="pkce-flow"):
@@ -126,6 +127,8 @@ class AuthPanel(Widget):
                 self._start_device_poll(provider, device_resp)
             except Exception as e:
                 self._show_view("device-flow")
+                self.query_one("#df-url", Static).update("")
+                self.query_one("#df-code", Static).update("")
                 self.query_one("#df-status", Static).update(
                     f"[red]Error: {markup_escape(str(e))}[/red]"
                 )
@@ -222,6 +225,22 @@ class AuthPanel(Widget):
 
     def _copy_to_clipboard(self, text: str) -> bool:
         """Copy text to system clipboard. Returns True on success."""
+        import subprocess
+        # Try X11 and Wayland clipboard tools directly
+        for cmd in (
+            ["xclip", "-selection", "clipboard"],
+            ["xsel", "--clipboard", "--input"],
+            ["wl-copy"],
+        ):
+            try:
+                result = subprocess.run(
+                    cmd, input=text.encode(), timeout=2, capture_output=True
+                )
+                if result.returncode == 0:
+                    return True
+            except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+                continue
+        # Fallback: pyperclip handles additional platforms
         try:
             import pyperclip
             pyperclip.copy(text)
