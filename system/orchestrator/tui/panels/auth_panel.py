@@ -17,6 +17,7 @@ class AuthPanel(Widget):
 
     BINDINGS = [
         Binding("escape", "cancel_auth", "Back", priority=True),
+        Binding("c", "copy_code", "Copy code"),
     ]
 
     def __init__(self, providers: dict[str, AuthProvider], **kwargs) -> None:
@@ -24,6 +25,7 @@ class AuthPanel(Widget):
         self._providers = providers
         self._active_provider: str | None = None
         self._active_device_code: str | None = None
+        self._active_user_code: str | None = None
         self._poll_thread: threading.Thread | None = None
         self._current_view: str = "status"
 
@@ -109,6 +111,7 @@ class AuthPanel(Widget):
             try:
                 device_resp = provider.request_device_code()
                 self._active_device_code = device_resp.device_code
+                self._active_user_code = device_resp.user_code
                 self._show_view("device-flow")
                 url = device_resp.verification_uri
                 url_text = Text("Open: ")
@@ -117,7 +120,9 @@ class AuthPanel(Widget):
                 self.query_one("#df-code", Static).update(
                     f"Enter code: [b]{markup_escape(device_resp.user_code)}[/b]"
                 )
-                self.query_one("#df-status", Static).update("Waiting for authorization…")
+                copied = self._copy_to_clipboard(device_resp.user_code)
+                status = "Waiting… (code copied to clipboard)" if copied else "Waiting… (press c to copy code)"
+                self.query_one("#df-status", Static).update(status)
                 self._start_device_poll(provider, device_resp)
             except Exception as e:
                 self._show_view("device-flow")
@@ -147,16 +152,37 @@ class AuthPanel(Widget):
                 self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
 
     def _start_device_poll(self, provider: AuthProvider, device_resp: DeviceCodeResponse) -> None:
+        def _update_status(msg: str) -> None:
+            try:
+                self.query_one("#df-status", Static).update(msg)
+            except Exception:
+                pass
+
         def _poll() -> None:
             interval = max(device_resp.interval, 5)
             deadline = time.time() + device_resp.expires_in
+            attempt = 0
             while time.time() < deadline:
                 time.sleep(interval)
-                token = provider.poll_for_token(device_resp.device_code)
+                attempt += 1
+                self.app.call_from_thread(
+                    _update_status, f"Checking… (attempt {attempt})"
+                )
+                try:
+                    token = provider.poll_for_token(device_resp.device_code)
+                except Exception as e:
+                    self.app.call_from_thread(
+                        _update_status,
+                        f"[yellow]Poll error, retrying: {markup_escape(str(e))}[/yellow]",
+                    )
+                    continue
                 if token:
-                    self.call_from_thread(self._on_auth_success)
+                    self.app.call_from_thread(self._on_auth_success)
                     return
-            self.call_from_thread(self._on_device_expired)
+                self.app.call_from_thread(
+                    _update_status, f"Waiting for authorization… (attempt {attempt})"
+                )
+            self.app.call_from_thread(self._on_device_expired)
 
         self._poll_thread = threading.Thread(target=_poll, daemon=True)
         self._poll_thread.start()
@@ -182,6 +208,26 @@ class AuthPanel(Widget):
         """Handle Escape key — go back to status view."""
         if self._current_view != "status":
             self._show_view("status")
+
+    def action_copy_code(self) -> None:
+        """Copy device user_code to clipboard when in device-flow view."""
+        if self._current_view != "device-flow" or not self._active_user_code:
+            return
+        copied = self._copy_to_clipboard(self._active_user_code)
+        try:
+            msg = "[green]Copied![/green]" if copied else "[red]Clipboard unavailable[/red]"
+            self.query_one("#df-status", Static).update(msg)
+        except Exception:
+            pass
+
+    def _copy_to_clipboard(self, text: str) -> bool:
+        """Copy text to system clipboard. Returns True on success."""
+        try:
+            import pyperclip
+            pyperclip.copy(text)
+            return True
+        except Exception:
+            return False
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle Enter in input fields — submit the form."""
