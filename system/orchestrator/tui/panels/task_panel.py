@@ -19,6 +19,9 @@ class TaskPanel(Widget):
     def handle_event(self, event: OrchestratorEvent) -> None:
         if event.event_type == "task_cancelled":
             self._tasks.pop(event.task_id, None)
+            if self._active_id == event.task_id:
+                remaining = list(self._tasks)
+                self._active_id = remaining[-1] if remaining else None
             return
         self._active_id = event.task_id
         task, env = self._tasks.get(event.task_id, (None, None))

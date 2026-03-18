@@ -216,11 +216,13 @@ def test_task_panel_removes_entry_on_task_cancelled():
     task, env = _make_task_and_env()
     panel = TaskPanel(tasks=[(task, env)], id="task")
     assert "BRQ-1" in panel._tasks
+    assert panel._active_id == "BRQ-1"
     panel.handle_event(OrchestratorEvent(
         task_id="BRQ-1", event_type="task_cancelled",
         from_state="DOER_IN_PROGRESS",
     ))
     assert "BRQ-1" not in panel._tasks
+    assert panel._active_id is None
 
 
 def test_task_panel_cancel_unknown_task_does_not_raise():
