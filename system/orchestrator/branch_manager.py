@@ -71,3 +71,8 @@ class BranchManager:
 
     def push(self, name: str) -> None:
         self._run("git", "push", "--set-upstream", "origin", name)
+
+    def delete_branch(self, name: str) -> None:
+        """Delete branch locally and on remote. Silently ignores missing branches."""
+        self._run("git", "branch", "-D", name, check=False)
+        self._run("git", "push", "origin", "--delete", name, check=False)

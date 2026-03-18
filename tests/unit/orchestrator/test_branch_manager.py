@@ -109,3 +109,27 @@ def test_push_calls_git(bm):
         bm.push("feat/BRQ-1-test")
         calls = [str(c) for c in mock_run.call_args_list]
         assert any("push" in c for c in calls)
+
+
+def test_delete_branch_issues_local_and_remote_delete(bm):
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        bm.delete_branch("feat/BRQ-1-test")
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    assert ("git", "branch", "-D", "feat/BRQ-1-test") in calls
+    assert ("git", "push", "origin", "--delete", "feat/BRQ-1-test") in calls
+
+
+def test_delete_branch_does_not_raise_when_branch_missing(bm):
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="branch not found")
+        bm.delete_branch("feat/BRQ-1-test")  # must not raise
+
+
+def test_delete_branch_does_not_raise_when_remote_missing(bm):
+    results = [
+        MagicMock(returncode=0, stdout="", stderr=""),   # local delete ok
+        MagicMock(returncode=1, stdout="", stderr="remote ref not found"),  # remote fails
+    ]
+    with patch("subprocess.run", side_effect=results):
+        bm.delete_branch("feat/BRQ-1-test")  # must not raise
