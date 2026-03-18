@@ -800,3 +800,12 @@ def test_handle_merge_review_blocks_when_ci_adapter_none(tmp_path):
     env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
     result = loop._handle_ready_for_merge_review(task, env)
     assert result.state == TaskState.BLOCKED
+
+
+def test_handle_merge_review_blocks_when_github_adapter_none_and_no_pr(tmp_path):
+    loop = _make_loop(tmp_path)  # no github_adapter, no ci_adapter
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_MERGE_REVIEW,
+                branch="feat/BRQ-1-t", pr_url=None)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_merge_review(task, env)
+    assert result.state == TaskState.BLOCKED
