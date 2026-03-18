@@ -2,11 +2,13 @@
 from __future__ import annotations
 import threading
 import time
+from rich.markup import escape as markup_escape
+from rich.text import Text
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.widget import Widget
 from textual.widgets import DataTable, Static, Input, Button, ContentSwitcher
 from textual.containers import Vertical, Horizontal
-from textual.message import Message
 from system.orchestrator.auth.base import AuthFlowType, AuthProvider, DeviceCodeResponse
 
 
@@ -14,7 +16,7 @@ class AuthPanel(Widget):
     """Interactive authentication panel for all runner providers."""
 
     BINDINGS = [
-        ("escape", "cancel_auth", "Back"),
+        Binding("escape", "cancel_auth", "Back", priority=True),
     ]
 
     def __init__(self, providers: dict[str, AuthProvider], **kwargs) -> None:
@@ -63,6 +65,10 @@ class AuthPanel(Widget):
     def on_mount(self) -> None:
         self._refresh_table()
 
+    def on_show(self) -> None:
+        """Focus the table whenever the panel becomes visible."""
+        self.query_one("#auth-table", DataTable).focus()
+
     def _refresh_table(self) -> None:
         table = self.query_one("#auth-table", DataTable)
         table.clear(columns=True)
@@ -104,27 +110,34 @@ class AuthPanel(Widget):
                 device_resp = provider.request_device_code()
                 self._active_device_code = device_resp.device_code
                 self._show_view("device-flow")
-                # Update widgets after view is switched
-                url_markup = f"[link={device_resp.verification_uri}]{device_resp.verification_uri}[/link]"
-                self.query_one("#df-url", Static).update(f"Open: {url_markup}")
+                url = device_resp.verification_uri
+                url_text = Text("Open: ")
+                url_text.append(url, style=f"link {url}")
+                self.query_one("#df-url", Static).update(url_text)
                 self.query_one("#df-code", Static).update(
-                    f"Enter code: [b]{device_resp.user_code}[/b]"
+                    f"Enter code: [b]{markup_escape(device_resp.user_code)}[/b]"
                 )
                 self.query_one("#df-status", Static).update("Waiting for authorization…")
                 self._start_device_poll(provider, device_resp)
             except Exception as e:
-                self.query_one("#df-status", Static).update(f"[red]Error: {e}[/red]")
+                self._show_view("device-flow")
+                self.query_one("#df-status", Static).update(
+                    f"[red]Error: {markup_escape(str(e))}[/red]"
+                )
 
         elif provider.flow_type == AuthFlowType.PKCE:
             try:
                 url = provider.get_auth_url()
                 self._show_view("pkce-flow")
-                # Update widgets after view is switched
-                url_markup = f"[link={url}]{url}[/link]"
-                self.query_one("#pkce-url", Static).update(f"Open: {url_markup}")
+                url_text = Text("Open: ")
+                url_text.append(url, style=f"link {url}")
+                self.query_one("#pkce-url", Static).update(url_text)
                 self.query_one("#pkce-input", Input).value = ""
             except Exception as e:
-                self.query_one("#pkce-url", Static).update(f"[red]Error: {e}[/red]")
+                self._show_view("pkce-flow")
+                self.query_one("#pkce-url", Static).update(
+                    f"[red]Error: {markup_escape(str(e))}[/red]"
+                )
 
         elif provider.flow_type == AuthFlowType.API_KEY:
             try:
@@ -187,7 +200,9 @@ class AuthPanel(Widget):
                 provider.exchange_code(code)
                 self._on_auth_success()
             except Exception as e:
-                self.query_one("#pkce-url", Static).update(f"[red]Error: {e}[/red]")
+                self.query_one("#pkce-url", Static).update(
+                    f"[red]Error: {markup_escape(str(e))}[/red]"
+                )
 
     def _submit_api_key(self) -> None:
         """Submit API key."""
@@ -198,4 +213,6 @@ class AuthPanel(Widget):
                 provider.set_key(key)
                 self._on_auth_success()
             except Exception as e:
-                self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
+                self.query_one("#key-title", Static).update(
+                    f"[red]Error: {markup_escape(str(e))}[/red]"
+                )
