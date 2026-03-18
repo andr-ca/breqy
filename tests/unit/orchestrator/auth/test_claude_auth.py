@@ -78,7 +78,7 @@ def test_exchange_code_calls_token_endpoint():
             auth._code_verifier = "test_verifier_abc"
             auth.exchange_code("auth_code_xyz")
             call_url = mock_post.call_args[0][0]
-            assert "platform.claude.com/v1/oauth/token" in call_url
+            assert "api.anthropic.com/v1/oauth/token" in call_url
 
 
 def test_revoke_deletes_token():

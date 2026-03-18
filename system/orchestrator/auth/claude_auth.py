@@ -12,10 +12,12 @@ from system.orchestrator.auth.credential_store import CredentialStore
 # Public OAuth app credentials for Claude/Anthropic
 # These are public application identifiers used in PKCE flow
 _CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-_REDIRECT_URI = "https://platform.claude.com/oauth/code/callback"
+_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 _AUTH_URL = "https://claude.ai/oauth/authorize"
-_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
-_SCOPES = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+# console.anthropic.com is blocked by Cloudflare for headless clients;
+# api.anthropic.com/v1/oauth/token is the programmatic-safe endpoint.
+_TOKEN_URL = "https://api.anthropic.com/v1/oauth/token"
+_SCOPES = "org:create_api_key user:profile user:inference"
 
 
 class ClaudeAuth(PkceProvider):
@@ -87,7 +89,11 @@ class ClaudeAuth(PkceProvider):
 
     @staticmethod
     def _extract_code(raw_input: str) -> str:
-        """Return the code value from a bare code string or a full redirect URL."""
+        """Return the bare authorization code from several paste formats:
+        - bare code:              abc123
+        - code with fragment:     abc123#state_value
+        - full redirect URL:      https://console.anthropic.com/...?code=abc123&state=...
+        """
         raw_input = raw_input.strip()
         parsed = urlparse(raw_input)
         if parsed.scheme in ("http", "https"):
@@ -95,4 +101,5 @@ class ClaudeAuth(PkceProvider):
             codes = params.get("code", [])
             if codes:
                 return codes[0]
-        return raw_input
+        # Bare code — strip any trailing #state fragment
+        return raw_input.split("#")[0]

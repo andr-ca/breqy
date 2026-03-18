@@ -173,8 +173,8 @@ class AuthPanel(Widget):
             interval = max(device_resp.interval, 5)
             deadline = time.time() + device_resp.expires_in
             attempt = 0
+            # Check first, sleep after — avoids a full interval delay before the first poll
             while time.time() < deadline:
-                time.sleep(interval)
                 attempt += 1
                 app.call_from_thread(_update_status, f"Checking… (attempt {attempt})")
                 try:
@@ -192,13 +192,14 @@ class AuthPanel(Widget):
                         _update_status,
                         f"[yellow]Poll error, retrying: {markup_escape(str(e))}[/yellow]",
                     )
-                    continue
-                if token:
-                    app.call_from_thread(self._on_auth_success)
-                    return
-                app.call_from_thread(
-                    _update_status, f"Waiting for authorization… (attempt {attempt})"
-                )
+                else:
+                    if token:
+                        app.call_from_thread(self._on_auth_success)
+                        return
+                    app.call_from_thread(
+                        _update_status, f"Waiting for authorization… (attempt {attempt})"
+                    )
+                time.sleep(interval)
             app.call_from_thread(self._on_device_expired)
 
         self._poll_thread = threading.Thread(target=_poll, daemon=True)
