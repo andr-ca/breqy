@@ -17,6 +17,9 @@ class TaskPanel(Widget):
         yield Static("No active task", id="task-info")
 
     def handle_event(self, event: OrchestratorEvent) -> None:
+        if event.event_type == "task_cancelled":
+            self._tasks.pop(event.task_id, None)
+            return
         self._active_id = event.task_id
         task, env = self._tasks.get(event.task_id, (None, None))
         if task and env:

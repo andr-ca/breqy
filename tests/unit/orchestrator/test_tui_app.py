@@ -208,3 +208,24 @@ def test_pipeline_panel_ignores_cancel_of_other_task():
     ))
     assert panel._current == "DOER_IN_PROGRESS"
     assert panel._current_task_id == "BRQ-1"
+
+
+# --- TaskPanel task_cancelled tests ---
+
+def test_task_panel_removes_entry_on_task_cancelled():
+    task, env = _make_task_and_env()
+    panel = TaskPanel(tasks=[(task, env)], id="task")
+    assert "BRQ-1" in panel._tasks
+    panel.handle_event(OrchestratorEvent(
+        task_id="BRQ-1", event_type="task_cancelled",
+        from_state="DOER_IN_PROGRESS",
+    ))
+    assert "BRQ-1" not in panel._tasks
+
+
+def test_task_panel_cancel_unknown_task_does_not_raise():
+    panel = TaskPanel(tasks=[], id="task")
+    panel.handle_event(OrchestratorEvent(
+        task_id="UNKNOWN", event_type="task_cancelled",
+        from_state="NEW",
+    ))  # must not raise
