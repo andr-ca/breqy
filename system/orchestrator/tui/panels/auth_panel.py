@@ -155,6 +155,9 @@ class AuthPanel(Widget):
                 self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
 
     def _start_device_poll(self, provider: AuthProvider, device_resp: DeviceCodeResponse) -> None:
+        # Capture app reference in main thread — ContextVar not available in background threads
+        app = self.app
+
         def _update_status(msg: str) -> None:
             try:
                 self.query_one("#df-status", Static).update(msg)
@@ -168,24 +171,22 @@ class AuthPanel(Widget):
             while time.time() < deadline:
                 time.sleep(interval)
                 attempt += 1
-                self.app.call_from_thread(
-                    _update_status, f"Checking… (attempt {attempt})"
-                )
+                app.call_from_thread(_update_status, f"Checking… (attempt {attempt})")
                 try:
                     token = provider.poll_for_token(device_resp.device_code)
                 except Exception as e:
-                    self.app.call_from_thread(
+                    app.call_from_thread(
                         _update_status,
                         f"[yellow]Poll error, retrying: {markup_escape(str(e))}[/yellow]",
                     )
                     continue
                 if token:
-                    self.app.call_from_thread(self._on_auth_success)
+                    app.call_from_thread(self._on_auth_success)
                     return
-                self.app.call_from_thread(
+                app.call_from_thread(
                     _update_status, f"Waiting for authorization… (attempt {attempt})"
                 )
-            self.app.call_from_thread(self._on_device_expired)
+            app.call_from_thread(self._on_device_expired)
 
         self._poll_thread = threading.Thread(target=_poll, daemon=True)
         self._poll_thread.start()
