@@ -534,3 +534,174 @@ def test_handle_qa_failed_blocks_at_rework_limit(tmp_path):
     env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
     result = loop._handle_qa_failed(task, env)
     assert result.state == TaskState.BLOCKED
+
+
+# ---------------------------------------------------------------------------
+# Helpers for agent-invoking handler tests
+# ---------------------------------------------------------------------------
+
+def _mock_run_agent_pass(loop):
+    """Patch _run_agent to return a passing ParsedOutput."""
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._run_agent = MagicMock(
+        return_value=ParsedOutput(status="pass", artifact_paths=[], notes="ok")
+    )
+
+
+def _mock_run_agent_fail(loop):
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._run_agent = MagicMock(
+        return_value=ParsedOutput(status="fail", artifact_paths=[], notes="fail")
+    )
+
+
+# --- shaping ---
+
+def test_handle_shaping_pass_advances_to_branch_prep(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_pass(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_shaping(task, env)
+    assert result.state == TaskState.READY_FOR_BRANCH_PREP
+    loop._run_agent.assert_called_once_with(task, env, "planner")
+
+
+def test_handle_shaping_fail_blocks(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_fail(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_shaping(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+# --- test_case_design ---
+
+def test_handle_test_case_design_pass_advances_to_doer(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_pass(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TEST_CASE_DESIGN)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_test_case_design(task, env)
+    assert result.state == TaskState.READY_FOR_DOER
+    loop._run_agent.assert_called_once_with(task, env, "tester")
+
+
+# --- doer ---
+
+def test_handle_doer_pass_advances_to_checker(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_pass(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_doer(task, env)
+    assert result.state == TaskState.READY_FOR_CHECKER
+
+
+def test_handle_doer_fail_advances_to_retry_pending(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_fail(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_doer(task, env)
+    assert result.state == TaskState.RETRY_PENDING
+
+
+def test_handle_doer_exception_advances_to_retry_pending(tmp_path):
+    loop = _make_loop(tmp_path)
+    loop._run_agent = MagicMock(side_effect=RuntimeError("crash"))
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_doer(task, env)
+    assert result.state == TaskState.RETRY_PENDING
+
+
+# --- checker ---
+
+def test_handle_checker_pass_advances_to_tester(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_pass(loop)
+    mock_bm = MagicMock()
+    mock_bm.diff.return_value = "diff text"
+    mock_bm.merge_target.return_value = "dev"
+    loop._branch_manager = mock_bm
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._artifact_store.write("BRQ-1", "doer",
+        ParsedOutput(status="pass", artifact_paths=[], notes="done"))
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_CHECKER, branch="feat/BRQ-1-t")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_checker(task, env)
+    assert result.state == TaskState.READY_FOR_TESTER
+    # verify prior_artifacts passed to _run_agent
+    call_kwargs = loop._run_agent.call_args
+    prior = call_kwargs[1]["prior_artifacts"] if call_kwargs[1] else call_kwargs[0][3]
+    assert "git_diff" in prior
+    assert prior["git_diff"] == "diff text"
+
+
+def test_handle_checker_fail_advances_to_check_failed(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_fail(loop)
+    mock_bm = MagicMock()
+    mock_bm.diff.return_value = ""
+    mock_bm.merge_target.return_value = "dev"
+    loop._branch_manager = mock_bm
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._artifact_store.write("BRQ-1", "doer",
+        ParsedOutput(status="pass", artifact_paths=[], notes=""))
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_CHECKER, branch="feat/BRQ-1-t")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_checker(task, env)
+    assert result.state == TaskState.CHECK_FAILED
+
+
+# --- tester ---
+
+def test_handle_tester_pass_advances_to_qa(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_pass(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TESTER)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_tester(task, env)
+    assert result.state == TaskState.READY_FOR_QA_AUTOMATION
+
+
+def test_handle_tester_fail_advances_to_test_failed(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_fail(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_TESTER)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_tester(task, env)
+    assert result.state == TaskState.TEST_FAILED
+
+
+# --- qa ---
+
+def test_handle_qa_pass_advances_to_merge_review(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_pass(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_QA_AUTOMATION)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_qa(task, env)
+    assert result.state == TaskState.READY_FOR_MERGE_REVIEW
+
+
+def test_handle_qa_fail_advances_to_qa_failed(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_fail(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_QA_AUTOMATION)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_qa(task, env)
+    assert result.state == TaskState.QA_FAILED
+
+
+# --- lessons ---
+
+def test_handle_lessons_pass_advances_to_human_review(tmp_path):
+    loop = _make_loop(tmp_path)
+    _mock_run_agent_pass(loop)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_LESSONS)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_lessons(task, env)
+    assert result.state == TaskState.READY_FOR_HUMAN_REVIEW

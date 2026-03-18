@@ -221,6 +221,129 @@ class OrchestratorLoop:
             ))
         return task
 
+    def _handle_ready_for_shaping(self, task: Task, env: TaskEnvelope) -> Task:
+        output = self._run_agent(task, env, "planner")
+        if output.status == "pass":
+            task = self._sm.transition(task, TaskState.READY_FOR_BRANCH_PREP)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_SHAPING", to_state="READY_FOR_BRANCH_PREP",
+            ))
+        else:
+            task = self._sm.force_block(task, notes="planner failed")
+        return task
+
+    def _handle_ready_for_test_case_design(self, task: Task, env: TaskEnvelope) -> Task:
+        output = self._run_agent(task, env, "tester")
+        if output.status == "pass":
+            task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_TEST_CASE_DESIGN", to_state="READY_FOR_DOER",
+            ))
+        else:
+            task = self._sm.force_block(task, notes="test-case design failed")
+        return task
+
+    def _handle_ready_for_doer(self, task: Task, env: TaskEnvelope) -> Task:
+        task = self._sm.transition(task, TaskState.DOER_IN_PROGRESS)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id, event_type="state_transition",
+            from_state="READY_FOR_DOER", to_state="DOER_IN_PROGRESS",
+        ))
+        try:
+            output = self._run_agent(task, env, "doer")
+        except Exception:
+            task = self._sm.transition(task, TaskState.RETRY_PENDING)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="DOER_IN_PROGRESS", to_state="RETRY_PENDING",
+                notes="runner exception",
+            ))
+            return task
+        if output.status == "pass":
+            task = self._sm.transition(task, TaskState.READY_FOR_CHECKER)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="DOER_IN_PROGRESS", to_state="READY_FOR_CHECKER",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.RETRY_PENDING)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="DOER_IN_PROGRESS", to_state="RETRY_PENDING",
+            ))
+        return task
+
+    def _handle_ready_for_checker(self, task: Task, env: TaskEnvelope) -> Task:
+        base = self._branch_manager.merge_target(env.task_type) if self._branch_manager else "dev"
+        diff = self._branch_manager.diff(task.branch or "", base) if self._branch_manager else ""
+        doer_out = self._artifact_store.read(task.task_id, "doer", ParsedOutput)
+        doer_notes = doer_out.notes if doer_out else ""
+        prior = {
+            "git_diff": diff,
+            "doer_report": doer_notes,
+            "failure_notes": doer_notes if task.rework_count > 0 else "",
+        }
+        output = self._run_agent(task, env, "checker", prior_artifacts=prior)
+        if output.status == "pass":
+            task = self._sm.transition(task, TaskState.READY_FOR_TESTER)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_CHECKER", to_state="READY_FOR_TESTER",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.CHECK_FAILED)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_CHECKER", to_state="CHECK_FAILED",
+            ))
+        return task
+
+    def _handle_ready_for_tester(self, task: Task, env: TaskEnvelope) -> Task:
+        output = self._run_agent(task, env, "tester")
+        if output.status == "pass":
+            task = self._sm.transition(task, TaskState.READY_FOR_QA_AUTOMATION)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_TESTER", to_state="READY_FOR_QA_AUTOMATION",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.TEST_FAILED)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_TESTER", to_state="TEST_FAILED",
+            ))
+        return task
+
+    def _handle_ready_for_qa(self, task: Task, env: TaskEnvelope) -> Task:
+        output = self._run_agent(task, env, "qa_automation")
+        if output.status == "pass":
+            task = self._sm.transition(task, TaskState.READY_FOR_MERGE_REVIEW)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_QA_AUTOMATION", to_state="READY_FOR_MERGE_REVIEW",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.QA_FAILED)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_QA_AUTOMATION", to_state="QA_FAILED",
+            ))
+        return task
+
+    def _handle_ready_for_lessons(self, task: Task, env: TaskEnvelope) -> Task:
+        output = self._run_agent(task, env, "lessons")
+        if output.status == "pass":
+            task = self._sm.transition(task, TaskState.READY_FOR_HUMAN_REVIEW)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="READY_FOR_LESSONS", to_state="READY_FOR_HUMAN_REVIEW",
+            ))
+        else:
+            task = self._sm.force_block(task, notes="lessons agent failed")
+        return task
+
     def _handle_qa_failed(self, task: Task, env: TaskEnvelope) -> Task:
         qa_out = self._artifact_store.read(task.task_id, "qa_automation", ParsedOutput)
         if qa_out is not None:
