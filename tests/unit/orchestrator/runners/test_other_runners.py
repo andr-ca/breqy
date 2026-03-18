@@ -42,3 +42,19 @@ def test_runner_returns_failed_on_nonzero_exit(RunnerCls, ctx):
         result = runner.run("check this code", ctx)
     assert result.status == "failed"
     assert result.exit_code == 1
+
+
+@pytest.mark.parametrize("RunnerCls,expected_cmd_token", [
+    (CodexRunner, "codex"),
+    (GeminiRunner, "gemini"),
+    (CopilotRunner, "gh"),
+    (QwenRunner, "qwen"),
+])
+def test_runner_start_returns_popen(RunnerCls, expected_cmd_token, ctx):
+    with patch("subprocess.Popen") as mock_popen:
+        mock_popen.return_value = MagicMock()
+        runner = RunnerCls()
+        proc = runner.start("check this code", ctx)
+    cmd = mock_popen.call_args[0][0]
+    assert expected_cmd_token in cmd
+    assert proc is mock_popen.return_value

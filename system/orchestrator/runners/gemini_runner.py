@@ -2,7 +2,7 @@ from __future__ import annotations
 import subprocess
 import os
 from system.orchestrator.runners.base import AgentRunner
-from system.orchestrator.schemas.run_result import RunContext, RunResult
+from system.orchestrator.schemas.run_result import RunContext
 from system.orchestrator.auth.credential_store import CredentialStore
 
 _PROVIDER_NAME = "gemini"
@@ -23,9 +23,3 @@ class GeminiRunner(AgentRunner):
             ["gemini", prompt], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, cwd=context.work_dir, env=env,
         )
-
-    def run(self, prompt: str, context: RunContext) -> RunResult:
-        proc = self.start(prompt, context)
-        output, _ = proc.communicate()
-        status = "completed" if proc.returncode == 0 else "failed"
-        return RunResult(status=status, output=output, exit_code=proc.returncode)
