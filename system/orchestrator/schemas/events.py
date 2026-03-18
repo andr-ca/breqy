@@ -29,7 +29,7 @@ class OrchestratorEvent(BaseModel):
     task_id: str
     event_type: str  # state_transition | agent_spawn | agent_complete | artifact_written |
     # ci_poll | ci_result | rate_limit | rework_loop | blocked | error |
-    # dependency_wait | stale_warning | retry_pending
+    # dependency_wait | stale_warning | retry_pending | task_cancelled
     from_state: str | None = None
     to_state: str | None = None
     role: str | None = None
