@@ -100,27 +100,38 @@ class AuthPanel(Widget):
         self._active_provider = provider_name
 
         if provider.flow_type == AuthFlowType.DEVICE_FLOW:
-            device_resp = provider.request_device_code()
-            self._active_device_code = device_resp.device_code
-            url_markup = f"[link={device_resp.verification_uri}]{device_resp.verification_uri}[/link]"
-            self.query_one("#df-url", Static).update(f"Open: {url_markup}")
-            self.query_one("#df-code", Static).update(
-                f"Enter code: [b]{device_resp.user_code}[/b]"
-            )
-            self.query_one("#df-status", Static).update("Waiting for authorization…")
-            self._show_view("device-flow")
-            self._start_device_poll(provider, device_resp)
+            try:
+                device_resp = provider.request_device_code()
+                self._active_device_code = device_resp.device_code
+                self._show_view("device-flow")
+                # Update widgets after view is switched
+                url_markup = f"[link={device_resp.verification_uri}]{device_resp.verification_uri}[/link]"
+                self.query_one("#df-url", Static).update(f"Open: {url_markup}")
+                self.query_one("#df-code", Static).update(
+                    f"Enter code: [b]{device_resp.user_code}[/b]"
+                )
+                self.query_one("#df-status", Static).update("Waiting for authorization…")
+                self._start_device_poll(provider, device_resp)
+            except Exception as e:
+                self.query_one("#df-status", Static).update(f"[red]Error: {e}[/red]")
 
         elif provider.flow_type == AuthFlowType.PKCE:
-            url = provider.get_auth_url()
-            url_markup = f"[link={url}]{url}[/link]"
-            self.query_one("#pkce-url", Static).update(f"Open: {url_markup}")
-            self.query_one("#pkce-input", Input).value = ""
-            self._show_view("pkce-flow")
+            try:
+                url = provider.get_auth_url()
+                self._show_view("pkce-flow")
+                # Update widgets after view is switched
+                url_markup = f"[link={url}]{url}[/link]"
+                self.query_one("#pkce-url", Static).update(f"Open: {url_markup}")
+                self.query_one("#pkce-input", Input).value = ""
+            except Exception as e:
+                self.query_one("#pkce-url", Static).update(f"[red]Error: {e}[/red]")
 
         elif provider.flow_type == AuthFlowType.API_KEY:
-            self.query_one("#key-input", Input).value = ""
-            self._show_view("api-key-flow")
+            try:
+                self._show_view("api-key-flow")
+                self.query_one("#key-input", Input).value = ""
+            except Exception as e:
+                self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
 
     def _start_device_poll(self, provider: AuthProvider, device_resp: DeviceCodeResponse) -> None:
         def _poll() -> None:
