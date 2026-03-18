@@ -165,3 +165,46 @@ def test_log_panel_handle_unknown_event_type():
     panel = LogPanel(id="log")
     event = OrchestratorEvent(task_id="BRQ-1", event_type="custom_event", notes="custom")
     panel.handle_event(event)
+
+
+def test_pipeline_panel_tracks_current_task_id_on_state_transition():
+    panel = PipelinePanel(id="pipeline")
+    event = OrchestratorEvent(
+        task_id="BRQ-1", event_type="state_transition",
+        from_state="NEW", to_state="READY_FOR_SHAPING",
+    )
+    panel.handle_event(event)
+    assert panel._current_task_id == "BRQ-1"
+
+
+def test_pipeline_panel_resets_on_cancel_of_current_task():
+    panel = PipelinePanel(id="pipeline")
+    # Set some state first
+    panel.handle_event(OrchestratorEvent(
+        task_id="BRQ-1", event_type="state_transition",
+        from_state="NEW", to_state="DOER_IN_PROGRESS",
+    ))
+    assert panel._current == "DOER_IN_PROGRESS"
+    # Cancel the same task
+    panel.handle_event(OrchestratorEvent(
+        task_id="BRQ-1", event_type="task_cancelled",
+        from_state="DOER_IN_PROGRESS",
+    ))
+    assert panel._current is None
+    assert panel._completed == set()
+    assert panel._current_task_id is None
+
+
+def test_pipeline_panel_ignores_cancel_of_other_task():
+    panel = PipelinePanel(id="pipeline")
+    panel.handle_event(OrchestratorEvent(
+        task_id="BRQ-1", event_type="state_transition",
+        from_state="NEW", to_state="DOER_IN_PROGRESS",
+    ))
+    # Cancel a *different* task
+    panel.handle_event(OrchestratorEvent(
+        task_id="BRQ-2", event_type="task_cancelled",
+        from_state="NEW",
+    ))
+    assert panel._current == "DOER_IN_PROGRESS"
+    assert panel._current_task_id == "BRQ-1"
