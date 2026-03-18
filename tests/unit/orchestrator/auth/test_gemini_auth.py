@@ -47,3 +47,9 @@ def test_revoke_deletes_token():
         auth = GeminiAuth(credential_store=CredentialStore())
         auth.revoke()
         mock_del.assert_called_once_with("breqy", "gemini")
+
+
+def test_key_url_points_to_google_ai_studio():
+    with patch("keyring.get_password", return_value=None):
+        auth = GeminiAuth(credential_store=CredentialStore())
+        assert auth.key_url == "https://aistudio.google.com/apikey"

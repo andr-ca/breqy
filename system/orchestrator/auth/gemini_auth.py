@@ -11,6 +11,8 @@ class GeminiAuth(ApiKeyProvider):
     The key is stored under the 'gemini' namespace in the OS keyring.
     """
 
+    key_url = "https://aistudio.google.com/apikey"
+
     def __init__(self, credential_store: CredentialStore) -> None:
         self._store = credential_store
 

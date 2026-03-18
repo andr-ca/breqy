@@ -67,6 +67,29 @@ def test_poll_returns_none_on_non_200():
             assert result is None
 
 
+def test_request_device_code_coerces_string_interval_and_parses_expires_at():
+    """API returns interval as string and expires_at instead of expires_in — must survive."""
+    import datetime, math
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    # Real API shape: interval is a string, expires_at is an ISO timestamp
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=840)
+    mock_resp.json.return_value = {
+        "device_auth_id": "dauth_xyz",
+        "user_code": "ABCD-1234",
+        "interval": "5",  # string, not int
+        "expires_at": future.isoformat(),
+    }
+    with patch("httpx.post", return_value=mock_resp):
+        with patch("keyring.get_password", return_value=None):
+            auth = CodexAuth(credential_store=CredentialStore())
+            result = auth.request_device_code()
+            assert result.interval == 5  # must be int
+            assert isinstance(result.interval, int)
+            assert result.expires_in > 0  # must be derived from expires_at
+            assert math.isclose(result.expires_in, 840, abs_tol=5)
+
+
 def test_poll_exchanges_code_on_200_and_stores_token():
     """When poll returns 200 with authorization_code+code_verifier, exchanges and stores token."""
     poll_resp = MagicMock()

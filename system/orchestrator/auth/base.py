@@ -62,6 +62,7 @@ class PkceProvider(AuthProvider):
 
 class ApiKeyProvider(AuthProvider):
     flow_type = AuthFlowType.API_KEY
+    key_url: str | None = None  # Override to show "Get a key at …" hint in the UI
 
     @abstractmethod
     def set_key(self, api_key: str) -> None: ...

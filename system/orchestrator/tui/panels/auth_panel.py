@@ -65,6 +65,7 @@ class AuthPanel(Widget):
 
             with Vertical(id="api-key-flow"):
                 yield Static("[b]API Key[/b]", id="key-title")
+                yield Static("", id="key-url")
                 yield Input(placeholder="Paste API key", password=True, id="key-input")
                 with Horizontal():
                     yield Button("Save", id="key-submit", variant="primary")
@@ -156,6 +157,13 @@ class AuthPanel(Widget):
             try:
                 self._show_view("api-key-flow")
                 self.query_one("#key-input", Input).value = ""
+                url = getattr(provider, "key_url", None)
+                if url:
+                    url_text = Text("Get a key at: ")
+                    url_text.append(url, style=f"link {url}")
+                    self.query_one("#key-url", Static).update(url_text)
+                else:
+                    self.query_one("#key-url", Static).update("")
             except Exception as e:
                 self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
 

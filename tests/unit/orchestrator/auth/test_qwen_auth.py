@@ -32,3 +32,9 @@ def test_revoke_deletes_from_keyring():
         auth = QwenAuth(credential_store=store)
         auth.revoke()
         mock_del.assert_called_once_with("breqy", "qwen")
+
+
+def test_key_url_points_to_international_model_studio():
+    with patch("keyring.get_password", return_value=None):
+        auth = QwenAuth(credential_store=CredentialStore())
+        assert auth.key_url == "https://bailian.console.alibabacloud.com/"

@@ -1,5 +1,6 @@
 # system/orchestrator/auth/codex_auth.py
 from __future__ import annotations
+import datetime
 import httpx
 from system.orchestrator.auth.base import DeviceCodeResponse, DeviceFlowProvider
 from system.orchestrator.auth.credential_store import CredentialStore
@@ -52,9 +53,23 @@ class CodexAuth(DeviceFlowProvider):
             device_code=data["device_auth_id"],
             user_code=data["user_code"],
             verification_uri=_VERIFICATION_URI,
-            expires_in=data.get("expires_in", 900),
-            interval=data.get("interval", 5),
+            expires_in=self._parse_expires_in(data),
+            interval=int(data.get("interval", 5)),
         )
+
+    @staticmethod
+    def _parse_expires_in(data: dict) -> int:
+        """Derive expires_in (seconds) from either expires_in or expires_at fields."""
+        if "expires_in" in data:
+            return int(data["expires_in"])
+        if "expires_at" in data:
+            try:
+                expires_at = datetime.datetime.fromisoformat(data["expires_at"])
+                now = datetime.datetime.now(datetime.timezone.utc)
+                return max(0, int((expires_at - now).total_seconds()))
+            except (ValueError, TypeError):
+                pass
+        return 900
 
     def poll_for_token(self, device_code: str) -> str | None:
         """Single poll attempt. device_code is the device_auth_id from request_device_code.
