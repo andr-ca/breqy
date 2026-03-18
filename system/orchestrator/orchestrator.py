@@ -146,6 +146,106 @@ class OrchestratorLoop:
         ))
         return output
 
+    def _handle_ready_for_branch_prep(self, task: Task, env: TaskEnvelope) -> Task:
+        if self._branch_manager is None:
+            return self._sm.force_block(task, notes="branch_manager not configured")
+        try:
+            slug = self._branch_manager.make_slug(env.title)
+            branch = self._branch_manager.create_branch(task.task_id, env.task_type, slug)
+            self._branch_manager.push(branch)
+        except Exception as exc:
+            return self._sm.force_block(task, notes=f"branch creation failed: {exc}")
+        task = task.model_copy(update={"branch": branch})
+        task = self._sm.transition(task, TaskState.READY_FOR_TEST_CASE_DESIGN)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id, event_type="state_transition",
+            from_state="READY_FOR_BRANCH_PREP", to_state="READY_FOR_TEST_CASE_DESIGN",
+        ))
+        return task
+
+    def _handle_doer_in_progress(self, task: Task, env: TaskEnvelope) -> Task:
+        """Orchestrator restart mid-run — treat as crash, route to retry."""
+        task = self._sm.transition(task, TaskState.RETRY_PENDING)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id, event_type="state_transition",
+            from_state="DOER_IN_PROGRESS", to_state="RETRY_PENDING",
+            notes="crash recovery: orchestrator restarted mid-run",
+        ))
+        return task
+
+    def _handle_retry_pending(self, task: Task, env: TaskEnvelope) -> Task:
+        if self._sm.can_transition(task, TaskState.DOER_IN_PROGRESS):
+            task = self._sm.transition(task, TaskState.DOER_IN_PROGRESS)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="RETRY_PENDING", to_state="DOER_IN_PROGRESS",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.BLOCKED)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="RETRY_PENDING", to_state="BLOCKED",
+                notes="retry limit reached",
+            ))
+        return task
+
+    def _handle_check_failed(self, task: Task, env: TaskEnvelope) -> Task:
+        if self._sm.can_transition(task, TaskState.READY_FOR_DOER):
+            task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="CHECK_FAILED", to_state="READY_FOR_DOER",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.BLOCKED)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="CHECK_FAILED", to_state="BLOCKED",
+                notes="rework limit reached",
+            ))
+        return task
+
+    def _handle_test_failed(self, task: Task, env: TaskEnvelope) -> Task:
+        if self._sm.can_transition(task, TaskState.READY_FOR_DOER):
+            task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="TEST_FAILED", to_state="READY_FOR_DOER",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.BLOCKED)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="TEST_FAILED", to_state="BLOCKED",
+                notes="rework limit reached",
+            ))
+        return task
+
+    def _handle_qa_failed(self, task: Task, env: TaskEnvelope) -> Task:
+        qa_out = self._artifact_store.read(task.task_id, "qa_automation", ParsedOutput)
+        if qa_out is not None:
+            task = task.model_copy(update={"failure_source": qa_out.failure_source})
+        if self._sm.can_transition(task, TaskState.READY_FOR_DOER):
+            task = self._sm.transition(task, TaskState.READY_FOR_DOER)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="QA_FAILED", to_state="READY_FOR_DOER",
+            ))
+        elif self._sm.can_transition(task, TaskState.READY_FOR_QA_AUTOMATION):
+            task = self._sm.transition(task, TaskState.READY_FOR_QA_AUTOMATION)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="QA_FAILED", to_state="READY_FOR_QA_AUTOMATION",
+            ))
+        else:
+            task = self._sm.transition(task, TaskState.BLOCKED)
+            self._emit(OrchestratorEvent(
+                task_id=task.task_id, event_type="state_transition",
+                from_state="QA_FAILED", to_state="BLOCKED",
+                notes=f"failure_source={task.failure_source}",
+            ))
+        return task
+
     def _emit(self, event: OrchestratorEvent) -> None:
         self._log.append(event)
         self._queue.put_nowait(event)

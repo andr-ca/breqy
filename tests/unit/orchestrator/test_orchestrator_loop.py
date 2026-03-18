@@ -385,3 +385,144 @@ def test_run_agent_extracts_failure_notes_from_prior_artifacts(tmp_path):
     assert ctx.failure_notes == "checker said X"
     assert "failure_notes" not in ctx.prior_artifacts
     assert "some_key" in ctx.prior_artifacts
+
+
+# --- _handle_ready_for_branch_prep ---
+
+def test_handle_branch_prep_creates_and_pushes_branch(tmp_path):
+    mock_bm = MagicMock()
+    mock_bm.make_slug.return_value = "add-feature"
+    mock_bm.create_branch.return_value = "feat/BRQ-1-add-feature"
+    mock_bm.merge_target.return_value = "dev"
+    loop = _make_loop(tmp_path, branch_manager=mock_bm)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP)
+    env = TaskEnvelope(task_id="BRQ-1", title="Add feature", task_type="feature", component="backend")
+    result = loop._handle_ready_for_branch_prep(task, env)
+    mock_bm.create_branch.assert_called_once_with("BRQ-1", "feature", "add-feature")
+    mock_bm.push.assert_called_once_with("feat/BRQ-1-add-feature")
+    assert result.branch == "feat/BRQ-1-add-feature"
+    assert result.state == TaskState.READY_FOR_TEST_CASE_DESIGN
+
+
+def test_handle_branch_prep_blocks_on_exception(tmp_path):
+    mock_bm = MagicMock()
+    mock_bm.make_slug.return_value = "add-feature"
+    mock_bm.create_branch.side_effect = Exception("git error")
+    loop = _make_loop(tmp_path, branch_manager=mock_bm)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP)
+    env = TaskEnvelope(task_id="BRQ-1", title="Add feature", task_type="feature", component="backend")
+    result = loop._handle_ready_for_branch_prep(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+# --- _handle_doer_in_progress ---
+
+def test_handle_doer_in_progress_transitions_to_retry_pending(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.DOER_IN_PROGRESS)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_doer_in_progress(task, env)
+    assert result.state == TaskState.RETRY_PENDING
+
+
+# --- _handle_retry_pending ---
+
+def test_handle_retry_pending_retries_when_under_limit(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.RETRY_PENDING, retry_count=0)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_retry_pending(task, env)
+    assert result.state == TaskState.DOER_IN_PROGRESS
+    assert result.retry_count == 1
+
+
+def test_handle_retry_pending_blocks_when_limit_reached(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.RETRY_PENDING, retry_count=3)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_retry_pending(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+# --- _handle_check_failed ---
+
+def test_handle_check_failed_reworks_when_under_limit(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.CHECK_FAILED, rework_count=0)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_check_failed(task, env)
+    assert result.state == TaskState.READY_FOR_DOER
+    assert result.rework_count == 1
+
+
+def test_handle_check_failed_blocks_at_limit(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.CHECK_FAILED, rework_count=3)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_check_failed(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+# --- _handle_test_failed ---
+
+def test_handle_test_failed_reworks_when_under_limit(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.TEST_FAILED, rework_count=2)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_test_failed(task, env)
+    assert result.state == TaskState.READY_FOR_DOER
+    assert result.rework_count == 3
+
+
+def test_handle_test_failed_blocks_at_limit(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.TEST_FAILED, rework_count=3)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_test_failed(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+# --- _handle_qa_failed ---
+
+def test_handle_qa_failed_reworks_broken_implementation(tmp_path):
+    loop = _make_loop(tmp_path)
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._artifact_store.write("BRQ-1", "qa_automation",
+        ParsedOutput(status="fail", failure_source="broken_implementation", artifact_paths=[]))
+    task = Task(task_id="BRQ-1", state=TaskState.QA_FAILED, rework_count=0)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_qa_failed(task, env)
+    assert result.state == TaskState.READY_FOR_DOER
+
+
+def test_handle_qa_failed_reworks_broken_automation(tmp_path):
+    loop = _make_loop(tmp_path)
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._artifact_store.write("BRQ-1", "qa_automation",
+        ParsedOutput(status="fail", failure_source="broken_automation", artifact_paths=[]))
+    task = Task(task_id="BRQ-1", state=TaskState.QA_FAILED, rework_count=0)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_qa_failed(task, env)
+    assert result.state == TaskState.READY_FOR_QA_AUTOMATION
+
+
+def test_handle_qa_failed_blocks_on_ambiguous_criteria(tmp_path):
+    loop = _make_loop(tmp_path)
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._artifact_store.write("BRQ-1", "qa_automation",
+        ParsedOutput(status="fail", failure_source="ambiguous_criteria", artifact_paths=[]))
+    task = Task(task_id="BRQ-1", state=TaskState.QA_FAILED, rework_count=0)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_qa_failed(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+def test_handle_qa_failed_blocks_at_rework_limit(tmp_path):
+    loop = _make_loop(tmp_path)
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    loop._artifact_store.write("BRQ-1", "qa_automation",
+        ParsedOutput(status="fail", failure_source="broken_implementation", artifact_paths=[]))
+    task = Task(task_id="BRQ-1", state=TaskState.QA_FAILED, rework_count=3)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_qa_failed(task, env)
+    assert result.state == TaskState.BLOCKED
