@@ -19,7 +19,8 @@ from system.orchestrator.artifact_store import ArtifactStore
 from system.orchestrator.config import load_config, OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.orchestrator import OrchestratorLoop
-from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
+from system.orchestrator.state_machine import ConcreteStateMachine
+from system.orchestrator.branch_manager import BranchManager
 from system.orchestrator.task_loader import CompositeTaskLoader
 from system.orchestrator.github_task_loader import GitHubTaskLoader
 from system.orchestrator.local_task_loader import LocalYamlTaskLoader
@@ -49,18 +50,25 @@ def _build_loop(cfg_path: Path) -> tuple[OrchestratorLoop, queue.Queue, Orchestr
 def _run_orchestrator(cfg_path: str, no_tui: bool) -> None:
     loop, eq, cfg = _build_loop(Path(cfg_path))
 
-    # Load tasks
+    # Build loaders and reconstruct loop with constructor-injected dependencies
     github_loader = GitHubTaskLoader(
         repo=cfg.github.repo, managed_label=cfg.github.managed_label
     )
     local_loader = LocalYamlTaskLoader(tasks_dir=Path(cfg.orchestrator.task_fallback_dir))
     composite = CompositeTaskLoader(github=github_loader, local=local_loader)
-    envelopes = composite.load_pending()
-    tasks = [(Task(task_id=env.task_id, state=TaskState.NEW), env) for env in envelopes]
+    loop = OrchestratorLoop(
+        config=cfg,
+        state_machine=loop._sm,
+        artifact_store=loop._artifact_store,
+        event_log=loop._log,
+        event_queue=eq,
+        loader=composite,
+        branch_manager=BranchManager(repo_root=Path.cwd()),
+    )
 
     # Start orchestrator loop in background thread
     loop_thread = threading.Thread(
-        target=loop.run, args=(tasks,), daemon=True, name="orchestrator-loop"
+        target=loop.run, args=(), daemon=True, name="orchestrator-loop"
     )
     loop_thread.start()
 
@@ -85,7 +93,7 @@ def _run_orchestrator(cfg_path: str, no_tui: bool) -> None:
 
     # Launch TUI (blocks main thread)
     from system.orchestrator.tui.app import OrchestratorApp
-    app = OrchestratorApp(event_queue=eq, tasks=tasks)
+    app = OrchestratorApp(event_queue=eq, tasks=[])
     app.run()
     loop.stop()
     loop_thread.join(timeout=30)

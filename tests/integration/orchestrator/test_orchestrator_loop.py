@@ -73,3 +73,63 @@ def test_new_task_transitions_to_shaping(tmp_dirs):
     events = log.tail(1)
     assert len(events) == 1
     assert events[0].to_state == "READY_FOR_SHAPING"
+
+
+def _make_loop(tmp_path, tasks_dir):
+    cfg = OrchestratorConfig(
+        github=GitHubConfig(repo="owner/repo"),
+        orchestrator=OrchestratorSettings(poll_interval_seconds=0),
+        agent_defaults={"doer": "claude", "checker": "codex", "tester": "gemini", "lessons": "claude"},
+    )
+    sm = ConcreteStateMachine()
+    store = ArtifactStore(base=tmp_path / "artifacts")
+    log = EventLog(path=tmp_path / "events.jsonl")
+    eq: queue.Queue = queue.Queue()
+    loader = LocalYamlTaskLoader(tasks_dir=tasks_dir)
+    loop = OrchestratorLoop(
+        config=cfg, state_machine=sm,
+        artifact_store=store, event_log=log, event_queue=eq,
+        loader=loader,
+    )
+    return loop, eq
+
+
+def test_hot_reload_picks_up_new_task(tmp_dirs):
+    tmp_path, tasks_dir = tmp_dirs
+    loop, _ = _make_loop(tmp_path, tasks_dir)
+    all_tasks = {}
+    loop._sync_tasks(all_tasks)
+    assert "INT-1" in all_tasks
+    assert all_tasks["INT-1"][0].state == TaskState.NEW
+
+
+def test_hot_reload_cancels_deleted_task(tmp_dirs):
+    tmp_path, tasks_dir = tmp_dirs
+    loop, eq = _make_loop(tmp_path, tasks_dir)
+    all_tasks = {}
+    loop._sync_tasks(all_tasks)
+    assert "INT-1" in all_tasks
+    # Remove the task file
+    (tasks_dir / "INT-1.yaml").unlink()
+    loop._sync_tasks(all_tasks)
+    assert "INT-1" not in all_tasks
+    event = eq.get_nowait()
+    assert event.event_type == "task_cancelled"
+    assert event.task_id == "INT-1"
+    assert event.from_state == "NEW"
+
+
+def test_hot_reload_does_not_cancel_done_task(tmp_dirs):
+    tmp_path, tasks_dir = tmp_dirs
+    loop, eq = _make_loop(tmp_path, tasks_dir)
+    all_tasks = {}
+    loop._sync_tasks(all_tasks)
+    # Advance task to DONE
+    task, env = all_tasks["INT-1"]
+    all_tasks["INT-1"] = (task.model_copy(update={"state": TaskState.DONE}), env)
+    # Remove the file
+    (tasks_dir / "INT-1.yaml").unlink()
+    loop._sync_tasks(all_tasks)
+    # DONE task stays in dict
+    assert "INT-1" in all_tasks
+    assert eq.empty()
