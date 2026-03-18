@@ -97,3 +97,25 @@ def test_poll_for_token_returns_none_when_pending():
             auth = GitHubCopilotAuth(credential_store=store)
             result = auth.poll_for_token("dev123")
             assert result is None
+
+
+def test_request_device_code_coerces_string_interval_and_expires_in():
+    """GitHub API may return interval/expires_in as strings; both must be int."""
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "device_code": "dev123",
+        "user_code": "ABCD-1234",
+        "verification_uri": "https://github.com/login/device",
+        "expires_in": "900",
+        "interval": "5",
+    }
+    with patch("httpx.post", return_value=mock_response):
+        with patch("keyring.get_password", return_value=None):
+            store = CredentialStore()
+            auth = GitHubCopilotAuth(credential_store=store)
+            result = auth.request_device_code()
+            assert isinstance(result.interval, int)
+            assert result.interval == 5
+            assert isinstance(result.expires_in, int)
+            assert result.expires_in == 900

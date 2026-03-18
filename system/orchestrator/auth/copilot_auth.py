@@ -42,8 +42,8 @@ class GitHubCopilotAuth(DeviceFlowProvider):
             device_code=data["device_code"],
             user_code=data["user_code"],
             verification_uri=data["verification_uri"],
-            expires_in=data["expires_in"],
-            interval=data.get("interval", 5),
+            expires_in=int(data.get("expires_in", 900)),
+            interval=int(data.get("interval", 5)),
         )
 
     def poll_for_token(self, device_code: str) -> str | None:
