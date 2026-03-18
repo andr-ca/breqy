@@ -147,3 +147,76 @@ def test_cancel_task_does_not_kill_process_when_task_id_differs(loop):
     loop._cancel_task(task, env)
     mock_proc.terminate.assert_not_called()
     assert loop._current_task_id == "BRQ-2"
+
+
+def test_sync_tasks_adds_new_task(loop):
+    all_tasks = {}
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    loop._loader = MagicMock()
+    loop._loader.load_pending.return_value = [env]
+    loop._sync_tasks(all_tasks)
+    assert "BRQ-1" in all_tasks
+    assert all_tasks["BRQ-1"][0].state == TaskState.NEW
+
+
+def test_sync_tasks_does_not_overwrite_existing_task(loop):
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    all_tasks = {"BRQ-1": (task, env)}
+    loop._loader = MagicMock()
+    loop._loader.load_pending.return_value = [env]
+    loop._sync_tasks(all_tasks)
+    assert all_tasks["BRQ-1"][0].state == TaskState.READY_FOR_SHAPING
+
+
+def test_sync_tasks_cancels_removed_non_terminal_task(loop):
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.DOER_IN_PROGRESS)
+    all_tasks = {"BRQ-1": (task, env)}
+    loop._loader = MagicMock()
+    loop._loader.load_pending.return_value = []  # task gone
+    loop._sync_tasks(all_tasks)
+    assert "BRQ-1" not in all_tasks
+    event = loop._queue.get_nowait()
+    assert event.event_type == "task_cancelled"
+
+
+def test_sync_tasks_does_not_cancel_done_task(loop):
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.DONE)
+    all_tasks = {"BRQ-1": (task, env)}
+    loop._loader = MagicMock()
+    loop._loader.load_pending.return_value = []
+    loop._sync_tasks(all_tasks)
+    assert "BRQ-1" in all_tasks
+    assert loop._queue.empty()
+
+
+def test_sync_tasks_does_not_cancel_blocked_task(loop):
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    task = Task(task_id="BRQ-1", state=TaskState.BLOCKED)
+    all_tasks = {"BRQ-1": (task, env)}
+    loop._loader = MagicMock()
+    loop._loader.load_pending.return_value = []
+    loop._sync_tasks(all_tasks)
+    assert "BRQ-1" in all_tasks
+    assert loop._queue.empty()
+
+
+def test_sync_tasks_no_op_when_loader_is_none(loop):
+    all_tasks = {}
+    loop._loader = None
+    loop._sync_tasks(all_tasks)  # must not raise
+    assert all_tasks == {}
+
+
+def test_run_calls_sync_tasks_each_tick(loop):
+    call_count = [0]
+    def fake_load():
+        call_count[0] += 1
+        loop._stop_event.set()  # stop after first call
+        return []
+    loop._loader = MagicMock()
+    loop._loader.load_pending.side_effect = fake_load
+    loop.run()
+    assert call_count[0] == 1

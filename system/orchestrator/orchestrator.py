@@ -104,13 +104,28 @@ class OrchestratorLoop:
             from_state=task.state.value,
         ))
 
-    def run(
-        self,
-        tasks: list[tuple[Task, TaskEnvelope]],
-    ) -> None:
-        """Main loop — processes tasks until stop() is called."""
-        all_tasks = {t.task_id: (t, env) for t, env in tasks}
+    def _sync_tasks(self, all_tasks: dict[str, tuple[Task, TaskEnvelope]]) -> None:
+        """Diff loader results against all_tasks: insert new, cancel removed."""
+        if self._loader is None:
+            return
+        fresh = {env.task_id: env for env in self._loader.load_pending()}
+        for task_id, env in fresh.items():
+            if task_id not in all_tasks:
+                all_tasks[task_id] = (Task(task_id=task_id, state=TaskState.NEW), env)
+        to_cancel = [
+            (task, env)
+            for task_id, (task, env) in list(all_tasks.items())
+            if task_id not in fresh and task.state not in (TaskState.DONE, TaskState.BLOCKED)
+        ]
+        for task, env in to_cancel:
+            self._cancel_task(task, env)
+            del all_tasks[task.task_id]
+
+    def run(self) -> None:
+        """Main loop — polls for tasks and processes them until stop() is called."""
+        all_tasks: dict[str, tuple[Task, TaskEnvelope]] = {}
         while not self._stop_event.is_set():
+            self._sync_tasks(all_tasks)
             for task_id, (task, env) in list(all_tasks.items()):
                 task = self._tick(task, env, all_tasks)
                 all_tasks[task_id] = (task, env)
