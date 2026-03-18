@@ -29,6 +29,11 @@ class AuthPanel(Widget):
         self._poll_thread: threading.Thread | None = None
         self._current_view: str = "status"
 
+    @property
+    def current_view(self) -> str:
+        """Name of the currently visible sub-view."""
+        return self._current_view
+
     def get_status_summary(self) -> dict[str, bool]:
         """Return {provider_name: is_authenticated} for all providers."""
         return {name: p.is_authenticated() for name, p in self._providers.items()}

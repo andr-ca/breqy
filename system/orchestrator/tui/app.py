@@ -2,6 +2,7 @@
 from __future__ import annotations
 import queue
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.widgets import Header, Footer
 from textual.containers import Horizontal, Vertical
 from system.orchestrator.schemas.events import OrchestratorEvent
@@ -35,6 +36,7 @@ class OrchestratorApp(App):
 
     BINDINGS = [
         ("a", "toggle_auth", "Auth"),
+        Binding("escape", "auth_back", "Back", priority=True),
     ]
 
     def __init__(self, event_queue: queue.Queue, tasks: list[tuple[Task, TaskEnvelope]], credential_store: CredentialStore | None = None) -> None:
@@ -58,6 +60,16 @@ class OrchestratorApp(App):
     def action_toggle_auth(self) -> None:
         panel = self.query_one("#auth-overlay", AuthPanel)
         panel.display = not panel.display
+
+    def action_auth_back(self) -> None:
+        """Escape: go back inside the auth panel, or close it if already on status."""
+        panel = self.query_one("#auth-overlay", AuthPanel)
+        if not panel.display:
+            return
+        if panel.current_view == "status":
+            panel.display = False
+        else:
+            panel.action_cancel_auth()
 
     def on_mount(self) -> None:
         self.set_interval(0.5, self._poll_queue)

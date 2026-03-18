@@ -4,7 +4,7 @@ import base64
 import hashlib
 import os
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, parse_qs
 import httpx
 from system.orchestrator.auth.base import PkceProvider
 from system.orchestrator.auth.credential_store import CredentialStore
@@ -14,7 +14,7 @@ from system.orchestrator.auth.credential_store import CredentialStore
 _CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 _REDIRECT_URI = "https://platform.claude.com/oauth/code/callback"
 _AUTH_URL = "https://claude.ai/oauth/authorize"
-_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+_TOKEN_URL = "https://api.anthropic.com/oauth/token"
 _SCOPES = "org:create_api_key user:profile"
 
 
@@ -62,13 +62,17 @@ class ClaudeAuth(PkceProvider):
         }
         return f"{_AUTH_URL}?{urlencode(params)}"
 
-    def exchange_code(self, auth_code: str) -> None:
-        """Exchange authorization code for token; store in CredentialStore."""
+    def exchange_code(self, raw_input: str) -> None:
+        """Exchange authorization code for token; store in CredentialStore.
+
+        Accepts either a bare code or a full redirect URL containing ?code=.
+        """
+        code = self._extract_code(raw_input)
         resp = httpx.post(
             _TOKEN_URL,
-            json={
+            data={
                 "grant_type": "authorization_code",
-                "code": auth_code,
+                "code": code,
                 "code_verifier": self._code_verifier or "",
                 "client_id": _CLIENT_ID,
                 "redirect_uri": _REDIRECT_URI,
@@ -79,3 +83,15 @@ class ClaudeAuth(PkceProvider):
         token = data.get("access_token")
         if token:
             self._store.set(self.provider_name, token)
+
+    @staticmethod
+    def _extract_code(raw_input: str) -> str:
+        """Return the code value from a bare code string or a full redirect URL."""
+        raw_input = raw_input.strip()
+        parsed = urlparse(raw_input)
+        if parsed.scheme in ("http", "https"):
+            params = parse_qs(parsed.query)
+            codes = params.get("code", [])
+            if codes:
+                return codes[0]
+        return raw_input

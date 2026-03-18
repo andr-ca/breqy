@@ -1,6 +1,7 @@
 # system/orchestrator/tui/auth_app.py
 from __future__ import annotations
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.widgets import Header, Footer
 from system.orchestrator.auth.base import AuthProvider
 from system.orchestrator.tui.panels.auth_panel import AuthPanel
@@ -13,7 +14,10 @@ class AuthApp(App):
     AuthPanel { height: 100%; border: solid green; }
     """
 
-    BINDINGS = [("q", "quit", "Quit")]
+    BINDINGS = [
+        Binding("escape", "panel_back", "Back", priority=True),
+        ("q", "quit", "Quit"),
+    ]
 
     def __init__(self, providers: dict[str, AuthProvider]) -> None:
         super().__init__()
@@ -23,3 +27,7 @@ class AuthApp(App):
         yield Header()
         yield AuthPanel(providers=self._providers, id="auth-panel")
         yield Footer()
+
+    def action_panel_back(self) -> None:
+        """Escape — go back to status view inside the panel."""
+        self.query_one("#auth-panel", AuthPanel).action_cancel_auth()
