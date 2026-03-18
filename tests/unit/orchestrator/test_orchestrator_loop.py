@@ -809,3 +809,67 @@ def test_handle_merge_review_blocks_when_github_adapter_none_and_no_pr(tmp_path)
     env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
     result = loop._handle_ready_for_merge_review(task, env)
     assert result.state == TaskState.BLOCKED
+
+
+# --- _handle_ready_for_human_review ---
+
+def test_handle_human_review_auto_merges_and_advances_to_done(tmp_path):
+    mock_gh = MagicMock()
+    loop = _make_loop(tmp_path, github_adapter=mock_gh)
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_HUMAN_REVIEW,
+                pr_url="https://github.com/owner/repo/pull/5")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_human_review(task, env)
+    mock_gh.merge_pr.assert_called_once_with("https://github.com/owner/repo/pull/5")
+    assert result.state == TaskState.DONE
+
+
+def test_handle_human_review_blocks_when_no_pr_url(tmp_path):
+    loop = _make_loop(tmp_path, github_adapter=MagicMock())
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_HUMAN_REVIEW, pr_url=None)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_human_review(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+def test_handle_human_review_blocks_when_github_adapter_none(tmp_path):
+    loop = _make_loop(tmp_path)  # no github_adapter
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_HUMAN_REVIEW,
+                pr_url="https://github.com/owner/repo/pull/5")
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._handle_ready_for_human_review(task, env)
+    assert result.state == TaskState.BLOCKED
+
+
+# --- _tick() dispatch ---
+
+def test_tick_dispatches_to_correct_handler(tmp_path):
+    loop = _make_loop(tmp_path)
+    called_with = []
+
+    def fake_handler(task, env):
+        called_with.append((task.state, env.task_id))
+        return task  # no state change
+
+    loop._handle_ready_for_shaping = fake_handler
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    loop._tick(task, env, {})
+    assert len(called_with) == 1
+    assert called_with[0][0] == TaskState.READY_FOR_SHAPING
+
+
+def test_tick_returns_task_unchanged_for_done(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.DONE)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._tick(task, env, {})
+    assert result.state == TaskState.DONE
+
+
+def test_tick_returns_task_unchanged_for_blocked(tmp_path):
+    loop = _make_loop(tmp_path)
+    task = Task(task_id="BRQ-1", state=TaskState.BLOCKED)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    result = loop._tick(task, env, {})
+    assert result.state == TaskState.BLOCKED

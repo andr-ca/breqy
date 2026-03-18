@@ -22,6 +22,25 @@ from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskSt
 from system.orchestrator.task_loader import TaskLoader
 
 
+_HANDLERS: dict[TaskState, str] = {
+    TaskState.READY_FOR_SHAPING:           "_handle_ready_for_shaping",
+    TaskState.READY_FOR_BRANCH_PREP:       "_handle_ready_for_branch_prep",
+    TaskState.READY_FOR_TEST_CASE_DESIGN:  "_handle_ready_for_test_case_design",
+    TaskState.READY_FOR_DOER:              "_handle_ready_for_doer",
+    TaskState.DOER_IN_PROGRESS:            "_handle_doer_in_progress",
+    TaskState.READY_FOR_CHECKER:           "_handle_ready_for_checker",
+    TaskState.CHECK_FAILED:                "_handle_check_failed",
+    TaskState.READY_FOR_TESTER:            "_handle_ready_for_tester",
+    TaskState.TEST_FAILED:                 "_handle_test_failed",
+    TaskState.READY_FOR_QA_AUTOMATION:     "_handle_ready_for_qa",
+    TaskState.QA_FAILED:                   "_handle_qa_failed",
+    TaskState.READY_FOR_MERGE_REVIEW:      "_handle_ready_for_merge_review",
+    TaskState.READY_FOR_LESSONS:           "_handle_ready_for_lessons",
+    TaskState.READY_FOR_HUMAN_REVIEW:      "_handle_ready_for_human_review",
+    TaskState.RETRY_PENDING:               "_handle_retry_pending",
+}
+
+
 class OrchestratorLoop:
     def __init__(
         self,
@@ -396,6 +415,19 @@ class OrchestratorLoop:
             task = self._sm.force_block(task, notes="lessons agent failed")
         return task
 
+    def _handle_ready_for_human_review(self, task: Task, env: TaskEnvelope) -> Task:
+        if self._github_adapter is None:
+            return self._sm.force_block(task, notes="github_adapter not configured")
+        if task.pr_url is None:
+            return self._sm.force_block(task, notes="pr_url not set — cannot merge")
+        self._github_adapter.merge_pr(task.pr_url)
+        task = self._sm.transition(task, TaskState.DONE)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id, event_type="state_transition",
+            from_state="READY_FOR_HUMAN_REVIEW", to_state="DONE",
+        ))
+        return task
+
     def _handle_qa_failed(self, task: Task, env: TaskEnvelope) -> Task:
         qa_out = self._artifact_store.read(task.task_id, "qa_automation", ParsedOutput)
         if qa_out is not None:
@@ -488,4 +520,9 @@ class OrchestratorLoop:
                     task_id=task.task_id, event_type="dependency_wait",
                     notes="Waiting for dependencies",
                 ))
-        return task
+            return task
+
+        handler_name = _HANDLERS.get(task.state)
+        if handler_name is None:
+            return task
+        return getattr(self, handler_name)(task, env)
