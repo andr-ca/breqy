@@ -50,15 +50,20 @@ class GitHubAdapter:
                 return name[len("state:"):]
         return None
 
-    def create_pr(self, branch: str, title: str, body: str) -> str:
-        """Create a PR and return its URL."""
+    def create_pr(self, branch: str, base: str, title: str, body: str) -> str:
+        """Create a PR against base and return its URL."""
         return self._run(
             "gh", "pr", "create",
             "--repo", self._repo,
             "--head", branch,
+            "--base", base,
             "--title", title,
             "--body", body,
         )
+
+    def merge_pr(self, pr_url: str) -> None:
+        """Squash-merge a PR and delete its branch. Raises on non-zero exit."""
+        self._run("gh", "pr", "merge", pr_url, "--squash", "--delete-branch")
 
     def get_pr_status(self, pr_url: str) -> PrStatus:
         """Fetch current PR state and mergeability."""

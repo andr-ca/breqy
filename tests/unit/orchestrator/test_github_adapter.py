@@ -1,4 +1,5 @@
 import json
+import subprocess
 import pytest
 from unittest.mock import patch, MagicMock
 from system.orchestrator.github_adapter import GitHubAdapter, PrStatus
@@ -9,6 +10,8 @@ def _run_ok(stdout="", returncode=0):
     m.returncode = returncode
     m.stdout = stdout
     m.stderr = ""
+    if returncode != 0:
+        m.check_returncode.side_effect = subprocess.CalledProcessError(returncode, "gh")
     return m
 
 
@@ -50,8 +53,36 @@ def test_get_task_state_returns_none_when_no_state_label(gh):
 def test_create_pr_returns_url(gh):
     pr_url = "https://github.com/owner/repo/pull/5"
     with patch("subprocess.run", return_value=_run_ok(stdout=pr_url)):
-        url = gh.create_pr("feat/BRQ-1-test", "My PR", "Body text")
+        url = gh.create_pr("feat/BRQ-1-test", "dev", "My PR", "Body text")
         assert url == pr_url.strip()
+
+
+def test_merge_pr_calls_gh_squash(gh):
+    with patch("subprocess.run", return_value=_run_ok()) as mock_run:
+        gh.merge_pr("https://github.com/owner/repo/pull/5")
+    cmd = mock_run.call_args[0][0]
+    assert "gh" in cmd
+    assert "merge" in cmd
+    assert "--squash" in cmd
+    assert "--delete-branch" in cmd
+    assert "https://github.com/owner/repo/pull/5" in cmd
+
+
+def test_merge_pr_raises_on_failure(gh):
+    with patch("subprocess.run", return_value=_run_ok(returncode=1)):
+        with pytest.raises(Exception):
+            gh.merge_pr("https://github.com/owner/repo/pull/5")
+
+
+def test_create_pr_passes_base_to_gh(gh):
+    pr_url = "https://github.com/owner/repo/pull/6"
+    with patch("subprocess.run", return_value=_run_ok(stdout=pr_url)) as mock_run:
+        url = gh.create_pr("feat/BRQ-1-test", "dev", "My PR", "Body text")
+    cmd = mock_run.call_args[0][0]
+    assert "--base" in cmd
+    idx = cmd.index("--base")
+    assert cmd[idx + 1] == "dev"
+    assert url == pr_url
 
 
 def test_pr_is_merged_true(gh):
