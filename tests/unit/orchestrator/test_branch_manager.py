@@ -133,3 +133,27 @@ def test_delete_branch_does_not_raise_when_remote_missing(bm):
     ]
     with patch("subprocess.run", side_effect=results):
         bm.delete_branch("feat/BRQ-1-test")  # must not raise
+
+
+def test_diff_calls_git_diff_three_dot(bm):
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="diff content", stderr="")
+        result = bm.diff("feat/BRQ-1-test", "dev")
+    calls = [c.args[0] for c in mock_run.call_args_list]
+    assert ("git", "diff", "dev...feat/BRQ-1-test") in calls
+    assert result == "diff content"
+
+
+def test_diff_returns_empty_string_when_no_diff(bm):
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = bm.diff("feat/BRQ-1-test", "dev")
+    assert result == ""
+
+
+def test_diff_does_not_raise_on_nonzero_exit(bm):
+    """check=False means a non-zero exit (e.g. unknown branch) does not raise."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="unknown ref")
+        result = bm.diff("no-such-branch", "dev")
+    assert result == ""

@@ -76,3 +76,8 @@ class BranchManager:
         """Delete branch locally and on remote. Silently ignores missing branches."""
         self._run("git", "branch", "-D", name, check=False)
         self._run("git", "push", "origin", "--delete", name, check=False)
+
+    def diff(self, branch: str, base: str) -> str:
+        """Return git diff between base and branch tip (three-dot merge-base diff)."""
+        result = self._run("git", "diff", f"{base}...{branch}", check=False)
+        return result.stdout
