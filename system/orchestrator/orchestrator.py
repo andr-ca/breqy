@@ -12,8 +12,10 @@ from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.github_adapter import GitHubAdapter
 from system.orchestrator.router import Router
-from system.orchestrator.schemas.artifacts import MergeReadinessArtifact
+from system.orchestrator.agent_adapters.base import TaskContext
+from system.orchestrator.schemas.artifacts import MergeReadinessArtifact, ParsedOutput
 from system.orchestrator.schemas.events import OrchestratorEvent
+from system.orchestrator.schemas.run_result import RunContext, RunResult
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
 from system.orchestrator.task_loader import TaskLoader
@@ -91,6 +93,58 @@ class OrchestratorLoop:
         """Returns True iff merge-readiness artifact exists with verdict=pass."""
         artifact = self._artifact_store.read(task.task_id, "merge-readiness", MergeReadinessArtifact)
         return artifact is not None and artifact.verdict == "pass"
+
+    def _run_agent(
+        self,
+        task: Task,
+        env: TaskEnvelope,
+        role: str,
+        prior_artifacts: dict[str, str] | None = None,
+    ) -> ParsedOutput:
+        runner, adapter = self._router.resolve(env.task_type, env.component, role)
+        prior = dict(prior_artifacts) if prior_artifacts else {}
+        failure_notes = prior.pop("failure_notes", "")
+        context = TaskContext(
+            task=env,
+            prior_artifacts=prior,
+            rework_count=task.rework_count,
+            failure_notes=failure_notes,
+        )
+        prompt = adapter.build_prompt(env, context)
+        run_context = RunContext(
+            task_id=task.task_id,
+            role=role,
+            work_dir=Path.cwd(),
+            session_id=task.session_id,
+        )
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id,
+            event_type="agent_spawn",
+            role=role,
+            agent_type=type(runner).__name__,
+        ))
+        try:
+            proc = runner.start(prompt, run_context)
+            self._current_process = proc
+            self._current_task_id = task.task_id
+            stdout, _ = proc.communicate()
+            result = RunResult(
+                status="completed" if proc.returncode == 0 else "failed",
+                output=stdout,
+                exit_code=proc.returncode,
+            )
+        finally:
+            self._current_process = None
+            self._current_task_id = None
+        output = adapter.parse_output(result)
+        self._artifact_store.write(task.task_id, role, output)
+        self._emit(OrchestratorEvent(
+            task_id=task.task_id,
+            event_type="agent_complete",
+            role=role,
+            notes=output.notes,
+        ))
+        return output
 
     def _emit(self, event: OrchestratorEvent) -> None:
         self._log.append(event)

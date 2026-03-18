@@ -265,3 +265,123 @@ def test_loop_ci_adapter_defaults_to_none(tmp_path):
 def test_loop_github_adapter_defaults_to_none(tmp_path):
     loop = _make_loop(tmp_path)
     assert loop._github_adapter is None
+
+
+def test_run_agent_stores_artifact_and_emits_events(tmp_path):
+    loop = _make_loop(tmp_path)
+
+    mock_proc = MagicMock()
+    mock_proc.communicate.return_value = ('{"status": "pass", "notes": "done"}', None)
+    mock_proc.returncode = 0
+
+    mock_runner = MagicMock()
+    mock_runner.start.return_value = mock_proc
+    mock_adapter = MagicMock()
+    mock_adapter.build_prompt.return_value = "prompt"
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    mock_adapter.parse_output.return_value = ParsedOutput(status="pass", artifact_paths=[], notes="done")
+
+    loop._router = MagicMock()
+    loop._router.resolve.return_value = (mock_runner, mock_adapter)
+
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+
+    output = loop._run_agent(task, env, "planner")
+
+    assert output.status == "pass"
+    # artifact written
+    from system.orchestrator.schemas.artifacts import ParsedOutput as PO
+    stored = loop._artifact_store.read("BRQ-1", "planner", PO)
+    assert stored is not None
+    assert stored.status == "pass"
+    # events emitted
+    events = []
+    while not loop._queue.empty():
+        events.append(loop._queue.get_nowait())
+    event_types = [e.event_type for e in events]
+    assert "agent_spawn" in event_types
+    assert "agent_complete" in event_types
+
+
+def test_run_agent_clears_process_tracking_after_run(tmp_path):
+    loop = _make_loop(tmp_path)
+
+    mock_proc = MagicMock()
+    mock_proc.communicate.return_value = ('{"status": "pass", "notes": ""}', None)
+    mock_proc.returncode = 0
+
+    mock_runner = MagicMock()
+    mock_runner.start.return_value = mock_proc
+    mock_adapter = MagicMock()
+    mock_adapter.build_prompt.return_value = "prompt"
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    mock_adapter.parse_output.return_value = ParsedOutput(status="pass", artifact_paths=[])
+
+    loop._router = MagicMock()
+    loop._router.resolve.return_value = (mock_runner, mock_adapter)
+
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    loop._run_agent(task, env, "planner")
+
+    assert loop._current_process is None
+    assert loop._current_task_id is None
+
+
+def test_run_agent_clears_tracking_on_exception(tmp_path):
+    loop = _make_loop(tmp_path)
+
+    mock_runner = MagicMock()
+    mock_runner.start.side_effect = RuntimeError("spawn failed")
+    mock_adapter = MagicMock()
+    mock_adapter.build_prompt.return_value = "prompt"
+
+    loop._router = MagicMock()
+    loop._router.resolve.return_value = (mock_runner, mock_adapter)
+
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_SHAPING)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+
+    with pytest.raises(RuntimeError):
+        loop._run_agent(task, env, "planner")
+
+    assert loop._current_process is None
+    assert loop._current_task_id is None
+
+
+def test_run_agent_extracts_failure_notes_from_prior_artifacts(tmp_path):
+    """failure_notes key is removed from prior_artifacts and placed in TaskContext.failure_notes."""
+    loop = _make_loop(tmp_path)
+
+    captured_context: list = []
+
+    mock_proc = MagicMock()
+    mock_proc.communicate.return_value = ('{"status": "pass", "notes": ""}', None)
+    mock_proc.returncode = 0
+
+    mock_runner = MagicMock()
+    mock_runner.start.return_value = mock_proc
+    mock_adapter = MagicMock()
+
+    def capture_prompt(env, context):
+        captured_context.append(context)
+        return "prompt"
+
+    mock_adapter.build_prompt.side_effect = capture_prompt
+    from system.orchestrator.schemas.artifacts import ParsedOutput
+    mock_adapter.parse_output.return_value = ParsedOutput(status="pass", artifact_paths=[])
+
+    loop._router = MagicMock()
+    loop._router.resolve.return_value = (mock_runner, mock_adapter)
+
+    task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_DOER)
+    env = TaskEnvelope(task_id="BRQ-1", title="t", task_type="feature", component="backend")
+    prior = {"failure_notes": "checker said X", "some_key": "some_val"}
+
+    loop._run_agent(task, env, "doer", prior_artifacts=prior)
+
+    ctx = captured_context[0]
+    assert ctx.failure_notes == "checker said X"
+    assert "failure_notes" not in ctx.prior_artifacts
+    assert "some_key" in ctx.prior_artifacts
