@@ -1,10 +1,18 @@
 from __future__ import annotations
+import subprocess
 from abc import ABC, abstractmethod
 from system.orchestrator.schemas.run_result import RunContext, RunResult
 
 
 class AgentRunner(ABC):
     @abstractmethod
-    def run(self, prompt: str, context: RunContext) -> RunResult:
-        """Spawn subprocess, stream output, handle rate limits, return result."""
+    def start(self, prompt: str, context: RunContext) -> subprocess.Popen:
+        """Start the agent subprocess and return without waiting."""
         ...
+
+    def run(self, prompt: str, context: RunContext) -> RunResult:
+        """Default implementation: start() + communicate(). Override for custom logic."""
+        proc = self.start(prompt, context)
+        output, _ = proc.communicate()
+        status = "completed" if proc.returncode == 0 else "failed"
+        return RunResult(status=status, output=output, exit_code=proc.returncode)

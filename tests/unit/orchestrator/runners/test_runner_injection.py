@@ -9,21 +9,11 @@ def _ctx():
     return RunContext(task_id="BRQ-1", role="doer", work_dir=Path("/tmp"))
 
 
-def _mock_proc_iterating(output="done\n"):
-    """Mock for ClaudeRunner (iterates proc.stdout line by line)."""
+def _mock_proc(output="done\n"):
+    """Mock for all runners (calls proc.communicate())."""
     proc = MagicMock()
-    proc.stdout = iter([output])
+    proc.communicate.return_value = (output, None)
     proc.returncode = 0
-    proc.wait.return_value = 0
-    return proc
-
-
-def _mock_proc_read(output="done"):
-    """Mock for other runners (calls proc.stdout.read())."""
-    proc = MagicMock()
-    proc.stdout.read.return_value = output
-    proc.returncode = 0
-    proc.wait.return_value = 0
     return proc
 
 
@@ -31,7 +21,7 @@ def test_claude_runner_injects_token():
     from system.orchestrator.runners.claude_runner import ClaudeRunner
     with patch("keyring.get_password", return_value="ant_TOKEN"), \
          patch("subprocess.Popen") as mock_popen:
-        mock_popen.return_value = _mock_proc_iterating()
+        mock_popen.return_value = _mock_proc()
         runner = ClaudeRunner(credential_store=CredentialStore())
         runner.run("hello", _ctx())
         env = mock_popen.call_args.kwargs["env"]
@@ -42,7 +32,7 @@ def test_codex_runner_injects_token():
     from system.orchestrator.runners.codex_runner import CodexRunner
     with patch("keyring.get_password", return_value="oai_TOKEN"), \
          patch("subprocess.Popen") as mock_popen:
-        mock_popen.return_value = _mock_proc_read()
+        mock_popen.return_value = _mock_proc()
         runner = CodexRunner(credential_store=CredentialStore())
         runner.run("hello", _ctx())
         env = mock_popen.call_args.kwargs["env"]
@@ -53,7 +43,7 @@ def test_runner_without_store_still_works():
     """No CredentialStore — backward compatible, reads token from OS env."""
     from system.orchestrator.runners.claude_runner import ClaudeRunner
     with patch("subprocess.Popen") as mock_popen:
-        mock_popen.return_value = _mock_proc_iterating()
+        mock_popen.return_value = _mock_proc()
         ClaudeRunner().run("hello", _ctx())  # must not raise
 
 

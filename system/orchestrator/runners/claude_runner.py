@@ -13,7 +13,7 @@ class ClaudeRunner(AgentRunner):
     def __init__(self, credential_store: CredentialStore | None = None) -> None:
         self._store = credential_store
 
-    def run(self, prompt: str, context: RunContext) -> RunResult:
+    def start(self, prompt: str, context: RunContext) -> subprocess.Popen:
         cmd = [
             "claude", "-p", prompt,
             "--output-format", "stream-json",
@@ -21,18 +21,14 @@ class ClaudeRunner(AgentRunner):
         ]
         if context.session_id:
             cmd += ["--resume", context.session_id]
-
-        proc = subprocess.Popen(
+        return subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, cwd=context.work_dir, env=self._env(context),
         )
-        output_lines: list[str] = []
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            output_lines.append(line)
-        proc.wait()
-        output = "".join(output_lines)
 
+    def run(self, prompt: str, context: RunContext) -> RunResult:
+        proc = self.start(prompt, context)
+        output, _ = proc.communicate()
         if is_rate_limit_output(output):
             return RunResult(status="rate_limited", output=output, exit_code=proc.returncode)
         if proc.returncode != 0:

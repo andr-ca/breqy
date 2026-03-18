@@ -12,12 +12,8 @@ def ctx():
 
 def _proc(stdout="", returncode=0):
     m = MagicMock()
-    # stdout must be a line-iterable (ClaudeRunner iterates `for line in proc.stdout`)
-    m.stdout = iter(stdout.splitlines(keepends=True))
+    m.communicate.return_value = (stdout, None)
     m.returncode = returncode
-    m.wait.return_value = returncode
-    m.__enter__ = lambda s: s
-    m.__exit__ = MagicMock(return_value=False)
     return m
 
 
@@ -68,3 +64,23 @@ def test_claude_runner_exit0_with_rate_limit_string_is_rate_limited(ctx):
         runner = ClaudeRunner()
         result = runner.run("do the thing", ctx)
     assert result.status == "rate_limited"
+
+
+def test_claude_runner_start_returns_popen(ctx):
+    """start() creates a subprocess and returns Popen without blocking."""
+    with patch("subprocess.Popen") as mock_popen:
+        mock_popen.return_value = MagicMock()
+        runner = ClaudeRunner()
+        proc = runner.start("do the thing", ctx)
+    mock_popen.assert_called_once()
+    assert proc is mock_popen.return_value
+
+
+def test_claude_runner_start_passes_session_id(ctx):
+    ctx_with_session = ctx.model_copy(update={"session_id": "sess-abc"})
+    with patch("subprocess.Popen") as mock_popen:
+        mock_popen.return_value = MagicMock()
+        ClaudeRunner().start("prompt", ctx_with_session)
+    cmd = mock_popen.call_args[0][0]
+    assert "--resume" in cmd
+    assert "sess-abc" in cmd

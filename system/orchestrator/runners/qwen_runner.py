@@ -15,18 +15,19 @@ class QwenRunner(AgentRunner):
     def __init__(self, credential_store: CredentialStore | None = None) -> None:
         self._store = credential_store
 
-    def run(self, prompt: str, context: RunContext) -> RunResult:
+    def start(self, prompt: str, context: RunContext) -> subprocess.Popen:
         env = {**os.environ, **context.extra_env}
         if self._store:
             token = self._store.get(_PROVIDER_NAME)
             if token:
                 env[_ENV_KEY] = token
-        proc = subprocess.Popen(
+        return subprocess.Popen(
             ["qwen", prompt], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, cwd=context.work_dir, env=env,
         )
-        raw = proc.stdout
-        output: str = raw.read() if hasattr(raw, "read") else (raw or "")
-        proc.wait()
+
+    def run(self, prompt: str, context: RunContext) -> RunResult:
+        proc = self.start(prompt, context)
+        output, _ = proc.communicate()
         status = "completed" if proc.returncode == 0 else "failed"
         return RunResult(status=status, output=output, exit_code=proc.returncode)

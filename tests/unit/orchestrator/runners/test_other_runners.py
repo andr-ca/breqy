@@ -15,11 +15,8 @@ def ctx():
 
 def _proc(stdout="done\n", returncode=0):
     m = MagicMock()
-    m.stdout = stdout
+    m.communicate.return_value = (stdout, None)
     m.returncode = returncode
-    m.wait.return_value = returncode
-    m.__enter__ = lambda s: s
-    m.__exit__ = MagicMock(return_value=False)
     return m
 
 
