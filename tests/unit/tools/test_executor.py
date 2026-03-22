@@ -17,6 +17,13 @@ class EchoTool(ToolExecutor):
         )
 
 
+class NamelessTool(ToolExecutor):
+    description = "Missing stable identity"
+
+    async def execute(self, arguments: dict[str, object]) -> ToolResult:
+        return ToolResult(success=True)
+
+
 def test_tool_registry_register_and_get() -> None:
     registry = ToolRegistry()
     tool = EchoTool()
@@ -42,3 +49,10 @@ def test_registry_rejects_duplicate_names() -> None:
 
     with pytest.raises(ValueError, match="already registered"):
         registry.register(EchoTool())
+
+
+def test_registry_rejects_empty_tool_names() -> None:
+    registry = ToolRegistry()
+
+    with pytest.raises(ValueError, match="empty tool name"):
+        registry.register(NamelessTool())

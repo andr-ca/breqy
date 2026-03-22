@@ -8,6 +8,8 @@ class ToolRegistry:
         self._tools: dict[str, ToolExecutor] = {}
 
     def register(self, tool: ToolExecutor) -> None:
+        if not tool.name:
+            raise ValueError("Cannot register tool with empty tool name")
         if tool.name in self._tools:
             raise ValueError(f"Tool already registered: {tool.name}")
         self._tools[tool.name] = tool
