@@ -148,16 +148,87 @@
 
 ## Traceability
 
-*Populated during roadmap creation.*
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (to be filled) | | |
+| DOM-01 | Phase 1: Domain Foundation | Pending |
+| DOM-02 | Phase 1: Domain Foundation | Pending |
+| DOM-03 | Phase 1: Domain Foundation | Pending |
+| DOM-04 | Phase 1: Domain Foundation | Pending |
+| DOM-05 | Phase 1: Domain Foundation | Pending |
+| STR-01 | Phase 2: Storage Layer | Pending |
+| STR-02 | Phase 2: Storage Layer | Pending |
+| STR-03 | Phase 2: Storage Layer | Pending |
+| STR-04 | Phase 2: Storage Layer | Pending |
+| STR-05 | Phase 2: Storage Layer | Pending |
+| CFG-01 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| CFG-02 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| CFG-03 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| CFG-04 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| A2A-01 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| A2A-02 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| A2A-03 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| A2A-04 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| A2A-05 | Phase 3: Config, Secrets & A2A Protocol | Pending |
+| POL-01 | Phase 4: Policy & Approvals | Pending |
+| POL-02 | Phase 4: Policy & Approvals | Pending |
+| POL-03 | Phase 4: Policy & Approvals | Pending |
+| POL-04 | Phase 4: Policy & Approvals | Pending |
+| POL-05 | Phase 4: Policy & Approvals | Pending |
+| POL-06 | Phase 4: Policy & Approvals | Pending |
+| ENG-01 | Phase 5: Engine Runtime | Pending |
+| ENG-02 | Phase 5: Engine Runtime | Pending |
+| ENG-03 | Phase 5: Engine Runtime | Pending |
+| ENG-04 | Phase 5: Engine Runtime | Pending |
+| ENG-05 | Phase 5: Engine Runtime | Pending |
+| ENG-06 | Phase 5: Engine Runtime | Pending |
+| TOOL-01 | Phase 6: Tools | Pending |
+| TOOL-02 | Phase 6: Tools | Pending |
+| TOOL-03 | Phase 6: Tools | Pending |
+| TOOL-04 | Phase 6: Tools | Pending |
+| TOOL-05 | Phase 6: Tools | Pending |
+| TOOL-06 | Phase 6: Tools | Pending |
+| MEM-01 | Phase 7: Memory | Pending |
+| MEM-02 | Phase 7: Memory | Pending |
+| MEM-03 | Phase 7: Memory | Pending |
+| MEM-04 | Phase 7: Memory | Pending |
+| MEM-05 | Phase 7: Memory | Pending |
+| AGT-01 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-02 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-03 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-04 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-05 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-06 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-07 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-08 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-09 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-10 | Phase 8: Agent Runtime & Auth | Pending |
+| AGT-11 | Phase 8: Agent Runtime & Auth | Pending |
+| SES-01 | Phase 9: Sessions & Control | Pending |
+| SES-02 | Phase 9: Sessions & Control | Pending |
+| SES-03 | Phase 9: Sessions & Control | Pending |
+| SES-04 | Phase 9: Sessions & Control | Pending |
+| SES-05 | Phase 9: Sessions & Control | Pending |
+| SES-06 | Phase 9: Sessions & Control | Pending |
+| SES-07 | Phase 9: Sessions & Control | Pending |
+| SES-08 | Phase 9: Sessions & Control | Pending |
+| TUI-01 | Phase 10: TUI Client | Pending |
+| TUI-02 | Phase 10: TUI Client | Pending |
+| TUI-03 | Phase 10: TUI Client | Pending |
+| TUI-04 | Phase 10: TUI Client | Pending |
+| TUI-05 | Phase 10: TUI Client | Pending |
+| TUI-06 | Phase 10: TUI Client | Pending |
+| TUI-07 | Phase 10: TUI Client | Pending |
+| TUI-08 | Phase 10: TUI Client | Pending |
+| TUI-09 | Phase 10: TUI Client | Pending |
+| TUI-10 | Phase 10: TUI Client | Pending |
+| TUI-11 | Phase 10: TUI Client | Pending |
+| TUI-12 | Phase 10: TUI Client | Pending |
+| TUI-13 | Phase 10: TUI Client | Pending |
 
 **Coverage:**
 - v1 requirements: 57 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 57 ⚠️
+- Mapped to phases: 57 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-22*
