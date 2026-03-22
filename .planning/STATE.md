@@ -2,7 +2,7 @@
 
 **Milestone:** M1 — Slice 1 Full Build
 **Created:** 2026-03-22
-**Last updated:** 2026-03-22 (Phase 03 complete)
+**Last updated:** 2026-03-22 (Phase 04 complete)
 
 ---
 
@@ -10,21 +10,21 @@
 
 **Core Value:** A reliable, always-on engine that accepts connections from a TUI, maintains persistent sessions across restarts, and lets the default agent perform approved Linux admin and filesystem tasks with full user visibility and control.
 
-**Current Focus:** Phase 03 (Config, Secrets & A2A Protocol) complete — ready to plan Phase 4 (Policy & Approvals)
+**Current Focus:** Phase 04 (Policy & Approvals) complete — ready to implement Phase 5 (Engine Runtime)
 
 ---
 
 ## Current Position
 
-**Current Phase:** 4 (Policy & Approvals — next)
+**Current Phase:** 5 (Engine Runtime — next)
 **Current Plan:** None
-**Status:** Phase 03 complete; Phase 04 not yet planned
+**Status:** Phase 04 complete; Phase 05 not yet planned
 
 ### Progress Bar
 
 ```
 Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
-         ●    ●    ●    ○    ○    ○    ○    ○    ○    ○
+         ●    ●    ●    ●    ○    ○    ○    ○    ○    ○
          Domain Storage A2A  Pol  Eng  Tool Mem  Agt  Ses  TUI
 ```
 
@@ -39,7 +39,7 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | 1 | Domain Foundation | DOM-01–05 (5) | **Complete** |
 | 2 | Storage Layer | STR-01–05 (5) | **Complete** |
 | 3 | Config, Secrets & A2A Protocol | CFG-01–04, A2A-01–05 (9) | **Complete** |
-| 4 | Policy & Approvals | POL-01–06 (6) | Not started |
+| 4 | Policy & Approvals | POL-01–06 (6) | **Complete** |
 | 5 | Engine Runtime | ENG-01–06 (6) | Not started |
 | 6 | Tools | TOOL-01–06 (6) | Not started |
 | 7 | Memory | MEM-01–05 (5) | Not started |
@@ -56,10 +56,10 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | Requirements defined | 57 |
 | Requirements mapped | 57 |
 | Phases planned | 10 |
-| Plans written | 10 (Phase 1: 4, Phase 2: 4, Phase 3: 2) |
-| Plans complete | 10 |
-| Tests written | 415 total |
-| Tests passing | 415 |
+| Plans written | 12 (Phase 1: 4, Phase 2: 4, Phase 3: 2, Phase 4: 2) |
+| Plans complete | 12 |
+| Tests written | 442 total |
+| Tests passing | 442 |
 
 ---
 
@@ -84,6 +84,11 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | AgentConfig.log_path: str \| None = None | Optional is more explicit than empty-string sentinel |
 | A2A uses length-prefixed JSON frames | 4-byte big-endian uint32 prefix + UTF-8 JSON body; no other framing scheme |
 | Integration tests use asyncio.sleep(0.1) | Stability buffer for Unix socket connection establishment in test environments |
+| PolicyAction enum: ALLOW, DENY, REQUIRE_APPROVAL | NOT "APPROVE" — confirmed from domain enums |
+| FilesystemPolicyChecker sorts by path depth | Uses len(PurePosixPath(r.path_pattern).parts) not len(str) to be robust against trailing slashes |
+| ApprovalService prunes _pending in decide() | Prevents memory leak when decide() is called without a corresponding wait_for_decision() |
+| ApprovalService double-decide: raises ValueError | After _pending prune in decide(), second call raises "No pending approval" (semantically correct) |
+| structlog used throughout policy modules | structlog.get_logger(__name__) — not stdlib logging |
 
 ### Architectural Dependencies Encoded in Phases
 
@@ -102,7 +107,7 @@ Phase 1 (DOM)
 
 ### Active Todos
 
-- [ ] Run `/gsd-plan-phase 4` to decompose Phase 4 (Policy & Approvals) into executable plans
+- [ ] Run `/gsd-plan-phase 5` to decompose Phase 5 (Engine Runtime) into executable plans
 
 ### Active Blockers
 
