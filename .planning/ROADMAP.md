@@ -11,7 +11,7 @@
 
 - [x] **Phase 1: Domain Foundation** — ULID IDs, enums, core models, typed events, domain errors
 - [x] **Phase 2: Storage Layer** — Repository interfaces, SQLite management, schema/migrations, SQLite impls, centralized event writer
-- [ ] **Phase 3: Config, Secrets & A2A Protocol** — Config loader, dataclasses, SecretProvider/Keyring, A2A envelope, UNIX socket transport, server, client, round-trip contracts
+- [x] **Phase 3: Config, Secrets & A2A Protocol** — Config loader, dataclasses, SecretProvider/Keyring, A2A envelope, UNIX socket transport, server, client, round-trip contracts
 - [ ] **Phase 4: Policy & Approvals** — PolicyEvaluator, filesystem policy, tool permission rules, autonomy levels, ApprovalService, session-scoped grants
 - [ ] **Phase 5: Engine Runtime** — Daemon startup/shutdown, internal event bus, session manager, agent registry, agent spawner, restart restore
 - [ ] **Phase 6: Tools** — ToolExecutor/ToolResult/ToolRegistry, ShellTool, FilesystemTool, MCP client, memory tool
@@ -231,7 +231,7 @@
 |-------|----------------|--------|-----------|
 | 1. Domain Foundation | 4/4 | Complete | 2026-03-22 |
 | 2. Storage Layer | 4/4 | Complete | 2026-03-22 |
-| 3. Config, Secrets & A2A Protocol | 0/? | Not started | - |
+| 3. Config, Secrets & A2A Protocol | 2/2 | Complete | 2026-03-22 |
 | 4. Policy & Approvals | 0/? | Not started | - |
 | 5. Engine Runtime | 0/? | Not started | - |
 | 6. Tools | 0/? | Not started | - |
