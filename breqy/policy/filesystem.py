@@ -37,8 +37,8 @@ class FilesystemPolicyChecker:
         if not matching:
             return PolicyAction.ALLOW
 
-        # Most specific rule wins (longest path)
-        matching.sort(key=lambda r: len(r.path_pattern), reverse=True)
+        # Most specific rule wins (deepest path by component count)
+        matching.sort(key=lambda r: len(PurePosixPath(r.path_pattern).parts), reverse=True)
         winner = matching[0]
 
         if operation in winner.allowed_operations:

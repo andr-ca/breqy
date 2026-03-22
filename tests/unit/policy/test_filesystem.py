@@ -1,8 +1,6 @@
 """Tests for FilesystemPolicyChecker — path-based access control."""
 from __future__ import annotations
 
-import pytest
-
 from breqy.domain.enums import FilesystemOperation, PolicyAction
 from breqy.domain.models import FilesystemPolicy
 from breqy.policy.filesystem import FilesystemPolicyChecker
@@ -65,3 +63,21 @@ def test_unmatched_path_defaults_allow():
     checker = FilesystemPolicyChecker(rules=rules)
     result = checker.check("/home/user/file.txt", FilesystemOperation.READ)
     assert result == PolicyAction.ALLOW
+
+
+def test_most_specific_rule_wins():
+    """When two rules match, the more specific (deeper path) wins."""
+    rules = [
+        FilesystemPolicy(
+            path_pattern="/home",
+            allowed_operations=[FilesystemOperation.READ, FilesystemOperation.WRITE],
+        ),
+        FilesystemPolicy(
+            path_pattern="/home/user/secrets",
+            allowed_operations=[],  # nothing allowed here
+        ),
+    ]
+    checker = FilesystemPolicyChecker(rules=rules)
+    # The more specific /home/user/secrets rule applies → WRITE is denied
+    result = checker.check("/home/user/secrets/key.txt", FilesystemOperation.WRITE)
+    assert result == PolicyAction.DENY
