@@ -1,0 +1,91 @@
+"""Domain enumerations for the Breqy system."""
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class SessionStatus(StrEnum):
+    ACTIVE = "active"
+    CLOSED = "closed"
+    SUSPENDED = "suspended"
+
+
+class TaskStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class EventType(StrEnum):
+    SESSION_CREATED = "session.created"
+    SESSION_RESUMED = "session.resumed"
+    SESSION_CLOSED = "session.closed"
+    MESSAGE_SENT = "message.sent"
+    MESSAGE_CHUNK = "message.chunk"
+    TASK_CREATED = "task.created"
+    TASK_UPDATED = "task.updated"
+    TASK_COMPLETED = "task.completed"
+    TOOL_INVOCATION_STARTED = "tool.invocation.started"
+    TOOL_INVOCATION_COMPLETED = "tool.invocation.completed"
+    TOOL_INVOCATION_FAILED = "tool.invocation.failed"
+    TOOL_OUTPUT_CHUNK = "tool.output.chunk"
+    APPROVAL_REQUESTED = "approval.requested"
+    APPROVAL_GRANTED = "approval.granted"
+    APPROVAL_DENIED = "approval.denied"
+    AGENT_CONNECTED = "agent.connected"
+    AGENT_DISCONNECTED = "agent.disconnected"
+    CONTROL_STOP = "control.stop"
+    CONTROL_STOP_AND_STEER = "control.stop_and_steer"
+    CONTROL_STEER = "control.steer"
+    CONTROL_CIRCUIT_BREAK = "control.circuit_break"
+
+
+class MessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+    TOOL = "tool"
+
+
+class ToolStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    DENIED = "denied"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ApprovalStatus(StrEnum):
+    PENDING = "pending"
+    GRANTED = "granted"
+    DENIED = "denied"
+    EXPIRED = "expired"
+
+
+class PolicyScope(StrEnum):
+    GLOBAL = "global"
+    SESSION = "session"
+    AGENT = "agent"
+
+
+class PolicyAction(StrEnum):
+    ALLOW = "allow"
+    DENY = "deny"
+    REQUIRE_APPROVAL = "require_approval"
+
+
+class FilesystemOperation(StrEnum):
+    READ = "read"
+    WRITE = "write"
+    DELETE = "delete"
+    EXECUTE = "execute"
+    LIST = "list"
+
+
+class AutonomyLevel(StrEnum):
+    SUPERVISED = "supervised"
+    SEMI_AUTONOMOUS = "semi_autonomous"
+    AUTONOMOUS = "autonomous"
