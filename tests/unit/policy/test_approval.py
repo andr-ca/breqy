@@ -111,8 +111,7 @@ async def test_extend_to_session_caches_grant():
     assert service.has_session_grant("ses_5", "Run shell") is True
 
 
-@pytest.mark.asyncio
-async def test_has_session_grant_returns_false_when_not_granted():
+def test_has_session_grant_returns_false_when_not_granted():
     """has_session_grant returns False when no session grant exists."""
     repo = _make_repo()
     service = ApprovalService(repo)
@@ -126,6 +125,15 @@ async def test_decide_raises_for_unknown_request_id():
     service = ApprovalService(repo)
     with pytest.raises(ValueError, match="No pending approval"):
         await service.decide("apr_nonexistent", granted=True)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_decision_raises_for_unknown_request_id():
+    """wait_for_decision() with unknown request_id raises ValueError."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    with pytest.raises(ValueError, match="No pending approval"):
+        await service.wait_for_decision("apr_nonexistent", timeout=1.0)
 
 
 @pytest.mark.asyncio
@@ -157,3 +165,34 @@ async def test_load_session_grants_populates_cache():
 
     # Cache is populated after load
     assert service.has_session_grant("ses_reload", "Run shell") is True
+
+
+@pytest.mark.asyncio
+async def test_denied_with_extend_to_session_does_not_cache():
+    """decide(granted=False, extend_to_session=True) does not create a session grant."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_6",
+        agent_id="agt_1",
+        tool_invocation_id="inv_6",
+        description="Run shell",
+    )
+    await service.decide(request_id, granted=False, extend_to_session=True)
+    assert service.has_session_grant("ses_6", "Run shell") is False
+
+
+@pytest.mark.asyncio
+async def test_timeout_sets_expired_status():
+    """wait_for_decision timeout marks request as EXPIRED in DB."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_7",
+        agent_id="agt_1",
+        tool_invocation_id="inv_7",
+        description="Network access",
+    )
+    result = await service.wait_for_decision(request_id, timeout=0.05)
+    assert result is False
+    repo.update_request_status.assert_awaited_with(request_id, ApprovalStatus.EXPIRED)

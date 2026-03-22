@@ -9,14 +9,15 @@ Responsibilities:
 from __future__ import annotations
 
 import asyncio
-import logging
+
+import structlog
 
 from breqy.domain.enums import ApprovalStatus
 from breqy.domain.models import ApprovalDecision, ApprovalRequest
 from breqy.domain.ids import generate_prefixed_id
 from breqy.storage.interfaces import ApprovalRepository
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class _PendingApproval:
@@ -73,6 +74,9 @@ class ApprovalService:
         if pending is None:
             raise ValueError(f"No pending approval: {request_id}")
 
+        if pending.decided.is_set():
+            raise ValueError(f"Approval already decided: {request_id}")
+
         pending.granted = granted
         pending.extend_to_session = extend_to_session
 
@@ -112,8 +116,11 @@ class ApprovalService:
             await asyncio.wait_for(pending.decided.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             logger.warning("Approval timed out: %s", request_id)
+            self._pending.pop(request_id, None)
+            await self._repo.update_request_status(request_id, ApprovalStatus.EXPIRED)
             return False
 
+        self._pending.pop(request_id, None)
         return pending.granted
 
     def has_session_grant(self, session_id: str, description: str) -> bool:
