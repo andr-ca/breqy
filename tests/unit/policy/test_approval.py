@@ -196,3 +196,19 @@ async def test_timeout_sets_expired_status():
     result = await service.wait_for_decision(request_id, timeout=0.05)
     assert result is False
     repo.update_request_status.assert_awaited_with(request_id, ApprovalStatus.EXPIRED)
+
+
+@pytest.mark.asyncio
+async def test_decide_twice_raises_on_second_call():
+    """decide() called twice on the same request_id raises ValueError on second call."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_8",
+        agent_id="agt_1",
+        tool_invocation_id="inv_8",
+        description="Run shell",
+    )
+    await service.decide(request_id, granted=True)
+    with pytest.raises(ValueError, match="already decided"):
+        await service.decide(request_id, granted=False)
