@@ -1,0 +1,159 @@
+"""Tests for ApprovalService — in-memory approval orchestration."""
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock
+
+import pytest
+
+from breqy.domain.enums import ApprovalStatus
+from breqy.domain.models import ApprovalDecision, ApprovalRequest
+from breqy.policy.approval import ApprovalService
+
+
+def _make_repo():
+    """Create a mock ApprovalRepository."""
+    repo = AsyncMock()
+    repo.get_session_grants = AsyncMock(return_value=[])
+    repo.create_request = AsyncMock()
+    repo.create_decision = AsyncMock()
+    repo.update_request_status = AsyncMock()
+    return repo
+
+
+@pytest.mark.asyncio
+async def test_request_approval_returns_request_id():
+    """request_approval returns a non-empty request ID."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_1",
+        agent_id="agt_1",
+        tool_invocation_id="inv_1",
+        description="Run shell command",
+    )
+    assert request_id.startswith("apr_")
+    repo.create_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_decide_granted_resolves_wait():
+    """decide(granted=True) unblocks wait_for_decision and returns True."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_2",
+        agent_id="agt_1",
+        tool_invocation_id="inv_2",
+        description="Write file",
+    )
+
+    async def grant():
+        await asyncio.sleep(0.01)
+        await service.decide(request_id, granted=True)
+
+    asyncio.create_task(grant())
+    result = await service.wait_for_decision(request_id, timeout=2.0)
+    assert result is True
+    repo.create_decision.assert_awaited_once()
+    repo.update_request_status.assert_awaited_once_with(request_id, ApprovalStatus.GRANTED)
+
+
+@pytest.mark.asyncio
+async def test_decide_denied_resolves_wait():
+    """decide(granted=False) unblocks wait_for_decision and returns False."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_3",
+        agent_id="agt_1",
+        tool_invocation_id="inv_3",
+        description="Delete files",
+    )
+
+    async def deny():
+        await asyncio.sleep(0.01)
+        await service.decide(request_id, granted=False)
+
+    asyncio.create_task(deny())
+    result = await service.wait_for_decision(request_id, timeout=2.0)
+    assert result is False
+    repo.update_request_status.assert_awaited_once_with(request_id, ApprovalStatus.DENIED)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_decision_times_out():
+    """wait_for_decision returns False on timeout without raising."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_4",
+        agent_id="agt_1",
+        tool_invocation_id="inv_4",
+        description="Network access",
+    )
+    result = await service.wait_for_decision(request_id, timeout=0.05)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_extend_to_session_caches_grant():
+    """decide(extend_to_session=True) stores session grant in memory."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_5",
+        agent_id="agt_1",
+        tool_invocation_id="inv_5",
+        description="Run shell",
+    )
+    await service.decide(request_id, granted=True, extend_to_session=True)
+    assert service.has_session_grant("ses_5", "Run shell") is True
+
+
+@pytest.mark.asyncio
+async def test_has_session_grant_returns_false_when_not_granted():
+    """has_session_grant returns False when no session grant exists."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    assert service.has_session_grant("ses_x", "Run shell") is False
+
+
+@pytest.mark.asyncio
+async def test_decide_raises_for_unknown_request_id():
+    """decide() with an unknown request_id raises ValueError."""
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    with pytest.raises(ValueError, match="No pending approval"):
+        await service.decide("apr_nonexistent", granted=True)
+
+
+@pytest.mark.asyncio
+async def test_load_session_grants_populates_cache():
+    """load_session_grants() fetches extend_to_session decisions from DB and caches them."""
+    repo = _make_repo()
+
+    # Set up mock: one extend_to_session decision exists in DB
+    decision = ApprovalDecision(
+        request_id="apr_existing",
+        granted=True,
+        extend_to_session=True,
+    )
+    request = ApprovalRequest(
+        id="apr_existing",
+        session_id="ses_reload",
+        agent_id="agt_1",
+        tool_invocation_id="inv_existing",
+        description="Run shell",
+    )
+    repo.get_session_grants = AsyncMock(return_value=[decision])
+    repo.get_request = AsyncMock(return_value=request)
+
+    service = ApprovalService(repo)
+    # Cache is empty before load
+    assert service.has_session_grant("ses_reload", "Run shell") is False
+
+    await service.load_session_grants("ses_reload")
+
+    # Cache is populated after load
+    assert service.has_session_grant("ses_reload", "Run shell") is True
