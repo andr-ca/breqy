@@ -1,8 +1,6 @@
 """Tests for in-process async event bus."""
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from breqy.engine.event_bus import EventBus
@@ -25,7 +23,6 @@ async def test_subscribe_and_receive():
         session_id="ses_1", message_id="msg_1", role="user", content="Hi"
     )
     await bus.publish(event)
-    await asyncio.sleep(0.01)
 
     assert len(received) == 1
     assert received[0].event_type == EventType.MESSAGE_SENT
@@ -49,7 +46,6 @@ async def test_wildcard_subscribe():
         session_id="ses_1", agent_id="breqy", invocation_id="inv_1",
         tool_name="shell", summary="ls"
     ))
-    await asyncio.sleep(0.01)
 
     assert len(received) == 2
 
@@ -69,6 +65,5 @@ async def test_unsubscribe():
     await bus.publish(MessageSentEvent(
         session_id="ses_1", message_id="msg_1", role="user", content="Hi"
     ))
-    await asyncio.sleep(0.01)
 
     assert len(received) == 0

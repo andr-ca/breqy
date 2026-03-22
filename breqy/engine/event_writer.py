@@ -9,12 +9,13 @@ through a single asyncio.Queue consumer.
 from __future__ import annotations
 
 import asyncio
-import logging
+
+import structlog
 
 from breqy.domain.events import Event
 from breqy.storage.interfaces import EventRepository
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class EventWriter:

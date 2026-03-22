@@ -84,8 +84,12 @@ def main() -> None:
         daemon = EngineDaemon(config)
         loop = asyncio.get_running_loop()
 
+        stop_task: asyncio.Task[None] | None = None
+
         def handle_signal() -> None:
-            asyncio.create_task(daemon.stop())
+            nonlocal stop_task
+            if stop_task is None:
+                stop_task = loop.create_task(daemon.stop())
 
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, handle_signal)

@@ -37,8 +37,12 @@ class EngineServer:
         self.event_bus = EventBus()
         self.event_writer = EventWriter(event_repo)
         self.session_manager = SessionManager(session_repo, message_repo)
+        # TODO(phase-6): agent_registry is scaffolded here for future agent
+        # registration/lookup — not yet wired into _handle_envelope routing.
         self.agent_registry = AgentRegistry()
         self.agent_spawner = AgentSpawner(engine_socket=socket_path)
+        # TODO(phase-6): approval_service is scaffolded here for future
+        # human-approval flow — not yet consulted in _handle_envelope.
         self.approval_service = ApprovalService(approval_repo)
         self.a2a_server = A2AServer(
             socket_path=socket_path,
