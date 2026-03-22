@@ -2,7 +2,7 @@
 
 **Milestone:** M1 — Slice 1 Full Build
 **Created:** 2026-03-22
-**Last updated:** 2026-03-22 (Phase 01 complete)
+**Last updated:** 2026-03-22 (Phase 02 complete)
 
 ---
 
@@ -10,21 +10,21 @@
 
 **Core Value:** A reliable, always-on engine that accepts connections from a TUI, maintains persistent sessions across restarts, and lets the default agent perform approved Linux admin and filesystem tasks with full user visibility and control.
 
-**Current Focus:** Phase 01 (Domain Foundation) complete — ready to plan Phase 2 (Storage Layer)
+**Current Focus:** Phase 02 (Storage Layer) complete — ready to plan Phase 3 (Config, Secrets & A2A Protocol)
 
 ---
 
 ## Current Position
 
-**Current Phase:** 2 (Storage Layer — next)
+**Current Phase:** 3 (Config, Secrets & A2A Protocol — next)
 **Current Plan:** None
-**Status:** Phase 01 complete; Phase 02 not yet planned
+**Status:** Phase 02 complete; Phase 03 not yet planned
 
 ### Progress Bar
 
 ```
 Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
-         ●    ○    ○    ○    ○    ○    ○    ○    ○    ○
+         ●    ●    ○    ○    ○    ○    ○    ○    ○    ○
          Domain Storage A2A  Pol  Eng  Tool Mem  Agt  Ses  TUI
 ```
 
@@ -37,7 +37,7 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
 | 1 | Domain Foundation | DOM-01–05 (5) | **Complete** |
-| 2 | Storage Layer | STR-01–05 (5) | Not started |
+| 2 | Storage Layer | STR-01–05 (5) | **Complete** |
 | 3 | Config, Secrets & A2A Protocol | CFG-01–04, A2A-01–05 (9) | Not started |
 | 4 | Policy & Approvals | POL-01–06 (6) | Not started |
 | 5 | Engine Runtime | ENG-01–06 (6) | Not started |
@@ -56,10 +56,10 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | Requirements defined | 57 |
 | Requirements mapped | 57 |
 | Phases planned | 10 |
-| Plans written | 4 |
-| Plans complete | 4 |
-| Tests written | 49 (domain: 38, project setup: 11) |
-| Tests passing | 351 (302 existing + 49 new) |
+| Plans written | 8 (Phase 1: 4, Phase 2: 4) |
+| Plans complete | 8 |
+| Tests written | 388 total (domain: 38, project setup: 11, storage: 26+, engine: 3) |
+| Tests passing | 388 |
 
 ---
 
@@ -73,6 +73,12 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | CFG + A2A combined into Phase 3 | Both are infrastructure/transport prerequisites for ENG; batching them avoids a one-req phase for CFG alone |
 | Memory after Tools (Phase 7 after Phase 6) | MEM depends on both STR (persistence) and the MCP memory tool (TOOL-06); must follow tools layer |
 | SES before TUI (Phase 9 before Phase 10) | TUI depends on all session/control capabilities being live; session layer is the final backend phase |
+| Session.workspace → workspace_paths: list[str] | DB schema uses TEXT column with JSON; aligned domain model in Phase 2 |
+| Task.agent_id: str \| None = None | DB schema has nullable agent_id column; added to domain model in Phase 2 |
+| Event.agent_id/correlation_id default "" | DB schema has NOT NULL DEFAULT ''; changed from Optional to required-defaulted str |
+| ToolInvocation.created_at → started_at | DB schema column name is started_at |
+| Participant.left_at: datetime \| None = None | DB schema has nullable left_at column; added to domain model |
+| ApprovalDecision fields aligned to DB | granted: bool, extend_to_session: bool, reason: str, decided_at: datetime |
 
 ### Architectural Dependencies Encoded in Phases
 
@@ -91,7 +97,7 @@ Phase 1 (DOM)
 
 ### Active Todos
 
-- [ ] Run `/gsd-plan-phase 2` to decompose Phase 2 (Storage Layer) into executable plans
+- [ ] Run `/gsd-plan-phase 3` to decompose Phase 3 (Config, Secrets & A2A Protocol) into executable plans
 
 ### Active Blockers
 
