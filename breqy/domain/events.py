@@ -31,8 +31,8 @@ class Event(BaseModel):
     event_type: EventType
     schema_version: int = 1
     session_id: str
-    agent_id: str | None = None
-    correlation_id: str | None = None
+    agent_id: str = ""
+    correlation_id: str = ""
     timestamp: datetime = Field(default_factory=_now)
 
 
@@ -152,7 +152,7 @@ class AgentLifecycleEvent(Event):
     """event_type can be AGENT_CONNECTED or AGENT_DISCONNECTED."""
 
     event_type: EventType = EventType.AGENT_CONNECTED
-    agent_id: str
+    # agent_id inherited from Event; agents must always supply this
 
 
 # --------------------------------------------------------------------------- #
