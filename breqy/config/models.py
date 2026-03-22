@@ -1,4 +1,4 @@
-"""Configuration dataclasses for engine and agent."""
+"""Configuration models for engine and agent."""
 from __future__ import annotations
 
 import os
@@ -39,10 +39,12 @@ class AgentConfig(BaseModel):
     name: str
     display_name: str = ""
     port: int | None = None
-    engine_socket: str = "/tmp/breqy-engine.sock"
+    engine_socket: str = Field(
+        default_factory=lambda: os.getenv("BREQY_ENGINE_SOCKET", "/tmp/breqy-engine.sock")
+    )
     persona_file: str = "persona.md"
     autonomy_level: str = "supervised"
     tool_permissions: list[str] = Field(default_factory=list)
     skill_permissions: list[str] = Field(default_factory=list)
     log_level: str = "INFO"
-    log_path: str = ""
+    log_path: str | None = None

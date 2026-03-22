@@ -1,19 +1,20 @@
 """Tests for config models."""
 from __future__ import annotations
 
-import os
-
-import pytest
-
 from breqy.config.models import AgentConfig, EngineConfig
 
 
-def test_engine_config_defaults():
-    """EngineConfig has sensible defaults from env or hardcoded fallback."""
+def test_engine_config_defaults(monkeypatch):
+    """EngineConfig has sensible defaults when no env vars are set."""
+    monkeypatch.delenv("BREQY_ENGINE_SOCKET", raising=False)
+    monkeypatch.delenv("BREQY_DATA_DIR", raising=False)
+    monkeypatch.delenv("BREQY_DB_PATH", raising=False)
+    monkeypatch.delenv("BREQY_LOG_LEVEL", raising=False)
     cfg = EngineConfig()
-    assert cfg.socket_path  # non-empty
-    assert cfg.data_dir  # non-empty
-    assert cfg.db_path  # non-empty
+    assert cfg.socket_path == "/tmp/breqy-engine.sock"
+    from pathlib import Path
+    assert cfg.data_dir == str(Path.home() / ".breqy" / "data")
+    assert cfg.db_path == str(Path.home() / ".breqy" / "data" / "breqy.db")
     assert cfg.log_level == "INFO"
     assert cfg.default_agent_id == "breqy"
 
