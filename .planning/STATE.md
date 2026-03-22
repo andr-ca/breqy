@@ -2,7 +2,7 @@
 
 **Milestone:** M1 — Slice 1 Full Build
 **Created:** 2026-03-22
-**Last updated:** 2026-03-22
+**Last updated:** 2026-03-22 (Phase 01 complete)
 
 ---
 
@@ -10,21 +10,21 @@
 
 **Core Value:** A reliable, always-on engine that accepts connections from a TUI, maintains persistent sessions across restarts, and lets the default agent perform approved Linux admin and filesystem tasks with full user visibility and control.
 
-**Current Focus:** Roadmap created — ready to plan Phase 1 (Domain Foundation)
+**Current Focus:** Phase 01 (Domain Foundation) complete — ready to plan Phase 2 (Storage Layer)
 
 ---
 
 ## Current Position
 
-**Current Phase:** None (pre-planning)
+**Current Phase:** 2 (Storage Layer — next)
 **Current Plan:** None
-**Status:** Roadmap complete, awaiting phase planning
+**Status:** Phase 01 complete; Phase 02 not yet planned
 
 ### Progress Bar
 
 ```
 Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
-         ○    ○    ○    ○    ○    ○    ○    ○    ○    ○
+         ●    ○    ○    ○    ○    ○    ○    ○    ○    ○
          Domain Storage A2A  Pol  Eng  Tool Mem  Agt  Ses  TUI
 ```
 
@@ -36,7 +36,7 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 1 | Domain Foundation | DOM-01–05 (5) | Not started |
+| 1 | Domain Foundation | DOM-01–05 (5) | **Complete** |
 | 2 | Storage Layer | STR-01–05 (5) | Not started |
 | 3 | Config, Secrets & A2A Protocol | CFG-01–04, A2A-01–05 (9) | Not started |
 | 4 | Policy & Approvals | POL-01–06 (6) | Not started |
@@ -56,10 +56,10 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | Requirements defined | 57 |
 | Requirements mapped | 57 |
 | Phases planned | 10 |
-| Plans written | 0 |
-| Plans complete | 0 |
-| Tests written | 0 |
-| Tests passing | 0 |
+| Plans written | 4 |
+| Plans complete | 4 |
+| Tests written | 49 (domain: 38, project setup: 11) |
+| Tests passing | 351 (302 existing + 49 new) |
 
 ---
 
@@ -91,7 +91,7 @@ Phase 1 (DOM)
 
 ### Active Todos
 
-- [ ] Run `/gsd-plan-phase 1` to decompose Phase 1 into executable plans
+- [ ] Run `/gsd-plan-phase 2` to decompose Phase 2 (Storage Layer) into executable plans
 
 ### Active Blockers
 

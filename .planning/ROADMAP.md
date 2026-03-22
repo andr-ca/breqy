@@ -9,7 +9,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Domain Foundation** — ULID IDs, enums, core models, typed events, domain errors
+- [x] **Phase 1: Domain Foundation** — ULID IDs, enums, core models, typed events, domain errors
 - [ ] **Phase 2: Storage Layer** — Repository interfaces, SQLite management, schema/migrations, SQLite impls, centralized event writer
 - [ ] **Phase 3: Config, Secrets & A2A Protocol** — Config loader, dataclasses, SecretProvider/Keyring, A2A envelope, UNIX socket transport, server, client, round-trip contracts
 - [ ] **Phase 4: Policy & Approvals** — PolicyEvaluator, filesystem policy, tool permission rules, autonomy levels, ApprovalService, session-scoped grants
