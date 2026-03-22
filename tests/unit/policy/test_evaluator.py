@@ -1,12 +1,9 @@
 """Tests for PolicyEvaluator — most restrictive rule wins."""
 from __future__ import annotations
 
-import pytest
-
 from breqy.domain.enums import PolicyAction, PolicyScope
 from breqy.domain.models import PolicyRule
 from breqy.policy.evaluator import PolicyEvaluator
-from breqy.policy.models import PolicyDecision
 
 
 def test_allow_when_no_rules():
