@@ -29,8 +29,7 @@ class Session(BaseModel):
     id: str = Field(default_factory=lambda: generate_prefixed_id("ses"))
     status: SessionStatus = SessionStatus.ACTIVE
     primary_agent_id: str
-    workspace: str = ""
-    autonomy_level: AutonomyLevel = AutonomyLevel.SUPERVISED
+    workspace_paths: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -40,6 +39,7 @@ class Participant(BaseModel):
     session_id: str
     agent_id: str
     joined_at: datetime = Field(default_factory=_now)
+    left_at: datetime | None = None
 
 
 class Message(BaseModel):
@@ -58,6 +58,7 @@ class Task(BaseModel):
     description: str = ""
     status: TaskStatus = TaskStatus.PENDING
     parent_id: str | None = None
+    agent_id: str | None = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -70,10 +71,10 @@ class ToolInvocation(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
     status: ToolStatus = ToolStatus.PENDING
     approval_id: str | None = None
-    result: str | None = None
+    result: dict[str, Any] | None = None
     error: str | None = None
     summary: str = ""
-    created_at: datetime = Field(default_factory=_now)
+    started_at: datetime = Field(default_factory=_now)
     completed_at: datetime | None = None
 
 
@@ -91,11 +92,10 @@ class ApprovalRequest(BaseModel):
 class ApprovalDecision(BaseModel):
     id: str = Field(default_factory=lambda: generate_prefixed_id("apd"))
     request_id: str
-    session_id: str
-    decision: ApprovalStatus
-    decided_by: str = "user"
-    scope: str = "once"
-    created_at: datetime = Field(default_factory=_now)
+    granted: bool
+    extend_to_session: bool = False
+    reason: str = ""
+    decided_at: datetime = Field(default_factory=_now)
 
 
 class PolicyRule(BaseModel):
