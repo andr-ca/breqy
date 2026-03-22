@@ -99,6 +99,8 @@ class ApprovalService:
             grants.add(pending.request.description)
 
         pending.decided.set()
+        # Prune here so decide()-without-wait doesn't leak _PendingApproval
+        self._pending.pop(request_id, None)
         logger.info(
             "Approval %s: %s (extend=%s)",
             "granted" if granted else "denied",
@@ -121,7 +123,8 @@ class ApprovalService:
             return False
 
         self._pending.pop(request_id, None)
-        return pending.granted
+        result = pending.granted
+        return result
 
     def has_session_grant(self, session_id: str, description: str) -> bool:
         """Return True if a session-wide grant exists for this description."""

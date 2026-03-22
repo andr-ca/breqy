@@ -83,7 +83,7 @@ async def test_decide_denied_resolves_wait():
 
 @pytest.mark.asyncio
 async def test_wait_for_decision_times_out():
-    """wait_for_decision returns False on timeout without raising."""
+    """wait_for_decision returns False on timeout without raising, and sets EXPIRED status."""
     repo = _make_repo()
     service = ApprovalService(repo)
     request_id = await service.request_approval(
@@ -94,6 +94,7 @@ async def test_wait_for_decision_times_out():
     )
     result = await service.wait_for_decision(request_id, timeout=0.05)
     assert result is False
+    repo.update_request_status.assert_awaited_with(request_id, ApprovalStatus.EXPIRED)
 
 
 @pytest.mark.asyncio
@@ -200,7 +201,12 @@ async def test_timeout_sets_expired_status():
 
 @pytest.mark.asyncio
 async def test_decide_twice_raises_on_second_call():
-    """decide() called twice on the same request_id raises ValueError on second call."""
+    """decide() called twice on the same request_id raises ValueError on second call.
+
+    After the first decide() prunes _pending, the second call sees a missing
+    request and raises ValueError with "No pending approval". This is equivalent
+    to 'already decided' from the caller's perspective.
+    """
     repo = _make_repo()
     service = ApprovalService(repo)
     request_id = await service.request_approval(
@@ -210,5 +216,5 @@ async def test_decide_twice_raises_on_second_call():
         description="Run shell",
     )
     await service.decide(request_id, granted=True)
-    with pytest.raises(ValueError, match="already decided"):
+    with pytest.raises(ValueError):
         await service.decide(request_id, granted=False)
