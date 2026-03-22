@@ -53,3 +53,52 @@ def test_agent_config_full():
     )
     assert cfg.port == 9000
     assert cfg.tool_permissions == ["shell", "fs"]
+
+
+import yaml
+from pathlib import Path
+
+from breqy.config.loader import load_agent_config, load_engine_config
+
+
+def test_load_engine_config_no_file():
+    """load_engine_config() with no path returns defaults."""
+    cfg = load_engine_config()
+    assert isinstance(cfg, EngineConfig)
+
+
+def test_load_engine_config_from_yaml(tmp_path):
+    """load_engine_config() with valid YAML overrides defaults."""
+    config_file = tmp_path / "engine.yaml"
+    config_file.write_text(
+        yaml.dump({"socket_path": "/tmp/my.sock", "log_level": "DEBUG"})
+    )
+    cfg = load_engine_config(str(config_file))
+    assert cfg.socket_path == "/tmp/my.sock"
+    assert cfg.log_level == "DEBUG"
+
+
+def test_load_agent_config_valid(tmp_path):
+    """load_agent_config() reads agent.yaml from directory."""
+    (tmp_path / "agent.yaml").write_text(
+        yaml.dump({"id": "my-agent", "name": "My Agent", "autonomy_level": "supervised"})
+    )
+    cfg = load_agent_config(str(tmp_path))
+    assert cfg.id == "my-agent"
+    assert cfg.name == "My Agent"
+
+
+def test_load_agent_config_missing_file(tmp_path):
+    """load_agent_config() raises FileNotFoundError if agent.yaml absent."""
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        load_agent_config(str(tmp_path))
+
+
+def test_load_agent_config_invalid_yaml(tmp_path):
+    """load_agent_config() raises ValidationError for missing required fields."""
+    import pytest
+    from pydantic import ValidationError
+    (tmp_path / "agent.yaml").write_text(yaml.dump({"display_name": "Missing id and name"}))
+    with pytest.raises(ValidationError):
+        load_agent_config(str(tmp_path))
