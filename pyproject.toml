@@ -42,4 +42,4 @@ line-length = 100
 target-version = "py312"
 
 [tool.coverage.run]
-source = ["system"]
+source = ["system", "breqy"]

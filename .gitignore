@@ -12,6 +12,9 @@ build/
 htmlcov/
 .coverage
 
+# Environment
+.env
+
 # Orchestrator runtime
 ai-artifacts/
 .breqy/orchestrator/
