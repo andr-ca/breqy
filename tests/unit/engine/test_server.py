@@ -53,7 +53,7 @@ async def test_engine_server_composes_tool_service_and_persists_tool_events(
 
     await server.start()
     try:
-        result = await server.tool_service.execute_tool(
+        result = await server.execute_tool(
             session_id=session.id,
             agent_id="agent_breqy",
             tool_name="shell",
@@ -76,3 +76,32 @@ async def test_engine_server_composes_tool_service_and_persists_tool_events(
         EventType.TOOL_INVOCATION_STARTED,
         EventType.TOOL_INVOCATION_COMPLETED,
     ]
+
+
+@pytest.mark.asyncio
+async def test_engine_server_execute_tool_fails_when_tool_service_is_unavailable(
+    db_connection,
+    socket_path,
+) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+
+    with pytest.raises(RuntimeError, match="Tool service is not configured"):
+        await server.execute_tool(
+            session_id="ses_missing",
+            agent_id="agent_breqy",
+            tool_name="shell",
+            arguments={"command": "printf hello"},
+        )

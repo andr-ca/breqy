@@ -311,10 +311,11 @@ Skills do not grant permission.
 ## 10a. MCP bootstrap and remote tool registration
 
 - MCP servers are configured on the agent side as explicit server definitions rather than implicit global plugins
-- runtime bootstrap starts each configured MCP client, performs protocol initialization, and discovers the remote tool catalog for that server
-- each discovered remote tool is wrapped in an `MCPToolAdapter` and registered into the local `ToolRegistry` under a namespaced tool name such as `mcp.<server>.<tool>`
-- malformed discovery entries or unavailable MCP servers are skipped with structured warnings so one bad integration does not block the rest of tool startup
-- once registered, remote MCP tools flow through the same `ToolService`, policy evaluation, approval checks, invocation persistence, and event emission path as native tools
+- the available bootstrap helper starts a configured MCP client, performs protocol initialization, and discovers the remote tool catalog for that server
+- each discovered remote tool can then be wrapped in an `MCPToolAdapter` and registered into a local `ToolRegistry` under a namespaced tool name such as `mcp.<server>.<tool>`
+- malformed discovery entries or unavailable MCP servers are skipped with structured warnings so one bad integration does not block the rest of registration
+- once an MCP-backed tool is registered, it flows through the same `ToolService`, policy evaluation, approval checks, invocation persistence, and event emission path as native tools
+- wiring that bootstrap helper into the default runtime startup path remains a separate step from the current Phase 6 engine composition
 
 ## 11. Workspace architecture
 Sessions may attach to one or more workspaces.

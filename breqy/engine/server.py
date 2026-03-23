@@ -1,6 +1,8 @@
 """Engine server: composites all engine components and handles A2A routing."""
 from __future__ import annotations
 
+from typing import Any
+
 import structlog
 
 from breqy.a2a.envelope import Envelope
@@ -21,6 +23,7 @@ from breqy.storage.interfaces import (
     TaskRepository,
     ToolInvocationRepository,
 )
+from breqy.tools.executor import ToolResult
 from breqy.tools import FilesystemTool, ShellTool, ToolRegistry, ToolService
 
 logger = structlog.get_logger(__name__)
@@ -85,6 +88,23 @@ class EngineServer:
         event = envelope.to_event()
         await self.event_bus.publish(event)
         await self.a2a_server.broadcast(envelope, exclude_client=client_id)
+
+    async def execute_tool(
+        self,
+        session_id: str,
+        agent_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> ToolResult:
+        """Execute a tool through the engine-composed tool service."""
+        if self.tool_service is None:
+            raise RuntimeError("Tool service is not configured")
+        return await self.tool_service.execute_tool(
+            session_id=session_id,
+            agent_id=agent_id,
+            tool_name=tool_name,
+            arguments=arguments,
+        )
 
     def _build_tool_service(
         self,

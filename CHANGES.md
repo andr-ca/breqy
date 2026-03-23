@@ -19,5 +19,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Refined `GEMINI.md` with full technology stack, correct coverage thresholds, and fixed table formatting.
 - Narrowed `.geminiignore` to ensure `.env.sample` is unignored by removing the leading space in the negation pattern.
-- Wired engine-side tool composition so `EngineServer` can build a default native tool registry, compose `ToolService`, and keep tool audit events on the existing centralized event bus and writer path.
-- Expanded `docs/architecture.md` with the native tool execution flow, policy and approval gate placement, and MCP bootstrap plus remote tool registration behavior.
+- Wired engine-side tool composition so `EngineServer` can build a default native tool registry, expose a server-level tool execution entrypoint, and keep tool audit events on the existing centralized event bus and writer path.
+- Expanded `docs/architecture.md` with the native tool execution flow, policy and approval gate placement, and the current MCP bootstrap/registration mechanism without implying runtime auto-wiring that does not yet exist.
