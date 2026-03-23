@@ -38,7 +38,7 @@ async def test_request_approval_returns_request_id():
 
 @pytest.mark.asyncio
 async def test_decide_granted_resolves_wait():
-    """decide(granted=True) unblocks wait_for_decision and returns True."""
+    """decide(granted=True) unblocks wait_for_decision and returns GRANTED."""
     repo = _make_repo()
     service = ApprovalService(repo)
     request_id = await service.request_approval(
@@ -54,14 +54,14 @@ async def test_decide_granted_resolves_wait():
 
     asyncio.create_task(grant())
     result = await service.wait_for_decision(request_id, timeout=2.0)
-    assert result is True
+    assert result == ApprovalStatus.GRANTED
     repo.create_decision.assert_awaited_once()
     repo.update_request_status.assert_awaited_once_with(request_id, ApprovalStatus.GRANTED)
 
 
 @pytest.mark.asyncio
 async def test_decide_denied_resolves_wait():
-    """decide(granted=False) unblocks wait_for_decision and returns False."""
+    """decide(granted=False) unblocks wait_for_decision and returns DENIED."""
     repo = _make_repo()
     service = ApprovalService(repo)
     request_id = await service.request_approval(
@@ -77,13 +77,13 @@ async def test_decide_denied_resolves_wait():
 
     asyncio.create_task(deny())
     result = await service.wait_for_decision(request_id, timeout=2.0)
-    assert result is False
+    assert result == ApprovalStatus.DENIED
     repo.update_request_status.assert_awaited_once_with(request_id, ApprovalStatus.DENIED)
 
 
 @pytest.mark.asyncio
 async def test_wait_for_decision_times_out():
-    """wait_for_decision returns False on timeout without raising, and sets EXPIRED status."""
+    """wait_for_decision returns EXPIRED on timeout without raising."""
     repo = _make_repo()
     service = ApprovalService(repo)
     request_id = await service.request_approval(
@@ -93,7 +93,7 @@ async def test_wait_for_decision_times_out():
         description="Network access",
     )
     result = await service.wait_for_decision(request_id, timeout=0.05)
-    assert result is False
+    assert result == ApprovalStatus.EXPIRED
     repo.update_request_status.assert_awaited_with(request_id, ApprovalStatus.EXPIRED)
 
 
@@ -195,7 +195,7 @@ async def test_timeout_sets_expired_status():
         description="Network access",
     )
     result = await service.wait_for_decision(request_id, timeout=0.05)
-    assert result is False
+    assert result == ApprovalStatus.EXPIRED
     repo.update_request_status.assert_awaited_with(request_id, ApprovalStatus.EXPIRED)
 
 

@@ -26,7 +26,7 @@ class _PendingApproval:
     def __init__(self, request: ApprovalRequest) -> None:
         self.request = request
         self.decided = asyncio.Event()
-        self.granted: bool = False
+        self.status: ApprovalStatus = ApprovalStatus.PENDING
         self.extend_to_session: bool = False
 
 
@@ -77,7 +77,7 @@ class ApprovalService:
         if pending.decided.is_set():
             raise ValueError(f"Approval already decided: {request_id}")
 
-        pending.granted = granted
+        pending.status = ApprovalStatus.GRANTED if granted else ApprovalStatus.DENIED
         pending.extend_to_session = extend_to_session
 
         # Persist decision
@@ -90,7 +90,7 @@ class ApprovalService:
         await self._repo.create_decision(decision)
 
         # Update request status in DB
-        status = ApprovalStatus.GRANTED if granted else ApprovalStatus.DENIED
+        status = pending.status
         await self._repo.update_request_status(request_id, status)
 
         # Cache session grant if applicable
@@ -108,8 +108,12 @@ class ApprovalService:
             extend_to_session,
         )
 
-    async def wait_for_decision(self, request_id: str, timeout: float = 300.0) -> bool:
-        """Wait for a user decision. Returns True if granted, False if denied/timeout."""
+    async def wait_for_decision(
+        self,
+        request_id: str,
+        timeout: float = 300.0,
+    ) -> ApprovalStatus:
+        """Wait for a user decision. Returns GRANTED, DENIED, or EXPIRED."""
         pending = self._pending.get(request_id)
         if pending is None:
             raise ValueError(f"No pending approval: {request_id}")
@@ -120,11 +124,10 @@ class ApprovalService:
             logger.warning("Approval timed out: %s", request_id)
             self._pending.pop(request_id, None)
             await self._repo.update_request_status(request_id, ApprovalStatus.EXPIRED)
-            return False
+            return ApprovalStatus.EXPIRED
 
         self._pending.pop(request_id, None)
-        result = pending.granted
-        return result
+        return pending.status
 
     def has_session_grant(self, session_id: str, description: str) -> bool:
         """Return True if a session-wide grant exists for this description."""

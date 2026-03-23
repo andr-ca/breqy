@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from breqy.domain.enums import ToolStatus
@@ -121,3 +123,31 @@ async def test_list_by_session_returns_newest_first(db_connection):
     invocations = await repo.list_by_session(session.id)
 
     assert [item.id for item in invocations] == [second.id, first.id]
+
+
+@pytest.mark.asyncio
+async def test_update_result_can_update_started_at(db_connection):
+    session_repo = SqliteSessionRepository(db_connection)
+    session = Session(primary_agent_id="breqy")
+    await session_repo.create(session)
+
+    repo = SqliteToolInvocationRepository(db_connection)
+    invocation = ToolInvocation(session_id=session.id, agent_id="breqy", tool_name="shell")
+    original_started_at = invocation.started_at
+    await repo.create(invocation)
+
+    actual_started_at = datetime.now(timezone.utc)
+    await repo.update_result(
+        invocation.id,
+        status=ToolStatus.RUNNING,
+        result=None,
+        error="",
+        summary="Command started",
+        started_at=actual_started_at,
+    )
+
+    loaded = await repo.get(invocation.id)
+
+    assert loaded is not None
+    assert loaded.started_at != original_started_at
+    assert loaded.started_at == actual_started_at

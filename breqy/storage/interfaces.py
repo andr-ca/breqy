@@ -115,4 +115,6 @@ class ToolInvocationRepository(ABC):
         error: str,
         summary: str,
         approval_id: str | None = None,
+        *,
+        started_at: datetime | None = None,
     ) -> None: ...

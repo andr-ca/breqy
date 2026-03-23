@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
 
-from breqy.domain.enums import PolicyAction, ToolStatus
+from breqy.domain.enums import ApprovalStatus, PolicyAction, ToolStatus
 from breqy.domain.events import (
     ApprovalRequestedEvent,
     ToolInvocationCompletedEvent,
@@ -85,11 +86,12 @@ class ToolService:
 
         approval_id: str | None = None
         if decision.action == PolicyAction.REQUIRE_APPROVAL:
+            description = self._build_approval_description(tool_name, arguments)
             approval_id = await self._approval_service.request_approval(
                 session_id=session_id,
                 agent_id=agent_id,
                 tool_invocation_id=invocation.id,
-                description=self._build_approval_description(tool_name, arguments),
+                description=description,
             )
             await self._event_bus.publish(
                 ApprovalRequestedEvent(
@@ -97,7 +99,7 @@ class ToolService:
                     agent_id=agent_id,
                     approval_id=approval_id,
                     invocation_id=invocation.id,
-                    description=self._build_approval_description(tool_name, arguments),
+                    description=description,
                 )
             )
             await self._invocation_repo.update_result(
@@ -109,18 +111,26 @@ class ToolService:
                 approval_id=approval_id,
             )
 
-            approved = await self._approval_service.wait_for_decision(
+            approval_status = await self._approval_service.wait_for_decision(
                 approval_id,
                 timeout=self._approval_timeout,
             )
-            if not approved:
+            if approval_status == ApprovalStatus.DENIED:
                 return await self._finalize_denied(
                     invocation=invocation,
                     error=f"Approval denied for tool '{tool_name}'",
                     summary="Tool execution denied during approval",
                     approval_id=approval_id,
                 )
+            if approval_status == ApprovalStatus.EXPIRED:
+                return await self._finalize_failed(
+                    invocation=invocation,
+                    error=f"Approval timed out for tool '{tool_name}'",
+                    summary="Tool execution timed out waiting for approval",
+                    approval_id=approval_id,
+                )
 
+        started_at = datetime.now(timezone.utc)
         await self._invocation_repo.update_result(
             invocation_id=invocation.id,
             status=ToolStatus.RUNNING,
@@ -128,6 +138,7 @@ class ToolService:
             error="",
             summary="Tool execution started",
             approval_id=approval_id,
+            started_at=started_at,
         )
         await self._event_bus.publish(
             ToolInvocationStartedEvent(
@@ -161,6 +172,7 @@ class ToolService:
             return await self._finalize_failed(
                 invocation=invocation,
                 error=result.error or f"Tool execution failed: {tool_name}",
+                result=result.output,
                 summary=result.summary,
                 approval_id=approval_id,
             )
@@ -224,12 +236,13 @@ class ToolService:
         invocation: ToolInvocation,
         error: str,
         summary: str,
+        result: dict[str, Any] | None = None,
         approval_id: str | None = None,
     ) -> ToolResult:
         await self._invocation_repo.update_result(
             invocation_id=invocation.id,
             status=ToolStatus.FAILED,
-            result=None,
+            result=result,
             error=error,
             summary=summary,
             approval_id=approval_id,

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, cast
 
 import pytest
 
-from breqy.domain.enums import FilesystemOperation, PolicyAction, ToolStatus
+from breqy.domain.enums import ApprovalStatus, FilesystemOperation, PolicyAction, ToolStatus
 from breqy.domain.events import (
     ApprovalRequestedEvent,
     ToolInvocationCompletedEvent,
@@ -70,8 +71,14 @@ class RecordingFilesystemPolicyChecker:
 
 
 class RecordingApprovalService:
-    def __init__(self, *, granted: bool = True, request_id: str = "apr_test", log: list[str] | None = None) -> None:
-        self.granted = granted
+    def __init__(
+        self,
+        *,
+        decision: ApprovalStatus = ApprovalStatus.GRANTED,
+        request_id: str = "apr_test",
+        log: list[str] | None = None,
+    ) -> None:
+        self.decision = decision
         self.request_id = request_id
         self._log = log if log is not None else []
         self.request_calls: list[tuple[str, str, str, str]] = []
@@ -88,10 +95,14 @@ class RecordingApprovalService:
         self._log.append("approval.request")
         return self.request_id
 
-    async def wait_for_decision(self, request_id: str, timeout: float = 300.0) -> bool:
+    async def wait_for_decision(
+        self,
+        request_id: str,
+        timeout: float = 300.0,
+    ) -> ApprovalStatus:
         self.wait_calls.append((request_id, timeout))
         self._log.append("approval.wait")
-        return self.granted
+        return self.decision
 
 
 class RecordingInvocationRepository:
@@ -112,6 +123,8 @@ class RecordingInvocationRepository:
         error: str,
         summary: str,
         approval_id: str | None = None,
+        *,
+        started_at: datetime | None = None,
     ) -> None:
         self.updates.append(
             {
@@ -121,6 +134,7 @@ class RecordingInvocationRepository:
                 "error": error,
                 "summary": summary,
                 "approval_id": approval_id,
+                "started_at": started_at,
             }
         )
         self._log.append(f"repo.update:{status.value}")
@@ -148,25 +162,25 @@ def build_service(
     tool: ToolExecutor | None,
     tool_policy_action: PolicyAction = PolicyAction.ALLOW,
     filesystem_policy_action: PolicyAction = PolicyAction.ALLOW,
-    approval_granted: bool = True,
+    approval_decision: ApprovalStatus = ApprovalStatus.GRANTED,
     log: list[str] | None = None,
 ) -> tuple[ToolService, RecordingInvocationRepository, RecordingApprovalService, RecordingEventBus, RecordingFilesystemPolicyChecker]:
     log = log if log is not None else []
     service = ToolService(
-        registry=RecordingToolRegistry({tool.name: tool} if tool is not None else {}),
-        policy_evaluator=StubPolicyEvaluator(tool_policy_action),
-        filesystem_policy_checker=RecordingFilesystemPolicyChecker(filesystem_policy_action),
-        approval_service=RecordingApprovalService(granted=approval_granted, log=log),
-        invocation_repo=RecordingInvocationRepository(log=log),
+        registry=cast(Any, RecordingToolRegistry({tool.name: tool} if tool is not None else {})),
+        policy_evaluator=cast(Any, StubPolicyEvaluator(tool_policy_action)),
+        filesystem_policy_checker=cast(Any, RecordingFilesystemPolicyChecker(filesystem_policy_action)),
+        approval_service=cast(Any, RecordingApprovalService(decision=approval_decision, log=log)),
+        invocation_repo=cast(Any, RecordingInvocationRepository(log=log)),
         event_bus=RecordingEventBus(log=log),
         approval_timeout=12.5,
     )
     return (
         service,
-        service._invocation_repo,
-        service._approval_service,
-        service._event_bus,
-        service._filesystem_policy_checker,
+        cast(RecordingInvocationRepository, service._invocation_repo),
+        cast(RecordingApprovalService, service._approval_service),
+        cast(RecordingEventBus, service._event_bus),
+        cast(RecordingFilesystemPolicyChecker, service._filesystem_policy_checker),
     )
 
 
@@ -263,7 +277,7 @@ async def test_service_requests_approval_before_execution() -> None:
     service, repo, approval_service, event_bus, _ = build_service(
         tool=tool,
         tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
-        approval_granted=True,
+        approval_decision=ApprovalStatus.GRANTED,
         log=log,
     )
 
@@ -304,7 +318,7 @@ async def test_service_stops_when_approval_denied() -> None:
     service, repo, approval_service, event_bus, _ = build_service(
         tool=tool,
         tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
-        approval_granted=False,
+        approval_decision=ApprovalStatus.DENIED,
         log=log,
     )
 
@@ -323,6 +337,36 @@ async def test_service_stops_when_approval_denied() -> None:
     assert [update["status"] for update in repo.updates] == [ToolStatus.PENDING, ToolStatus.DENIED]
     assert len(event_bus.events) == 1
     assert isinstance(event_bus.events[0], ApprovalRequestedEvent)
+
+
+@pytest.mark.asyncio
+async def test_service_stops_when_approval_times_out() -> None:
+    log: list[str] = []
+    tool = RecordingTool(name="shell", log=log)
+    service, repo, approval_service, event_bus, _ = build_service(
+        tool=tool,
+        tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
+        approval_decision=ApprovalStatus.EXPIRED,
+        log=log,
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_123",
+        agent_id="agt_123",
+        tool_name="shell",
+        arguments={"command": "pwd"},
+    )
+
+    assert result.success is False
+    assert "timed out" in result.error.lower()
+    assert tool.calls == []
+    assert len(approval_service.request_calls) == 1
+    assert len(approval_service.wait_calls) == 1
+    assert [update["status"] for update in repo.updates] == [ToolStatus.PENDING, ToolStatus.FAILED]
+    assert repo.updates[-1]["error"] == "Approval timed out for tool 'shell'"
+    assert len(event_bus.events) == 2
+    assert isinstance(event_bus.events[0], ApprovalRequestedEvent)
+    assert isinstance(event_bus.events[1], ToolInvocationFailedEvent)
 
 
 @pytest.mark.asyncio
@@ -380,3 +424,58 @@ async def test_service_records_failure_when_tool_raises() -> None:
         "repo.update:failed",
         "event.failed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_service_preserves_failed_tool_output_in_persistence() -> None:
+    log: list[str] = []
+    tool = RecordingTool(
+        name="shell",
+        result=ToolResult(
+            success=False,
+            output={"stdout": "partial", "return_code": 2},
+            error="command failed",
+            summary="shell failed",
+        ),
+        log=log,
+    )
+    service, repo, _, event_bus, _ = build_service(tool=tool, log=log)
+
+    result = await service.execute_tool(
+        session_id="ses_123",
+        agent_id="agt_123",
+        tool_name="shell",
+        arguments={"command": "pwd"},
+    )
+
+    assert result.success is False
+    assert repo.updates[-1]["status"] == ToolStatus.FAILED
+    assert repo.updates[-1]["result"] == {"stdout": "partial", "return_code": 2}
+    assert isinstance(event_bus.events[0], ToolInvocationStartedEvent)
+    assert isinstance(event_bus.events[1], ToolInvocationFailedEvent)
+
+
+@pytest.mark.asyncio
+async def test_service_records_actual_execution_start_time_after_approval() -> None:
+    log: list[str] = []
+    tool = RecordingTool(name="shell", log=log)
+    service, repo, _, _, _ = build_service(
+        tool=tool,
+        tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
+        approval_decision=ApprovalStatus.GRANTED,
+        log=log,
+    )
+
+    before = datetime.now(timezone.utc)
+    await service.execute_tool(
+        session_id="ses_123",
+        agent_id="agt_123",
+        tool_name="shell",
+        arguments={"command": "pwd"},
+    )
+    after = datetime.now(timezone.utc)
+
+    assert repo.created[0].started_at is not None
+    assert repo.updates[1]["started_at"] is not None
+    assert repo.updates[1]["started_at"] >= repo.created[0].started_at
+    assert before <= repo.updates[1]["started_at"] <= after

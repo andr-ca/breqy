@@ -73,21 +73,24 @@ class SqliteToolInvocationRepository(ToolInvocationRepository):
         error: str,
         summary: str,
         approval_id: str | None = None,
+        *,
+        started_at: datetime | None = None,
     ) -> None:
         completed_at = None
         if status in self._FINAL_STATUSES:
             completed_at = datetime.now(timezone.utc).isoformat()
         await self._conn.execute(
             """UPDATE tool_invocations
-               SET status = ?, result = ?, error = ?, approval_id = ?,
-                   summary = ?, completed_at = ?
-               WHERE id = ?""",
+                SET status = ?, result = ?, error = ?, approval_id = ?,
+                    summary = ?, started_at = COALESCE(?, started_at), completed_at = ?
+                WHERE id = ?""",
             (
                 status.value,
                 json.dumps(result) if result is not None else None,
                 error,
                 approval_id,
                 summary,
+                started_at.isoformat() if started_at is not None else None,
                 completed_at,
                 invocation_id,
             ),
