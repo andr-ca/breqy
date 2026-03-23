@@ -34,3 +34,21 @@ async def test_shell_requires_command() -> None:
 
     assert result.success is False
     assert "command" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_shell_invalid_timeout_seconds_returns_failure() -> None:
+    result = await ShellTool(timeout=5).execute({"command": "echo hello", "timeout_seconds": "abc"})
+
+    assert result.success is False
+    assert "timeout" in result.error.lower()
+
+
+@pytest.mark.asyncio
+async def test_shell_invalid_cwd_returns_failure() -> None:
+    result = await ShellTool(timeout=5).execute(
+        {"command": "echo hello", "cwd": "/path/that/does/not/exist"}
+    )
+
+    assert result.success is False
+    assert "cwd" in result.error.lower() or "directory" in result.error.lower()

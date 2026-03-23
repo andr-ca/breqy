@@ -22,17 +22,28 @@ class ShellTool(ToolExecutor):
         if not command:
             return ToolResult(success=False, error="Missing required argument: command")
 
-        timeout_seconds = int(arguments.get("timeout_seconds", self._timeout))
+        raw_timeout_seconds = arguments.get("timeout_seconds", self._timeout)
+        try:
+            timeout_seconds = int(raw_timeout_seconds)
+        except (TypeError, ValueError):
+            return ToolResult(
+                success=False,
+                error=f"Invalid timeout_seconds value: {raw_timeout_seconds}",
+            )
+
         cwd = arguments.get("cwd")
 
         logger.info("Executing shell command", command=command, cwd=cwd, timeout=timeout_seconds)
 
-        process = await asyncio.create_subprocess_shell(
-            str(command),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(cwd) if cwd is not None else None,
-        )
+        try:
+            process = await asyncio.create_subprocess_shell(
+                str(command),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(cwd) if cwd is not None else None,
+            )
+        except OSError as exc:
+            return ToolResult(success=False, error=f"Failed to start shell command for cwd {cwd}: {exc}")
 
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
