@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GEMINI.md` instructions for Gemini CLI.
 - `.geminiignore` for workspace boundary enforcement.
 - `CHANGES.md` (initial mandatory changelog).
+- Phase 6 tooling surface: public `breqy.tools` exports for native tools, MCP adapters, registry, and `ToolService`.
+- `tests/unit/engine/test_server.py`: integration-style coverage proving engine-composed tool execution persists tool invocation state and writes typed tool lifecycle events through the event-writer path.
 
 ### Changed
 - Refined `GEMINI.md` with full technology stack, correct coverage thresholds, and fixed table formatting.
 - Narrowed `.geminiignore` to ensure `.env.sample` is unignored by removing the leading space in the negation pattern.
+- Wired engine-side tool composition so `EngineServer` can build a default native tool registry, compose `ToolService`, and keep tool audit events on the existing centralized event bus and writer path.
+- Expanded `docs/architecture.md` with the native tool execution flow, policy and approval gate placement, and MCP bootstrap plus remote tool registration behavior.

@@ -64,6 +64,13 @@ The architecture must:
 - approval workflow may exist at both engine and agent layers
 - observability exists at both process level and runtime level
 
+### Native tool execution flow
+- native tools are registered in a `ToolRegistry` and executed through `ToolService`
+- the engine-facing composition point owns the `ToolService` instance so tool execution stays on the same event bus and audit path as the rest of the runtime
+- `ToolService` creates a durable `ToolInvocation` record before execution, updates lifecycle state in storage, and emits typed tool events onto the engine event bus
+- the engine `EventWriter` subscribes to the event bus and persists tool lifecycle events through the same sequential writer used for all other runtime events
+- native Slice 1 tools are local shell and filesystem tools; remote MCP tools are adapted into the same registry interface so callers do not need a separate execution path
+
 ## 4. Communication model
 
 ### Protocol
@@ -233,6 +240,13 @@ Rule resolution:
 - engine-enforced canonical approval state
 - session-scoped temporary grants supported
 
+### Policy and approval gate location
+- tool requests reach the policy and approval gate inside `ToolService`, before the concrete tool executor runs
+- `PolicyEvaluator` decides allow, deny, or require-approval independently of any skill metadata
+- filesystem requests also pass through `FilesystemPolicyChecker` for exact-path and prefix-path enforcement
+- when approval is required, `ApprovalService` persists the request first, waits for a decision, and only then allows execution to continue
+- denied or failed tool runs still update invocation state durably so the audit trail remains complete
+
 ## 9. Agent architecture
 
 ### Agent filesystem structure (recommended)
@@ -293,6 +307,14 @@ When invoking a skill:
 In v1, a skill may be injected as explicit task context and instruction material associated with the current task or plan. Retrieval or summarization strategies may evolve later, but the invocation path must remain explicit and inspectable.
 
 Skills do not grant permission.
+
+## 10a. MCP bootstrap and remote tool registration
+
+- MCP servers are configured on the agent side as explicit server definitions rather than implicit global plugins
+- runtime bootstrap starts each configured MCP client, performs protocol initialization, and discovers the remote tool catalog for that server
+- each discovered remote tool is wrapped in an `MCPToolAdapter` and registered into the local `ToolRegistry` under a namespaced tool name such as `mcp.<server>.<tool>`
+- malformed discovery entries or unavailable MCP servers are skipped with structured warnings so one bad integration does not block the rest of tool startup
+- once registered, remote MCP tools flow through the same `ToolService`, policy evaluation, approval checks, invocation persistence, and event emission path as native tools
 
 ## 11. Workspace architecture
 Sessions may attach to one or more workspaces.

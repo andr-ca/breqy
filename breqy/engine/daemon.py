@@ -16,6 +16,7 @@ from breqy.storage.sqlite.message_repo import SqliteMessageRepository
 from breqy.storage.sqlite.event_repo import SqliteEventRepository
 from breqy.storage.sqlite.task_repo import SqliteTaskRepository
 from breqy.storage.sqlite.approval_repo import SqliteApprovalRepository
+from breqy.storage.sqlite.tool_invocation_repo import SqliteToolInvocationRepository
 from breqy.utils.logging import setup_logging
 
 logger = structlog.get_logger(__name__)
@@ -53,6 +54,7 @@ class EngineDaemon:
         event_repo = SqliteEventRepository(conn)
         task_repo = SqliteTaskRepository(conn)
         approval_repo = SqliteApprovalRepository(conn)
+        tool_invocation_repo = SqliteToolInvocationRepository(conn)
 
         self._server = EngineServer(
             socket_path=self._config.socket_path,
@@ -61,6 +63,7 @@ class EngineDaemon:
             event_repo=event_repo,
             task_repo=task_repo,
             approval_repo=approval_repo,
+            tool_invocation_repo=tool_invocation_repo,
         )
         await self._server.start()
         self._running = True

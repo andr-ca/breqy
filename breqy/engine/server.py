@@ -11,13 +11,17 @@ from breqy.engine.event_bus import EventBus
 from breqy.engine.event_writer import EventWriter
 from breqy.engine.session_manager import SessionManager
 from breqy.policy.approval import ApprovalService
+from breqy.policy.evaluator import PolicyEvaluator
+from breqy.policy.filesystem import FilesystemPolicyChecker
 from breqy.storage.interfaces import (
     ApprovalRepository,
     EventRepository,
     MessageRepository,
     SessionRepository,
     TaskRepository,
+    ToolInvocationRepository,
 )
+from breqy.tools import FilesystemTool, ShellTool, ToolRegistry, ToolService
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +37,11 @@ class EngineServer:
         event_repo: EventRepository,
         task_repo: TaskRepository,
         approval_repo: ApprovalRepository,
+        tool_invocation_repo: ToolInvocationRepository | None = None,
+        tool_registry: ToolRegistry | None = None,
+        policy_evaluator: PolicyEvaluator | None = None,
+        filesystem_policy_checker: FilesystemPolicyChecker | None = None,
+        approval_service: ApprovalService | None = None,
     ) -> None:
         self.event_bus = EventBus()
         self.event_writer = EventWriter(event_repo)
@@ -43,7 +52,14 @@ class EngineServer:
         self.agent_spawner = AgentSpawner(engine_socket=socket_path)
         # TODO(phase-6): approval_service is scaffolded here for future
         # human-approval flow — not yet consulted in _handle_envelope.
-        self.approval_service = ApprovalService(approval_repo)
+        self.approval_service = approval_service or ApprovalService(approval_repo)
+        self.tool_service = self._build_tool_service(
+            approval_service=self.approval_service,
+            tool_invocation_repo=tool_invocation_repo,
+            tool_registry=tool_registry,
+            policy_evaluator=policy_evaluator,
+            filesystem_policy_checker=filesystem_policy_checker,
+        )
         self.a2a_server = A2AServer(
             socket_path=socket_path,
             on_envelope=self._handle_envelope,
@@ -69,3 +85,32 @@ class EngineServer:
         event = envelope.to_event()
         await self.event_bus.publish(event)
         await self.a2a_server.broadcast(envelope, exclude_client=client_id)
+
+    def _build_tool_service(
+        self,
+        *,
+        approval_service: ApprovalService,
+        tool_invocation_repo: ToolInvocationRepository | None,
+        tool_registry: ToolRegistry | None,
+        policy_evaluator: PolicyEvaluator | None,
+        filesystem_policy_checker: FilesystemPolicyChecker | None,
+    ) -> ToolService | None:
+        if tool_invocation_repo is None:
+            return None
+
+        registry = tool_registry or self._build_default_tool_registry()
+        return ToolService(
+            registry=registry,
+            policy_evaluator=policy_evaluator or PolicyEvaluator([]),
+            filesystem_policy_checker=filesystem_policy_checker or FilesystemPolicyChecker([]),
+            approval_service=approval_service,
+            invocation_repo=tool_invocation_repo,
+            event_bus=self.event_bus,
+        )
+
+    @staticmethod
+    def _build_default_tool_registry() -> ToolRegistry:
+        registry = ToolRegistry()
+        registry.register(ShellTool())
+        registry.register(FilesystemTool())
+        return registry

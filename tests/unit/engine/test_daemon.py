@@ -39,3 +39,21 @@ async def test_daemon_creates_data_dir(tmp_dir: Path):
     assert data_dir.exists()
 
     await daemon.stop()
+
+
+@pytest.mark.asyncio
+async def test_daemon_wires_tool_service_into_engine_server(tmp_dir: Path):
+    """Daemon startup composes a tool service for the engine server."""
+    config = EngineConfig(
+        socket_path=str(tmp_dir / "engine.sock"),
+        db_path=str(tmp_dir / "test.db"),
+        data_dir=str(tmp_dir),
+    )
+    daemon = EngineDaemon(config)
+
+    await daemon.start()
+    try:
+        assert daemon.server is not None
+        assert daemon.server.tool_service is not None
+    finally:
+        await daemon.stop()
