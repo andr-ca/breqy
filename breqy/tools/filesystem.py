@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import structlog
+
+from breqy.domain.enums import FilesystemOperation
+from breqy.tools.executor import ToolExecutor, ToolResult
+
+logger = structlog.get_logger(__name__)
+
+
+def derive_operations(arguments: dict[str, Any]) -> list[FilesystemOperation]:
+    operation = arguments.get("operation")
+    if operation == FilesystemOperation.READ.value:
+        return [FilesystemOperation.READ]
+    if operation == FilesystemOperation.WRITE.value:
+        return [FilesystemOperation.WRITE]
+    if operation == FilesystemOperation.EDIT.value if hasattr(FilesystemOperation, "EDIT") else False:
+        return [FilesystemOperation.READ, FilesystemOperation.WRITE]
+    if operation == "edit":
+        return [FilesystemOperation.READ, FilesystemOperation.WRITE]
+    if operation == FilesystemOperation.DELETE.value:
+        return [FilesystemOperation.DELETE]
+    return []
+
+
+class FilesystemTool(ToolExecutor):
+    name = "filesystem"
+    description = "Read, write, edit, and delete files"
+
+    async def execute(self, arguments: dict[str, Any]) -> ToolResult:
+        operation = arguments.get("operation")
+        raw_path = arguments.get("path")
+
+        if not operation:
+            return ToolResult(success=False, error="Missing required argument: operation")
+        if not raw_path:
+            return ToolResult(success=False, error="Missing required argument: path")
+
+        path = Path(str(raw_path))
+        logger.info("Executing filesystem operation", operation=operation, path=str(path))
+
+        try:
+            if operation == "read":
+                content = path.read_text(encoding="utf-8")
+                return ToolResult(
+                    success=True,
+                    output={"content": content, "path": str(path)},
+                    summary=f"Read file {path}",
+                )
+
+            if operation == "write":
+                content = arguments.get("content")
+                if content is None:
+                    return ToolResult(success=False, error="Missing required argument: content")
+
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(str(content), encoding="utf-8")
+                return ToolResult(
+                    success=True,
+                    output={"path": str(path), "bytes_written": len(str(content).encode("utf-8"))},
+                    summary=f"Wrote file {path}",
+                )
+
+            if operation == "edit":
+                old_string = arguments.get("old_string")
+                new_string = arguments.get("new_string")
+                if old_string is None:
+                    return ToolResult(success=False, error="Missing required argument: old_string")
+                if new_string is None:
+                    return ToolResult(success=False, error="Missing required argument: new_string")
+
+                content = path.read_text(encoding="utf-8")
+                if str(old_string) not in content:
+                    return ToolResult(
+                        success=False,
+                        error=f"Old text not found in file: {path}",
+                        summary=f"Failed to edit file {path}",
+                    )
+
+                updated_content = content.replace(str(old_string), str(new_string), 1)
+                path.write_text(updated_content, encoding="utf-8")
+                return ToolResult(
+                    success=True,
+                    output={"path": str(path)},
+                    summary=f"Edited file {path}",
+                )
+
+            if operation == "delete":
+                path.unlink()
+                return ToolResult(
+                    success=True,
+                    output={"path": str(path)},
+                    summary=f"Deleted file {path}",
+                )
+
+            return ToolResult(
+                success=False,
+                error=f"Invalid filesystem operation: {operation}",
+                summary="Filesystem operation failed",
+            )
+        except OSError as exc:
+            logger.warning(
+                "Filesystem operation failed",
+                operation=operation,
+                path=str(path),
+                error=str(exc),
+            )
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                summary=f"Filesystem operation {operation} failed for {path}",
+            )
