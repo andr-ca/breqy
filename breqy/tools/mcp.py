@@ -105,9 +105,13 @@ class MCPToolAdapter(ToolExecutor):
             error = "" if success else _extract_error_message(content) or f"Remote MCP tool {self.name} reported failure"
             return ToolResult(
                 success=success,
-                output={"content": content},
+                output=payload,
                 error=error,
-                summary=f"Executed remote MCP tool {self.name}",
+                summary=(
+                    f"Executed remote MCP tool {self.name}"
+                    if success
+                    else f"Remote MCP tool {self.name} returned an error"
+                ),
             )
 
         return ToolResult(
@@ -151,11 +155,20 @@ async def bootstrap_mcp_tools(
             continue
 
         for tool in tools:
+            remote_tool_name = _extract_remote_tool_name(tool)
+            if remote_tool_name is None:
+                logger.warning(
+                    "Skipping malformed MCP discovery entry",
+                    server_id=config.id,
+                    transport=config.transport,
+                    entry=tool,
+                )
+                continue
             registry.register(
                 MCPToolAdapter(
                     client=client,
                     server_id=config.id,
-                    tool_name=str(tool["name"]),
+                    tool_name=remote_tool_name,
                     description=str(tool.get("description", "")),
                 )
             )
@@ -166,7 +179,29 @@ async def bootstrap_mcp_tools(
 
 
 def _namespaced_tool_name(server_id: str, tool_name: str) -> str:
-    return f"mcp.{server_id}.{tool_name}"
+    return f"mcp.{server_id}.{_normalize_tool_segment(tool_name)}"
+
+
+def _extract_remote_tool_name(tool: Any) -> str | None:
+    if not isinstance(tool, dict):
+        return None
+
+    raw_name = tool.get("name")
+    if not isinstance(raw_name, str):
+        return None
+
+    normalized = raw_name.strip()
+    if not normalized:
+        return None
+
+    return normalized
+
+
+def _normalize_tool_segment(value: str) -> str:
+    candidate = value.strip()
+    if candidate and all(character in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in candidate):
+        return candidate
+    return f"u--{candidate.encode('utf-8').hex()}"
 
 
 def _extract_error_message(content: list[Any]) -> str:

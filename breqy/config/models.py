@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MCPServerConfig(BaseModel):
@@ -18,6 +18,18 @@ class MCPServerConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     startup_timeout_seconds: float = Field(default=10.0, gt=0)
     request_timeout_seconds: float = Field(default=30.0, gt=0)
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("MCP server id must not be empty")
+        if any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in normalized):
+            raise ValueError(
+                "MCP server id must contain only lowercase letters, digits, and hyphens"
+            )
+        return normalized
 
 
 class EngineConfig(BaseModel):

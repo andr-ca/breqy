@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from breqy.config.loader import load_agent_config
 from breqy.tools.registry import ToolRegistry
@@ -93,6 +94,17 @@ def test_mcp_server_config_model_accepts_process_transport() -> None:
     assert config.env == {"MCP_ENV": "1"}
 
 
+def test_mcp_server_config_rejects_unsafe_server_id() -> None:
+    from breqy.config.models import MCPServerConfig
+
+    with pytest.raises(ValidationError):
+        MCPServerConfig(
+            id="memory.prod",
+            transport="process",
+            command="python",
+        )
+
+
 def test_load_agent_config_reads_mcp_servers_from_yaml(tmp_path) -> None:
     (tmp_path / "agent.yaml").write_text(
         yaml.dump(
@@ -171,6 +183,38 @@ async def test_bootstrap_registers_namespaced_tools_from_multiple_servers() -> N
         "mcp.notes.list",
         "mcp.notes.write",
     ]
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_skips_malformed_discovery_entry_and_keeps_valid_tools(monkeypatch) -> None:
+    from breqy.tools import mcp
+
+    logger = RecordingLogger()
+    monkeypatch.setattr(mcp, "logger", logger)
+
+    registry = ToolRegistry()
+    config = make_config("memory")
+    session = FakeMCPProtocolSession(
+        tools=[
+            {"description": "missing name"},
+            {"name": "   ", "description": "blank name"},
+            {"name": "search.logs", "description": "Search logs"},
+        ]
+    )
+
+    clients = await mcp.bootstrap_mcp_tools(
+        registry=registry,
+        server_configs=[config],
+        client_factory=lambda cfg: make_client(cfg, session),
+    )
+
+    assert len(clients) == 1
+    assert registry.list_tools() == ["mcp.memory.u--7365617263682e6c6f6773"]
+    assert (
+        "warning",
+        "Skipping malformed MCP discovery entry",
+        {"server_id": "memory", "transport": "process", "entry": {"description": "missing name"}},
+    ) in logger.events
 
 
 @pytest.mark.asyncio
@@ -276,3 +320,32 @@ async def test_malformed_remote_result_is_normalized_to_failure() -> None:
 
     assert result.success is False
     assert result.error == "Malformed MCP result for tool 'mcp.memory.search'"
+
+
+@pytest.mark.asyncio
+async def test_error_remote_result_preserves_payload_and_uses_failure_summary() -> None:
+    from breqy.tools.mcp import MCPToolAdapter
+
+    config = make_config("memory")
+    payload = {
+        "is_error": True,
+        "content": [{"type": "text", "text": "upstream failed"}],
+        "retryable": True,
+        "code": "E_UPSTREAM",
+    }
+    session = FakeMCPProtocolSession(call_results={"search": payload})
+    client = make_client(config, session)
+    await client.start()
+    adapter = MCPToolAdapter(
+        client=client,
+        server_id="memory",
+        tool_name="search",
+        description="Search memory",
+    )
+
+    result = await adapter.execute({"query": "hello"})
+
+    assert result.success is False
+    assert result.output == payload
+    assert result.error == "upstream failed"
+    assert result.summary == "Remote MCP tool mcp.memory.search returned an error"
