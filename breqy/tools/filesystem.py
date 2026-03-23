@@ -10,20 +10,19 @@ from breqy.tools.executor import ToolExecutor, ToolResult
 
 logger = structlog.get_logger(__name__)
 
+_OPERATION_MAP: dict[str, list[FilesystemOperation]] = {
+    "read": [FilesystemOperation.READ],
+    "write": [FilesystemOperation.WRITE],
+    "edit": [FilesystemOperation.READ, FilesystemOperation.WRITE],
+    "delete": [FilesystemOperation.DELETE],
+}
+
 
 def derive_operations(arguments: dict[str, Any]) -> list[FilesystemOperation]:
     operation = arguments.get("operation")
-    if operation == FilesystemOperation.READ.value:
-        return [FilesystemOperation.READ]
-    if operation == FilesystemOperation.WRITE.value:
-        return [FilesystemOperation.WRITE]
-    if operation == FilesystemOperation.EDIT.value if hasattr(FilesystemOperation, "EDIT") else False:
-        return [FilesystemOperation.READ, FilesystemOperation.WRITE]
-    if operation == "edit":
-        return [FilesystemOperation.READ, FilesystemOperation.WRITE]
-    if operation == FilesystemOperation.DELETE.value:
-        return [FilesystemOperation.DELETE]
-    return []
+    if not isinstance(operation, str):
+        return []
+    return list(_OPERATION_MAP.get(operation, []))
 
 
 class FilesystemTool(ToolExecutor):
