@@ -14,6 +14,12 @@ from breqy.storage.interfaces import ToolInvocationRepository
 
 
 class SqliteToolInvocationRepository(ToolInvocationRepository):
+    _FINAL_STATUSES = {
+        ToolStatus.COMPLETED,
+        ToolStatus.FAILED,
+        ToolStatus.DENIED,
+    }
+
     def __init__(self, conn: aiosqlite.Connection) -> None:
         self._conn = conn
 
@@ -68,7 +74,9 @@ class SqliteToolInvocationRepository(ToolInvocationRepository):
         summary: str,
         approval_id: str | None = None,
     ) -> None:
-        completed_at = datetime.now(timezone.utc).isoformat()
+        completed_at = None
+        if status in self._FINAL_STATUSES:
+            completed_at = datetime.now(timezone.utc).isoformat()
         await self._conn.execute(
             """UPDATE tool_invocations
                SET status = ?, result = ?, error = ?, approval_id = ?,
