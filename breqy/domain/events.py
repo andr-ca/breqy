@@ -104,7 +104,7 @@ class ToolInvocationCompletedEvent(Event):
     invocation_id: str
     tool_name: str
     status: ToolStatus
-    result: str | None = None
+    result: dict[str, Any] | None = None
     error: str | None = None
     summary: str = ""
 
