@@ -23,5 +23,5 @@ def load_agent_config(agent_dir: str) -> AgentConfig:
     if not config_path.exists():
         raise FileNotFoundError(f"Agent config not found: {config_path}")
     with open(config_path) as f:
-        data = yaml.safe_load(f)
+        data = yaml.safe_load(f) or {}
     return AgentConfig(**data)

@@ -1,0 +1,278 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+import yaml
+
+from breqy.config.loader import load_agent_config
+from breqy.tools.registry import ToolRegistry
+
+
+class FakeMCPProtocolSession:
+    def __init__(
+        self,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        initialize_error: Exception | None = None,
+        list_error: Exception | None = None,
+        call_results: dict[str, Any] | None = None,
+        call_error: Exception | None = None,
+    ) -> None:
+        self._tools = tools or []
+        self._initialize_error = initialize_error
+        self._list_error = list_error
+        self._call_results = call_results or {}
+        self._call_error = call_error
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.closed = False
+
+    async def initialize(self) -> None:
+        if self._initialize_error is not None:
+            raise self._initialize_error
+
+    async def list_tools(self) -> list[dict[str, Any]]:
+        if self._list_error is not None:
+            raise self._list_error
+        return self._tools
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        self.calls.append((name, arguments))
+        if self._call_error is not None:
+            raise self._call_error
+        return self._call_results[name]
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class RecordingLogger:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, dict[str, Any]]] = []
+
+    def warning(self, message: str, **kwargs: Any) -> None:
+        self.events.append(("warning", message, kwargs))
+
+    def exception(self, message: str, **kwargs: Any) -> None:
+        self.events.append(("exception", message, kwargs))
+
+
+def make_config(server_id: str):
+    from breqy.config.models import MCPServerConfig
+
+    return MCPServerConfig(
+        id=server_id,
+        transport="process",
+        command="python",
+        args=["-m", f"{server_id}_server"],
+    )
+
+
+def make_client(config: Any, session: FakeMCPProtocolSession):
+    from breqy.tools.mcp import MCPClient
+
+    return MCPClient(config=config, session_factory=lambda _: session)
+
+
+def test_mcp_server_config_model_accepts_process_transport() -> None:
+    from breqy.config.models import MCPServerConfig
+
+    config = MCPServerConfig(
+        id="memory",
+        transport="process",
+        command="python",
+        args=["-m", "memory_server"],
+        env={"MCP_ENV": "1"},
+        startup_timeout_seconds=5.0,
+        request_timeout_seconds=15.0,
+    )
+
+    assert config.transport == "process"
+    assert config.command == "python"
+    assert config.args == ["-m", "memory_server"]
+    assert config.env == {"MCP_ENV": "1"}
+
+
+def test_load_agent_config_reads_mcp_servers_from_yaml(tmp_path) -> None:
+    (tmp_path / "agent.yaml").write_text(
+        yaml.dump(
+            {
+                "id": "breqy",
+                "name": "Breqy",
+                "mcp_servers": [
+                    {
+                        "id": "memory",
+                        "transport": "process",
+                        "command": "python",
+                        "args": ["-m", "memory_server"],
+                    }
+                ],
+            }
+        )
+    )
+
+    config = load_agent_config(str(tmp_path))
+
+    assert len(config.mcp_servers) == 1
+    assert config.mcp_servers[0].id == "memory"
+    assert config.mcp_servers[0].transport == "process"
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_adapter_delegates_execution_to_client() -> None:
+    from breqy.tools.mcp import MCPToolAdapter
+
+    config = make_config("memory")
+    session = FakeMCPProtocolSession(call_results={"search": {"content": [{"type": "text", "text": "hello"}]}})
+    client = make_client(config, session)
+    await client.start()
+    adapter = MCPToolAdapter(
+        client=client,
+        server_id="memory",
+        tool_name="search",
+        description="Search memory",
+    )
+
+    result = await adapter.execute({"query": "hello"})
+
+    assert session.calls == [("search", {"query": "hello"})]
+    assert adapter.name == "mcp.memory.search"
+    assert result.success is True
+    assert result.output == {"content": [{"type": "text", "text": "hello"}]}
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_registers_namespaced_tools_from_multiple_servers() -> None:
+    from breqy.tools.mcp import bootstrap_mcp_tools
+
+    registry = ToolRegistry()
+    configs = [make_config("memory"), make_config("notes")]
+    sessions = {
+        "memory": FakeMCPProtocolSession(
+            tools=[{"name": "search", "description": "Search memory"}]
+        ),
+        "notes": FakeMCPProtocolSession(
+            tools=[
+                {"name": "list", "description": "List notes"},
+                {"name": "write", "description": "Write note"},
+            ]
+        ),
+    }
+
+    clients = await bootstrap_mcp_tools(
+        registry=registry,
+        server_configs=configs,
+        client_factory=lambda config: make_client(config, sessions[config.id]),
+    )
+
+    assert len(clients) == 2
+    assert registry.list_tools() == [
+        "mcp.memory.search",
+        "mcp.notes.list",
+        "mcp.notes.write",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_skips_failed_server_and_keeps_working_tools(monkeypatch) -> None:
+    from breqy.tools import mcp
+
+    logger = RecordingLogger()
+    monkeypatch.setattr(mcp, "logger", logger)
+
+    registry = ToolRegistry()
+    configs = [make_config("broken"), make_config("healthy")]
+    sessions = {
+        "broken": FakeMCPProtocolSession(initialize_error=RuntimeError("boom")),
+        "healthy": FakeMCPProtocolSession(
+            tools=[{"name": "search", "description": "Search memory"}]
+        ),
+    }
+
+    clients = await mcp.bootstrap_mcp_tools(
+        registry=registry,
+        server_configs=configs,
+        client_factory=lambda config: make_client(config, sessions[config.id]),
+    )
+
+    assert len(clients) == 1
+    assert registry.list_tools() == ["mcp.healthy.search"]
+    assert ("warning", "Failed to start MCP server", {"server_id": "broken", "transport": "process", "error": "boom"}) in logger.events
+
+
+@pytest.mark.asyncio
+async def test_discovery_failure_is_logged_and_does_not_crash_bootstrap(monkeypatch) -> None:
+    from breqy.tools import mcp
+
+    logger = RecordingLogger()
+    monkeypatch.setattr(mcp, "logger", logger)
+
+    registry = ToolRegistry()
+    configs = [make_config("broken"), make_config("healthy")]
+    sessions = {
+        "broken": FakeMCPProtocolSession(list_error=RuntimeError("cannot list tools")),
+        "healthy": FakeMCPProtocolSession(
+            tools=[{"name": "search", "description": "Search memory"}]
+        ),
+    }
+
+    clients = await mcp.bootstrap_mcp_tools(
+        registry=registry,
+        server_configs=configs,
+        client_factory=lambda config: make_client(config, sessions[config.id]),
+    )
+
+    assert len(clients) == 1
+    assert sessions["broken"].closed is True
+    assert registry.list_tools() == ["mcp.healthy.search"]
+    assert (
+        "warning",
+        "Failed to discover MCP tools",
+        {"server_id": "broken", "transport": "process", "error": "cannot list tools"},
+    ) in logger.events
+
+
+@pytest.mark.asyncio
+async def test_invocation_transport_failure_returns_predictable_tool_failure(monkeypatch) -> None:
+    from breqy.tools import mcp
+
+    logger = RecordingLogger()
+    monkeypatch.setattr(mcp, "logger", logger)
+
+    config = make_config("memory")
+    session = FakeMCPProtocolSession(call_error=RuntimeError("transport down"))
+    client = make_client(config, session)
+    await client.start()
+    adapter = mcp.MCPToolAdapter(
+        client=client,
+        server_id="memory",
+        tool_name="search",
+        description="Search memory",
+    )
+
+    result = await adapter.execute({"query": "hello"})
+
+    assert result.success is False
+    assert result.error == "MCP invocation failed for tool 'mcp.memory.search'"
+    assert ("exception", "MCP tool invocation failed", {"server_id": "memory", "tool_name": "search", "local_tool_name": "mcp.memory.search"}) in logger.events
+
+
+@pytest.mark.asyncio
+async def test_malformed_remote_result_is_normalized_to_failure() -> None:
+    from breqy.tools.mcp import MCPToolAdapter
+
+    config = make_config("memory")
+    session = FakeMCPProtocolSession(call_results={"search": "not-a-dict"})
+    client = make_client(config, session)
+    await client.start()
+    adapter = MCPToolAdapter(
+        client=client,
+        server_id="memory",
+        tool_name="search",
+        description="Search memory",
+    )
+
+    result = await adapter.execute({"query": "hello"})
+
+    assert result.success is False
+    assert result.error == "Malformed MCP result for tool 'mcp.memory.search'"

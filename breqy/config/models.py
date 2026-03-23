@@ -3,8 +3,21 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+
+class MCPServerConfig(BaseModel):
+    """Configuration for a single MCP server."""
+
+    id: str
+    transport: Literal["process"]
+    command: str
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    startup_timeout_seconds: float = Field(default=10.0, gt=0)
+    request_timeout_seconds: float = Field(default=30.0, gt=0)
 
 
 class EngineConfig(BaseModel):
@@ -46,5 +59,6 @@ class AgentConfig(BaseModel):
     autonomy_level: str = "supervised"
     tool_permissions: list[str] = Field(default_factory=list)
     skill_permissions: list[str] = Field(default_factory=list)
+    mcp_servers: list[MCPServerConfig] = Field(default_factory=list)
     log_level: str = "INFO"
     log_path: str | None = None
