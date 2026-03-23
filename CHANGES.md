@@ -13,8 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GEMINI.md` instructions for Gemini CLI.
 - `.geminiignore` for workspace boundary enforcement.
 - `CHANGES.md` (initial mandatory changelog).
-- `breqy/tools/shell.py` with `ShellTool`, an async subprocess-based shell runner with configurable `cwd`, per-call timeout override, captured stdout/stderr, and timeout cleanup.
-- `tests/unit/tools/test_shell.py` covering successful execution, non-zero exits, timeout handling, and missing command validation.
 
 ### Changed
 - Refined `GEMINI.md` with full technology stack, correct coverage thresholds, and fixed table formatting.
