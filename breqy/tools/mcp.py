@@ -200,8 +200,8 @@ def _extract_remote_tool_name(tool: Any) -> str | None:
 def _normalize_tool_segment(value: str) -> str:
     candidate = value.strip()
     if candidate and all(character in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in candidate):
-        return candidate
-    return f"u--{candidate.encode('utf-8').hex()}"
+        return f"n--{candidate}"
+    return f"x--{candidate.encode('utf-8').hex()}"
 
 
 def _extract_error_message(content: list[Any]) -> str:

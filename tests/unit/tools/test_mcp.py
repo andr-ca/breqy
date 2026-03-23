@@ -148,7 +148,7 @@ async def test_mcp_tool_adapter_delegates_execution_to_client() -> None:
     result = await adapter.execute({"query": "hello"})
 
     assert session.calls == [("search", {"query": "hello"})]
-    assert adapter.name == "mcp.memory.search"
+    assert adapter.name == "mcp.memory.n--search"
     assert result.success is True
     assert result.output == {"content": [{"type": "text", "text": "hello"}]}
 
@@ -179,9 +179,9 @@ async def test_bootstrap_registers_namespaced_tools_from_multiple_servers() -> N
 
     assert len(clients) == 2
     assert registry.list_tools() == [
-        "mcp.memory.search",
-        "mcp.notes.list",
-        "mcp.notes.write",
+        "mcp.memory.n--search",
+        "mcp.notes.n--list",
+        "mcp.notes.n--write",
     ]
 
 
@@ -209,12 +209,37 @@ async def test_bootstrap_skips_malformed_discovery_entry_and_keeps_valid_tools(m
     )
 
     assert len(clients) == 1
-    assert registry.list_tools() == ["mcp.memory.u--7365617263682e6c6f6773"]
+    assert registry.list_tools() == ["mcp.memory.x--7365617263682e6c6f6773"]
     assert (
         "warning",
         "Skipping malformed MCP discovery entry",
         {"server_id": "memory", "transport": "process", "entry": {"description": "missing name"}},
     ) in logger.events
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_normalizes_safe_and_encoded_tool_names_without_collision() -> None:
+    from breqy.tools.mcp import bootstrap_mcp_tools
+
+    registry = ToolRegistry()
+    config = make_config("memory")
+    session = FakeMCPProtocolSession(
+        tools=[
+            {"name": "search.logs", "description": "Dotted name"},
+            {"name": "u--7365617263682e6c6f6773", "description": "Literal encoded-looking name"},
+        ]
+    )
+
+    await bootstrap_mcp_tools(
+        registry=registry,
+        server_configs=[config],
+        client_factory=lambda cfg: make_client(cfg, session),
+    )
+
+    assert registry.list_tools() == [
+        "mcp.memory.x--7365617263682e6c6f6773",
+        "mcp.memory.n--u--7365617263682e6c6f6773",
+    ]
 
 
 @pytest.mark.asyncio
@@ -240,7 +265,7 @@ async def test_bootstrap_skips_failed_server_and_keeps_working_tools(monkeypatch
     )
 
     assert len(clients) == 1
-    assert registry.list_tools() == ["mcp.healthy.search"]
+    assert registry.list_tools() == ["mcp.healthy.n--search"]
     assert ("warning", "Failed to start MCP server", {"server_id": "broken", "transport": "process", "error": "boom"}) in logger.events
 
 
@@ -268,7 +293,7 @@ async def test_discovery_failure_is_logged_and_does_not_crash_bootstrap(monkeypa
 
     assert len(clients) == 1
     assert sessions["broken"].closed is True
-    assert registry.list_tools() == ["mcp.healthy.search"]
+    assert registry.list_tools() == ["mcp.healthy.n--search"]
     assert (
         "warning",
         "Failed to discover MCP tools",
@@ -297,8 +322,8 @@ async def test_invocation_transport_failure_returns_predictable_tool_failure(mon
     result = await adapter.execute({"query": "hello"})
 
     assert result.success is False
-    assert result.error == "MCP invocation failed for tool 'mcp.memory.search'"
-    assert ("exception", "MCP tool invocation failed", {"server_id": "memory", "tool_name": "search", "local_tool_name": "mcp.memory.search"}) in logger.events
+    assert result.error == "MCP invocation failed for tool 'mcp.memory.n--search'"
+    assert ("exception", "MCP tool invocation failed", {"server_id": "memory", "tool_name": "search", "local_tool_name": "mcp.memory.n--search"}) in logger.events
 
 
 @pytest.mark.asyncio
@@ -319,7 +344,7 @@ async def test_malformed_remote_result_is_normalized_to_failure() -> None:
     result = await adapter.execute({"query": "hello"})
 
     assert result.success is False
-    assert result.error == "Malformed MCP result for tool 'mcp.memory.search'"
+    assert result.error == "Malformed MCP result for tool 'mcp.memory.n--search'"
 
 
 @pytest.mark.asyncio
@@ -348,4 +373,4 @@ async def test_error_remote_result_preserves_payload_and_uses_failure_summary() 
     assert result.success is False
     assert result.output == payload
     assert result.error == "upstream failed"
-    assert result.summary == "Remote MCP tool mcp.memory.search returned an error"
+    assert result.summary == "Remote MCP tool mcp.memory.n--search returned an error"
