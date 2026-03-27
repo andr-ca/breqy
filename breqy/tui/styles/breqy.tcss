@@ -1,0 +1,93 @@
+/* Breqy TUI — base theme stylesheet */
+
+/* Base application styles */
+Screen {
+    background: $surface;
+}
+
+/* Header area */
+#header {
+    dock: top;
+    height: 1;
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
+/* Footer area for control bar */
+#footer {
+    dock: bottom;
+    height: 1;
+    background: $primary-background;
+}
+
+/* Chat area */
+.chat-view {
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* Message styles */
+.message-user {
+    color: $text;
+    background: $primary-background-darken-1;
+    margin: 0 0 0 4;
+    padding: 0 1;
+}
+
+.message-assistant {
+    color: $text;
+    background: $surface;
+    margin: 0 4 0 0;
+    padding: 0 1;
+}
+
+.message-system {
+    color: $text-muted;
+    text-style: italic;
+    padding: 0 1;
+}
+
+.message-tool {
+    color: $accent;
+    padding: 0 1;
+}
+
+/* Side panels */
+.side-panel {
+    width: 30;
+    dock: right;
+    border-left: solid $primary;
+}
+
+/* Task panel */
+.task-pending { color: $text-muted; }
+.task-running { color: $warning; }
+.task-completed { color: $success; }
+.task-failed { color: $error; }
+
+/* Session status */
+.session-active { color: $success; }
+.session-closed { color: $text-muted; }
+.session-circuit-broken { color: $error; }
+
+/* Approval prompt */
+.approval-prompt {
+    background: $warning 20%;
+    border: solid $warning;
+    padding: 1;
+    margin: 1 0;
+}
+
+/* Agent status indicators */
+.agent-connected { color: $success; }
+.agent-disconnected { color: $text-muted; }
+
+/* Control bar buttons */
+.control-button {
+    margin: 0 1;
+}
+
+.control-button:disabled {
+    opacity: 50%;
+}

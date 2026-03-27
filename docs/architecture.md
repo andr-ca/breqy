@@ -103,6 +103,15 @@ Core event families:
 - control events
 - background job events
 
+### Phase 8 runtime dispatch path
+- `MessageSentEvent` user turns are persisted by the engine before any agent dispatch occurs
+- `EngineServer` assembles a canonical `SessionContextBundle` from stored message history and current task context, then sends a targeted `AgentWorkRequestedEvent` to the session's primary agent
+- agent runtime text streaming uses `MessageChunkEvent`, and final assistant completion returns on the normal `MessageSentEvent` path so the engine persists the assistant turn before later context assembly
+- mediated tool calls use explicit request/result transport contracts: `ToolExecutionRequestedEvent` from runtime to engine, `ToolExecutionResultEvent` from engine back to the requesting runtime
+- delegated agent-private memory uses `PrivateMemoryOperationRequestedEvent` and `PrivateMemoryOperationResultEvent` between engine and owning runtime only
+- these request/result handoff events are transport-only by default; durable audit history remains anchored in canonical tool invocation and message lifecycle events
+- agent registration is bound to live A2A client identity, and disconnect callbacks remove stale registry entries deterministically
+
 ## 5. Domain model
 
 ### Primary domain objects
@@ -198,6 +207,11 @@ Use for:
 - artifact references
 - episodic session history
 
+Phase 7 runtime behavior:
+- canonical session memory is persisted through `MemoryRepository` and orchestrated by `MemoryService`
+- session continuity is captured through explicit memory writes plus checkpoint or summary records rather than passive log scraping
+- session reads and writes stay tool-mediated through local MCP-shaped tool names registered in the engine tool registry
+
 ### Agent-private memory
 Owned by each agent.
 Use for:
@@ -205,6 +219,12 @@ Use for:
 - private notes
 - local retrieval memory
 - reflection history
+
+Phase 8 runtime boundary:
+- private memory remains agent-owned state and is not promoted into canonical engine ownership by default
+- local memory tools may still target `private` scope, but the engine only mediates policy, approval, and invocation lifecycle before delegating the operation back to the owning runtime
+- cross-agent private-memory access is rejected by the runtime boundary even when the engine forwarded the request to the owning agent
+- the engine must not silently treat agent-private memory as canonical engine-owned state
 
 ### Storage forms
 Use multiple forms:
@@ -215,6 +235,14 @@ Use multiple forms:
 
 Recommended pattern:
 **event log -> summaries and checkpoints -> structured facts + retrieval index**
+
+### Phase 7 mediated memory access path
+- the engine composes `MemoryService` with `SqliteMemoryRepository`, `InMemoryVectorIndex`, policy evaluation, approval orchestration, and the shared engine event bus
+- default local memory tools are registered under MCP-style names: `mcp.memory.n--search`, `mcp.memory.n--write`, and `mcp.memory.n--promote`
+- tool execution still flows through `ToolService`, which injects trusted execution context (`session_id`, `agent_id`) before the tool adapter runs so callers cannot spoof memory ownership through tool arguments
+- canonical writes remain limited to session scope; direct `write(scope="global")` is rejected and global memory is created only through approved promotion
+- promotion remains an engine-owned workflow: session record lookup, policy check, optional approval wait, global record creation, promotion-state update, and typed memory events on the durable event path
+- retrieval remains deterministic-first: repository filtering by scope and metadata happens before optional ranking via `VectorIndex`
 
 ## 8. Permission and policy architecture
 
@@ -306,6 +334,12 @@ When invoking a skill:
 
 In v1, a skill may be injected as explicit task context and instruction material associated with the current task or plan. Retrieval or summarization strategies may evolve later, but the invocation path must remain explicit and inspectable.
 
+Phase 8 skill-loading rules:
+- the canonical shared skill root is top-level `skills/`, with transition compatibility for `system/skills/` where needed
+- `skill_permissions` remains a list field on the agent manifest, with wildcard support represented as `[*]` in YAML and normalized in config as `["*"]`
+- active skills are selected per dispatched turn through `active_skill_ids`; they are not ambient startup context
+- a skill manifest may reference an `instructions_file`, but that file must stay inside the skill directory and must be Markdown
+
 Skills do not grant permission.
 
 ## 10a. MCP bootstrap and remote tool registration
@@ -363,10 +397,10 @@ AuthProvider
 | Provider | Auth flow | Endpoints |
 |---|---|---|
 | `GitHubCopilotAuth` | RFC 8628 device flow | `POST https://github.com/login/device/code` → poll `https://github.com/login/oauth/access_token` |
-| `CodexAuth` | OpenAI custom device flow | `POST https://auth.openai.com/api/accounts/deviceauth/usercode` → poll `/deviceauth/token` → PKCE exchange `/oauth/token` |
+| `CodexAuth` | OpenAI custom device flow plus token exchange | `POST https://auth.openai.com/api/accounts/deviceauth/usercode` → poll `/deviceauth/token` → exchange via `/oauth/token` |
 | `ClaudeAuth` | PKCE Authorization Code | `https://claude.ai/oauth/authorize` (URL displayed, user pastes code back) → token at `https://platform.claude.com/v1/oauth/token` |
-| `GeminiAuth` | RFC 8628 device flow | `POST https://oauth2.googleapis.com/device/code` → poll `https://oauth2.googleapis.com/token` |
-| `QwenAuth` | API key (no OAuth) | User pastes key into TUI masked input; stored directly in keyring |
+| `GeminiAuth` | API key | User pastes key into a masked input; stored directly in keyring |
+| `QwenAuth` | API key | User pastes key into a masked input; stored directly in keyring |
 
 ### `CredentialStore`
 Thin wrapper around the `keyring` library:
@@ -388,7 +422,7 @@ The `AuthPanel` Textual widget drives the interactive auth flow:
 - `breqy-orchestrator auth [provider]` CLI subcommand opens `AuthApp` (a minimal standalone Textual app wrapping only `AuthPanel`) without starting the orchestrator loop
 
 ### Integration with runners
-Each runner receives a `CredentialStore` via constructor injection. The runner calls `store.get(self._provider)` before spawning the subprocess and merges the token into `extra_env`. Runners do not read from `.env` directly — the credential store is the sole source of truth for provider tokens at runtime.
+Each runner receives a `CredentialStore` via constructor injection. The runner calls `store.get(self._provider)` before spawning the subprocess, injects only the provider-specific credential material needed for that invocation, and runs the subprocess inside an isolated auth environment. Provider adapters strip ambient auth state by overriding `HOME`, `XDG_CONFIG_HOME`, and provider config directories so external CLIs cannot silently reuse host-session credentials. Runners do not read from `.env` directly — the credential store is the sole source of truth for provider tokens at runtime.
 
 ## 13. Observability architecture
 v1 includes:
@@ -491,3 +525,53 @@ Do not overbuild before proving:
 - Agent process sprawl: enforce session-level and runtime-level limits early.
 - TUI responsiveness: input and rendering must remain responsive during streaming and tool activity.
 - SQLite write contention: use WAL mode and a centralized event writer from the start.
+
+## 18. TUI architecture
+
+### Overview
+The TUI is a Textual application (`BreqyApp`) that connects to the engine over the A2A UNIX socket as a regular client. It renders all user-facing UI and translates typed A2A events into widget updates. No heuristic payload parsing — every event is routed by its `EventType` discriminator through a typed `EventDispatcher`.
+
+### Multi-screen architecture
+The app uses Textual's `push_screen` / `pop_screen` navigation:
+
+- **SessionListScreen** — default screen; DataTable of sessions with status, created/updated timestamps; select to resume or create new
+- **ChatScreen** — primary interaction screen; composes all 7 widgets below
+- **AuthScreen** — overlay; provider status table, device-flow / PKCE / API-key auth flows
+- **LogsScreen** — overlay; structured event log with ring buffer and prefix filtering
+- **ModelSelectScreen** — overlay; provider and model selection via DataTable
+
+### Widget composition (ChatScreen)
+```
+┌─────────────────────────────────────────┐
+│ AgentStatusBar                          │
+├───────────────────────┬─────────────────┤
+│                       │  TaskPanel      │
+│   ChatView            ├─────────────────┤
+│   (streaming)         │  ToolPanel      │
+│                       │                 │
+├───────────────────────┴─────────────────┤
+│ ApprovalPrompt (shown when pending)     │
+├─────────────────────────────────────────┤
+│ ControlBar (Stop / Steer / Break)       │
+├─────────────────────────────────────────┤
+│ MessageInput                            │
+└─────────────────────────────────────────┘
+```
+
+### Key patterns
+
+- **EventDispatcher**: Maps `EventType` enum values to handler callables. The app registers handlers at startup; incoming A2A events are dispatched by type without switch/case chains.
+- **StreamBuffer**: Accumulates `MessageChunkEvent` payloads keyed by `correlation_id`. Flushes complete messages to `ChatView` on `MessageSentEvent`.
+- **CommandRegistry**: Slash commands (e.g., `/help`, `/clear`, `/stop`) are registered as `(name, handler, description)` tuples. `MessageInput` intercepts `/`-prefixed input and dispatches structured `CommandResult`s instead of sending plain messages.
+- **SessionState**: Client-side dataclass tracking `session_id`, `status`, `participants`, `workspace_paths`, `active_model`, and `connected` flag. Updated from incoming events, read by widgets.
+
+### A2A integration
+- A background Textual `Worker` (async, non-blocking) runs `A2AClient.listen()` in a loop
+- Incoming `Envelope`s are deserialized via `envelope.to_event()` and posted to the app's `EventDispatcher`
+- Outgoing events (user messages, control actions, approval decisions) are sent via `A2AClient.send_event()`
+- Reconnection uses exponential backoff (1s → 2s → 4s → ... → 30s cap)
+
+### CSS theming
+- Single `.tcss` file at `breqy/tui/styles/breqy.tcss`
+- Dark theme by default; amber/orange accent colors
+- Widget-level class selectors (e.g., `.chat-view`, `.task-panel`, `.approval-prompt`)

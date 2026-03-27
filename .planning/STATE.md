@@ -2,7 +2,7 @@
 
 **Milestone:** M1 — Slice 1 Full Build
 **Created:** 2026-03-22
-**Last updated:** 2026-03-22 (Phase 05 complete)
+**Last updated:** 2026-03-27 (Phase 10 complete — all 10 phases done)
 
 ---
 
@@ -10,21 +10,21 @@
 
 **Core Value:** A reliable, always-on engine that accepts connections from a TUI, maintains persistent sessions across restarts, and lets the default agent perform approved Linux admin and filesystem tasks with full user visibility and control.
 
-**Current Focus:** Phase 05 (Engine Runtime) complete — ready to implement Phase 6 (Tools)
+**Current Focus:** Milestone M1 complete — all 10 phases delivered
 
 ---
 
 ## Current Position
 
-**Current Phase:** 6 (Tools — next)
-**Current Plan:** None
-**Status:** Phase 05 complete; Phase 06 not yet planned
+**Current Phase:** 10 (TUI Client)
+**Current Plan:** All 17 tasks complete
+**Status:** Phase 10 complete and verified; all 10 phases delivered
 
 ### Progress Bar
 
 ```
 Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
-         ●    ●    ●    ●    ●    ○    ○    ○    ○    ○
+         ●    ●    ●    ●    ●    ●    ●    ●    ●    ●
          Domain Storage A2A  Pol  Eng  Tool Mem  Agt  Ses  TUI
 ```
 
@@ -41,11 +41,11 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | 3 | Config, Secrets & A2A Protocol | CFG-01–04, A2A-01–05 (9) | **Complete** |
 | 4 | Policy & Approvals | POL-01–06 (6) | **Complete** |
 | 5 | Engine Runtime | ENG-01–06 (6) | **Complete** |
-| 6 | Tools | TOOL-01–06 (6) | Not started |
-| 7 | Memory | MEM-01–05 (5) | Not started |
-| 8 | Agent Runtime & Auth | AGT-01–11 (11) | Not started |
-| 9 | Sessions & Control | SES-01–08 (8) | Not started |
-| 10 | TUI Client | TUI-01–13 (13) | Not started |
+| 6 | Tools | TOOL-01–06 (6) | **Complete** |
+| 7 | Memory | MEM-01–05 (5) | **Complete** |
+| 8 | Agent Runtime & Auth | AGT-01–11 (11) | **Complete** |
+| 9 | Sessions & Control | SES-01–08 (8) | **Complete** |
+| 10 | TUI Client | TUI-01–13 (13) | **Complete** |
 
 ---
 
@@ -56,10 +56,10 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | Requirements defined | 57 |
 | Requirements mapped | 57 |
 | Phases planned | 10 |
-| Plans written | 13 (Phase 1: 4, Phase 2: 4, Phase 3: 2, Phase 4: 2, Phase 5: 1) |
-| Plans complete | 13 |
-| Tests written | 456 total |
-| Tests passing | 456 |
+| Plans written | 21 (Phase 1: 4, Phase 2: 4, Phase 3: 2, Phase 4: 2, Phase 5: 1, Phase 6: 4, Phase 7: 1, Phase 8: 1, Phase 9: 1, Phase 10: 1) |
+| Plans complete | 21 |
+| Tests written | 1185 total |
+| Tests passing | 1185 |
 
 ---
 
@@ -91,6 +91,13 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 | structlog used throughout engine modules | structlog.get_logger(__name__) — consistent with policy modules |
 | AgentRegistry/ApprovalService scaffolded in EngineServer | Marked TODO(phase-6) — not yet wired into _handle_envelope; wiring happens in Phase 6/8 when agent connect/disconnect events are defined |
 | signal handler guards double-invocation in daemon.py | stop_task sentinel prevents double stop on multiple SIGTERM signals |
+| Phase 6 engine entrypoint is `EngineServer.execute_tool()` | Accepted as the engine-facing Phase 6 scope; transport-level A2A tool-request routing is deferred to a later phase |
+| EngineConfig now carries policy_rules and filesystem_policies | Daemon-composed ToolService uses config-backed policy defaults instead of silent constructor-only open defaults |
+| Phase 6 MCP naming remains deterministic and collision-safe | Local registry names keep server/tool identity while avoiding collisions across malformed or overlapping remote names |
+| Phase 8 dispatch trigger is `AgentWorkRequestedEvent` | Runtime execution starts only from explicit engine-targeted work dispatch, not generic chat broadcast inference |
+| Tool/private-memory request-result events stay transport-only | Durable audit history remains in canonical tool invocation and message lifecycle events, not the handoff envelopes |
+| Provider auth decisions for Phase 8 | Copilot device flow; Codex device flow plus token exchange; Claude PKCE; Gemini API key; Qwen API key |
+| Provider subprocess auth isolation is required | Injected credentials alone are insufficient; adapters must also isolate `HOME` and config directories to block ambient CLI/session reuse |
 
 ### Architectural Dependencies Encoded in Phases
 
@@ -109,7 +116,8 @@ Phase 1 (DOM)
 
 ### Active Todos
 
-- [ ] Run `/gsd-plan-phase 6` to decompose Phase 6 (Tools) into executable plans
+- [x] Complete Phase 9 discuss -> plan -> execute
+- [x] Complete Phase 10 discuss -> plan -> execute
 
 ### Active Blockers
 
@@ -127,7 +135,7 @@ None.
 1. Read `.planning/ROADMAP.md` to understand current phase and progress
 2. Read `.planning/REQUIREMENTS.md` for requirement traceability
 3. Check which phases are complete in the Progress Table
-4. Run `/gsd-plan-phase N` for the next incomplete phase
+4. If the next incomplete phase has no plans yet, run `/gsd-plan-phase N`; otherwise resume execution from its active plan and verification artifacts
 
 **Files to check first:**
 - `.planning/ROADMAP.md` — phase structure and success criteria

@@ -14,11 +14,11 @@
 - [x] **Phase 3: Config, Secrets & A2A Protocol** — Config loader, dataclasses, SecretProvider/Keyring, A2A envelope, UNIX socket transport, server, client, round-trip contracts
 - [x] **Phase 4: Policy & Approvals** — PolicyEvaluator, filesystem policy, tool permission rules, autonomy levels, ApprovalService, session-scoped grants
 - [x] **Phase 5: Engine Runtime** — Daemon startup/shutdown, internal event bus, session manager, agent registry, agent spawner, restart restore
-- [ ] **Phase 6: Tools** — ToolExecutor/ToolResult/ToolRegistry, ShellTool, FilesystemTool, MCP client, memory tool
-- [ ] **Phase 7: Memory** — Session memory, global memory, agent-private memory, tool-mediated access, promotion flow
-- [ ] **Phase 8: Agent Runtime & Auth** — Config loader, runtime loop, breqy agent definition, model provider, 5 auth providers, CredentialStore, skills loader
-- [ ] **Phase 9: Sessions & Control** — Restart survival, participant tracking, 4 control primitives, canonical task state, workspace scoping
-- [ ] **Phase 10: TUI Client** — Session list, chat streaming, typed event rendering, task list, approval widget, control bar, agent status, tool widget, auth panel, logs, slash commands, model view, originator header
+- [x] **Phase 6: Tools** — ToolExecutor/ToolResult/ToolRegistry, ShellTool, FilesystemTool, MCP client, memory tool
+- [x] **Phase 7: Memory** — Session memory, global memory, agent-private memory, tool-mediated access, promotion flow
+- [x] **Phase 8: Agent Runtime & Auth** — Config loader, runtime loop, breqy agent definition, model provider, 5 auth providers, CredentialStore, skills loader
+- [x] **Phase 9: Sessions & Control** — Restart survival, participant tracking, 4 control primitives, canonical task state, workspace scoping
+- [x] **Phase 10: TUI Client** — Session list, chat streaming, typed event rendering, task list, approval widget, control bar, agent status, tool widget, auth panel, logs, slash commands, model view, originator header
 
 ---
 
@@ -39,7 +39,8 @@
 4. All 11 typed event schemas (`MessageSentEvent`, `MessageChunkEvent`, `TaskUpdatedEvent`, `ToolInvocationStartedEvent`, `ToolInvocationCompletedEvent`, `ToolOutputChunkEvent`, `ApprovalRequestedEvent`, `ApprovalDecidedEvent`, `ControlEvent`, `AgentLifecycleEvent`, `SessionCreatedEvent`) are instantiable and carry required fields
 5. All 8 domain error types (`BreqyError`, `SessionNotFoundError`, `AgentNotFoundError`, `PolicyDeniedError`, `ApprovalRequiredError`, `ToolExecutionError`, `AgentSpawnError`, `TransportError`) can be raised and caught
 
-**Plans**: TBD
+**Plans**:
+- `.planning/phases/07-memory/07-PLAN.md`
 
 ---
 
@@ -135,7 +136,11 @@
 4. MCP client connects to a configured MCP server and exposes the server's tool list via `ToolRegistry`; an agent can invoke an MCP-backed tool the same way it invokes a native tool
 5. Memory tool (MCP-backed) resolves session, global, and agent-private memory domains and returns records scoped to the requesting agent and session
 
-**Plans**: TBD
+**Plans**:
+- `.planning/phases/06-tools/phase-06-plan-01-tool-foundation-and-persistence.md`
+- `.planning/phases/06-tools/phase-06-plan-02-native-tools.md`
+- `.planning/phases/06-tools/phase-06-plan-03-orchestration-and-mcp.md`
+- `.planning/phases/06-tools/phase-06-plan-04-engine-wiring-and-docs.md`
 
 ---
 
@@ -234,11 +239,11 @@
 | 3. Config, Secrets & A2A Protocol | 2/2 | Complete | 2026-03-22 |
 | 4. Policy & Approvals | 2/2 | Complete | 2026-03-22 |
 | 5. Engine Runtime | 1/1 | Complete | 2026-03-22 |
-| 6. Tools | 0/? | Not started | - |
-| 7. Memory | 0/? | Not started | - |
-| 8. Agent Runtime & Auth | 0/? | Not started | - |
-| 9. Sessions & Control | 0/? | Not started | - |
-| 10. TUI Client | 0/? | Not started | - |
+| 6. Tools | 4/4 | Complete | 2026-03-23 |
+| 7. Memory | 1/1 | Complete | 2026-03-23 |
+| 8. Agent Runtime & Auth | 1/1 | Complete | 2026-03-24 |
+| 9. Sessions & Control | 1/1 | Complete | 2026-03-27 |
+| 10. TUI Client | 1/1 | Complete | 2026-03-27 |
 
 ---
 
@@ -325,4 +330,4 @@
 
 ---
 *Roadmap created: 2026-03-22*
-*Last updated: 2026-03-22 after Phase 5 complete*
+*Last updated: 2026-03-27 after Phase 10 completion — all phases complete*
