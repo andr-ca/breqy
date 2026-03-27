@@ -3,8 +3,12 @@ from __future__ import annotations
 
 import json
 
+import structlog
+
 from breqy.agents.models import ProviderCredential
 from breqy.secrets.provider import SecretProvider
+
+logger = structlog.get_logger(__name__)
 
 
 class CredentialStore:
@@ -17,7 +21,15 @@ class CredentialStore:
         payload = self._secret_provider.get(self._secret_key(provider))
         if not payload or not payload.strip():
             return None
-        return ProviderCredential.model_validate(json.loads(payload))
+        try:
+            return ProviderCredential.model_validate(json.loads(payload))
+        except (json.JSONDecodeError, Exception) as exc:
+            logger.warning(
+                "Ignoring unreadable credential in keyring",
+                provider=provider,
+                error=str(exc),
+            )
+            return None
 
     def set(self, provider: str, credential: ProviderCredential) -> None:
         if credential.provider != provider:

@@ -126,3 +126,21 @@ def test_credential_store_returns_none_for_whitespace_only_payload() -> None:
     store = CredentialStore(provider)
 
     assert store.get("copilot") is None
+
+
+def test_credential_store_returns_none_for_non_json_payload() -> None:
+    """Pre-existing raw token strings in keyring should not crash."""
+    provider = MemorySecretProvider()
+    provider.values["copilot"] = "ghu_l9ZQbcTZCIHCW3ZVn1LzCqPFaWpyCy1ZFJsb"
+    store = CredentialStore(provider)
+
+    assert store.get("copilot") is None
+
+
+def test_credential_store_returns_none_for_invalid_json_payload() -> None:
+    """Corrupted JSON in keyring should not crash."""
+    provider = MemorySecretProvider()
+    provider.values["copilot"] = '{"provider": "copilot", broken'
+    store = CredentialStore(provider)
+
+    assert store.get("copilot") is None
