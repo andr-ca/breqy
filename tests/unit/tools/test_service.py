@@ -479,3 +479,264 @@ async def test_service_records_actual_execution_start_time_after_approval() -> N
     assert repo.updates[1]["started_at"] is not None
     assert repo.updates[1]["started_at"] >= repo.created[0].started_at
     assert before <= repo.updates[1]["started_at"] <= after
+
+
+@pytest.mark.asyncio
+async def test_service_overwrites_malformed_execution_context_with_trusted_values() -> None:
+    log: list[str] = []
+    tool = RecordingTool(name="shell", log=log)
+    service, _, _, _, _ = build_service(tool=tool, log=log)
+
+    result = await service.execute_tool(
+        session_id="ses_trusted",
+        agent_id="agt_trusted",
+        tool_name="shell",
+        arguments={
+            "command": "pwd",
+            "_execution_context": "spoofed",
+        },
+    )
+
+    assert result.success is True
+    assert len(tool.calls) == 1
+    assert tool.calls[0]["_execution_context"] == {
+        "session_id": "ses_trusted",
+        "agent_id": "agt_trusted",
+    }
+
+
+@pytest.mark.asyncio
+async def test_service_skips_filesystem_policy_when_path_is_missing() -> None:
+    tool = RecordingTool(name="filesystem")
+    service, _, _, _, filesystem_policy_checker = build_service(tool=tool)
+
+    result = await service.execute_tool(
+        session_id="ses_123",
+        agent_id="agt_123",
+        tool_name="filesystem",
+        arguments={"operation": "write", "content": "x"},
+    )
+
+    assert result.success is True
+    assert filesystem_policy_checker.calls == []
+
+
+@pytest.mark.asyncio
+async def test_service_skips_filesystem_policy_when_operation_has_no_mapped_checks() -> None:
+    tool = RecordingTool(name="filesystem")
+    service, _, _, _, filesystem_policy_checker = build_service(tool=tool)
+
+    result = await service.execute_tool(
+        session_id="ses_123",
+        agent_id="agt_123",
+        tool_name="filesystem",
+        arguments={"operation": "unknown", "path": "/tmp/file.txt"},
+    )
+
+    assert result.success is True
+    assert filesystem_policy_checker.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Workspace boundary enforcement (Task 10)
+# ---------------------------------------------------------------------------
+
+
+class StubSessionManager:
+    """Minimal session manager stub for workspace boundary tests."""
+
+    def __init__(self, workspace_paths: list[str] | None = None) -> None:
+        self._paths = workspace_paths if workspace_paths is not None else []
+
+    async def get_workspace_paths(self, session_id: str) -> list[str]:
+        return self._paths
+
+
+def build_service_with_workspace(
+    *,
+    tool: ToolExecutor | None,
+    workspace_paths: list[str] | None = None,
+    tool_policy_action: PolicyAction = PolicyAction.ALLOW,
+    filesystem_policy_action: PolicyAction = PolicyAction.ALLOW,
+    log: list[str] | None = None,
+) -> tuple[ToolService, RecordingInvocationRepository, RecordingEventBus]:
+    log = log if log is not None else []
+    session_mgr = StubSessionManager(workspace_paths) if workspace_paths is not None else None
+    service = ToolService(
+        registry=cast(Any, RecordingToolRegistry({tool.name: tool} if tool is not None else {})),
+        policy_evaluator=cast(Any, StubPolicyEvaluator(tool_policy_action)),
+        filesystem_policy_checker=cast(Any, RecordingFilesystemPolicyChecker(filesystem_policy_action)),
+        approval_service=cast(Any, RecordingApprovalService(log=log)),
+        invocation_repo=cast(Any, RecordingInvocationRepository(log=log)),
+        event_bus=RecordingEventBus(log=log),
+        session_manager=session_mgr,
+    )
+    return (
+        service,
+        cast(RecordingInvocationRepository, service._invocation_repo),
+        cast(RecordingEventBus, service._event_bus),
+    )
+
+
+@pytest.mark.asyncio
+async def test_service_blocks_path_outside_workspace() -> None:
+    tool = RecordingTool(name="filesystem")
+    service, repo, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=["/home/user/project"],
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="filesystem",
+        arguments={"path": "/etc/passwd", "operation": "read"},
+    )
+
+    assert result.success is False
+    assert "outside session workspace" in result.error
+
+
+@pytest.mark.asyncio
+async def test_service_allows_path_inside_workspace() -> None:
+    tool = RecordingTool(name="shell")
+    service, _, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=["/home/user/project"],
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"path": "/home/user/project/src/main.py", "command": "cat"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_service_allows_path_equal_to_workspace() -> None:
+    tool = RecordingTool(name="shell")
+    service, _, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=["/home/user/project"],
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"path": "/home/user/project", "command": "ls"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_service_skips_workspace_check_when_no_paths() -> None:
+    tool = RecordingTool(name="shell")
+    service, _, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=[],
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"path": "/anywhere", "command": "ls"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_service_skips_workspace_check_when_no_session_manager() -> None:
+    tool = RecordingTool(name="shell")
+    service, _, _, _, _ = build_service(tool=tool)
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"path": "/anywhere", "command": "ls"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_service_skips_workspace_check_when_no_path_argument() -> None:
+    tool = RecordingTool(name="shell")
+    service, _, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=["/home/user/project"],
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"command": "pwd"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_service_allows_path_in_any_of_multiple_workspaces() -> None:
+    tool = RecordingTool(name="shell")
+    service, _, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=["/home/user/project1", "/home/user/project2"],
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"path": "/home/user/project2/file.txt", "command": "cat"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_service_workspace_check_uses_resolved_paths(tmp_path: Any) -> None:
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    tool = RecordingTool(name="shell")
+    service, _, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=[str(tmp_path)],
+    )
+
+    # Path with ".." that resolves within workspace
+    dotted_path = str(tmp_path / "sub" / ".." / "file.txt")
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"path": dotted_path, "command": "cat"},
+    )
+
+    assert result.success is True
+
+
+@pytest.mark.asyncio
+async def test_service_workspace_check_blocks_traversal_outside() -> None:
+    tool = RecordingTool(name="shell")
+    service, _, _ = build_service_with_workspace(
+        tool=tool,
+        workspace_paths=["/home/user/project"],
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_ws",
+        agent_id="agt_ws",
+        tool_name="shell",
+        arguments={"path": "/home/user/project/../secret.txt", "command": "cat"},
+    )
+
+    assert result.success is False

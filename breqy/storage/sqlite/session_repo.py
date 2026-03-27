@@ -64,6 +64,16 @@ class SqliteSessionRepository(SessionRepository):
         )
         await self._conn.commit()
 
+    async def update_workspace_paths(
+        self, session_id: str, paths: list[str]
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        await self._conn.execute(
+            "UPDATE sessions SET workspace_paths = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(paths), now, session_id),
+        )
+        await self._conn.commit()
+
     @staticmethod
     def _row_to_session(row: aiosqlite.Row) -> Session:
         return Session(

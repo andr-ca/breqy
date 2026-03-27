@@ -5,7 +5,7 @@ All tables use IF NOT EXISTS so running migrations is idempotent.
 
 import aiosqlite
 
-SCHEMA_V1 = """
+SCHEMA_V2 = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'active',
@@ -98,6 +98,48 @@ CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(session_id, timestamp);
 
+CREATE TABLE IF NOT EXISTS memory_records (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    session_id TEXT REFERENCES sessions(id),
+    agent_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    task_id TEXT,
+    approval_id TEXT,
+    artifact_id TEXT,
+    linked_event_id TEXT,
+    promotion_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_records_scope ON memory_records(scope);
+CREATE INDEX IF NOT EXISTS idx_memory_records_session ON memory_records(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_records_agent ON memory_records(agent_id);
+CREATE INDEX IF NOT EXISTS idx_memory_records_task ON memory_records(task_id);
+CREATE INDEX IF NOT EXISTS idx_memory_records_approval ON memory_records(approval_id);
+CREATE INDEX IF NOT EXISTS idx_memory_records_artifact ON memory_records(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_memory_records_linked_event ON memory_records(linked_event_id);
+CREATE INDEX IF NOT EXISTS idx_memory_records_promotion ON memory_records(promotion_id);
+
+CREATE TABLE IF NOT EXISTS memory_promotions (
+    id TEXT PRIMARY KEY,
+    source_record_id TEXT NOT NULL REFERENCES memory_records(id),
+    target_record_id TEXT REFERENCES memory_records(id),
+    source_session_id TEXT NOT NULL REFERENCES sessions(id),
+    proposing_agent_id TEXT NOT NULL,
+    approval_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    source_scope TEXT NOT NULL DEFAULT 'session',
+    target_scope TEXT NOT NULL DEFAULT 'global',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_promotions_source_record ON memory_promotions(source_record_id);
+CREATE INDEX IF NOT EXISTS idx_memory_promotions_status ON memory_promotions(status);
+
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
 );
@@ -106,8 +148,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 async def run_migrations(conn: aiosqlite.Connection) -> None:
     """Run schema migrations. Safe to call multiple times (idempotent)."""
-    await conn.executescript(SCHEMA_V1)
+    await conn.executescript(SCHEMA_V2)
     await conn.execute(
-        "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (1,)
+        "INSERT INTO schema_version (version) VALUES (?) ON CONFLICT(version) DO NOTHING",
+        (2,),
     )
+    await conn.execute("DELETE FROM schema_version WHERE version <> ?", (2,))
     await conn.commit()

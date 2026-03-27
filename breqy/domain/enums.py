@@ -8,6 +8,7 @@ class SessionStatus(StrEnum):
     ACTIVE = "active"
     CLOSED = "closed"
     SUSPENDED = "suspended"
+    CIRCUIT_BROKEN = "circuit_broken"
 
 
 class TaskStatus(StrEnum):
@@ -24,9 +25,12 @@ class EventType(StrEnum):
     SESSION_CLOSED = "session.closed"
     MESSAGE_SENT = "message.sent"
     MESSAGE_CHUNK = "message.chunk"
+    AGENT_WORK_REQUESTED = "agent.work.requested"
     TASK_CREATED = "task.created"
     TASK_UPDATED = "task.updated"
     TASK_COMPLETED = "task.completed"
+    TOOL_EXECUTION_REQUESTED = "tool.execution.requested"
+    TOOL_EXECUTION_RESULT = "tool.execution.result"
     TOOL_INVOCATION_STARTED = "tool.invocation.started"
     TOOL_INVOCATION_COMPLETED = "tool.invocation.completed"
     TOOL_INVOCATION_FAILED = "tool.invocation.failed"
@@ -40,6 +44,13 @@ class EventType(StrEnum):
     CONTROL_STOP_AND_STEER = "control.stop_and_steer"
     CONTROL_STEER = "control.steer"
     CONTROL_CIRCUIT_BREAK = "control.circuit_break"
+    PRIVATE_MEMORY_OPERATION_REQUESTED = "private_memory.operation.requested"
+    PRIVATE_MEMORY_OPERATION_RESULT = "private_memory.operation.result"
+    MEMORY_RECORD_CREATED = "memory.record.created"
+    MEMORY_RECORD_UPDATED = "memory.record.updated"
+    MEMORY_PROMOTION_REQUESTED = "memory.promotion.requested"
+    MEMORY_PROMOTION_APPROVED = "memory.promotion.approved"
+    MEMORY_PROMOTION_DENIED = "memory.promotion.denied"
 
 
 class MessageRole(StrEnum):
@@ -89,3 +100,39 @@ class AutonomyLevel(StrEnum):
     SUPERVISED = "supervised"
     SEMI_AUTONOMOUS = "semi_autonomous"
     AUTONOMOUS = "autonomous"
+
+
+class MemoryScope(StrEnum):
+    SESSION = "session"
+    GLOBAL = "global"
+
+
+class MemoryRecordKind(StrEnum):
+    NOTE = "note"
+    FACT = "fact"
+    SUMMARY = "summary"
+    LESSON = "lesson"
+
+
+class MemoryPromotionStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    DENIED = "denied"
+
+
+class CredentialKind(StrEnum):
+    ACCESS_TOKEN = "access_token"
+    API_KEY = "api_key"
+
+
+class AuthFlowKind(StrEnum):
+    DEVICE = "device"
+    PKCE_CODE = "pkce_code"
+    API_KEY = "api_key"
+
+
+class AuthSessionStatus(StrEnum):
+    UNAUTHENTICATED = "unauthenticated"
+    IN_PROGRESS = "in_progress"
+    AUTHENTICATED = "authenticated"
+    FAILED = "failed"

@@ -111,6 +111,8 @@ def test_load_agent_config_reads_mcp_servers_from_yaml(tmp_path) -> None:
             {
                 "id": "breqy",
                 "name": "Breqy",
+                "provider": "copilot",
+                "model": "gpt-4o",
                 "mcp_servers": [
                     {
                         "id": "memory",
@@ -122,6 +124,7 @@ def test_load_agent_config_reads_mcp_servers_from_yaml(tmp_path) -> None:
             }
         )
     )
+    (tmp_path / "persona.md").write_text("You are Breqy.\n")
 
     config = load_agent_config(str(tmp_path))
 

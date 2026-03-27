@@ -76,3 +76,15 @@ class TransportError(BreqyError):
 
     def __init__(self, message: str) -> None:
         super().__init__(f"Transport error: {message}")
+
+
+class TaskTransitionError(BreqyError):
+    """Raised when an invalid task state transition is attempted."""
+
+    def __init__(self, task_id: str, current_status: str, requested_status: str) -> None:
+        self.task_id = task_id
+        self.current_status = current_status
+        self.requested_status = requested_status
+        super().__init__(
+            f"Invalid task transition for {task_id}: {current_status} -> {requested_status}"
+        )

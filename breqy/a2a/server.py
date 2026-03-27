@@ -17,6 +17,7 @@ from breqy.domain.ids import generate_prefixed_id
 logger = logging.getLogger(__name__)
 
 OnEnvelopeCallback = Callable[[Envelope, str], Coroutine[Any, Any, None]]
+OnDisconnectCallback = Callable[[str], Coroutine[Any, Any, None]]
 
 
 class A2AServer:
@@ -26,9 +27,11 @@ class A2AServer:
         self,
         socket_path: str,
         on_envelope: OnEnvelopeCallback,
+        on_disconnect: OnDisconnectCallback | None = None,
     ) -> None:
         self._socket_path = socket_path
         self._on_envelope = on_envelope
+        self._on_disconnect = on_disconnect
         self._server: asyncio.AbstractServer | None = None
         self._clients: dict[str, FrameWriter] = {}
         self._tasks: set[asyncio.Task[None]] = set()
@@ -100,6 +103,8 @@ class A2AServer:
                     break
         finally:
             self._clients.pop(client_id, None)
+            if self._on_disconnect is not None:
+                await self._on_disconnect(client_id)
             writer.close()
             try:
                 await writer.wait_closed()

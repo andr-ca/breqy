@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path as PathLib
 from typing import Any
 
 import structlog
@@ -34,6 +35,7 @@ class ToolService:
         invocation_repo: ToolInvocationRepository,
         event_bus: Any,
         approval_timeout: float = 300.0,
+        session_manager: Any | None = None,
     ) -> None:
         self._registry = registry
         self._policy_evaluator = policy_evaluator
@@ -42,6 +44,7 @@ class ToolService:
         self._invocation_repo = invocation_repo
         self._event_bus = event_bus
         self._approval_timeout = approval_timeout
+        self._session_manager = session_manager
 
     async def execute_tool(
         self,
@@ -78,6 +81,11 @@ class ToolService:
                 error=f"Policy denied tool '{tool_name}'",
                 summary="Tool execution denied by policy",
             )
+
+        if self._session_manager is not None:
+            workspace_violation = await self._check_workspace_boundary(session_id, invocation)
+            if workspace_violation is not None:
+                return workspace_violation
 
         if tool_name == "filesystem":
             denied_result = await self._check_filesystem_policy(invocation)
@@ -152,7 +160,12 @@ class ToolService:
         )
 
         try:
-            result = await tool.execute(arguments)
+            execution_arguments = dict(arguments)
+            execution_arguments["_execution_context"] = {
+                "session_id": session_id,
+                "agent_id": agent_id,
+            }
+            result = await tool.execute(execution_arguments)
         except Exception as exc:
             logger.exception(
                 "Tool execution raised",
@@ -213,6 +226,56 @@ class ToolService:
                 )
 
         return None
+
+    async def _check_workspace_boundary(
+        self, session_id: str, invocation: ToolInvocation
+    ) -> ToolResult | None:
+        """Check if the tool's target path is within the session's workspace.
+
+        Returns None if the path is allowed, or a denied ToolResult if blocked.
+        Only applies when:
+        1. Session has workspace_paths configured (non-empty)
+        2. Tool arguments include a 'path' key
+
+        If workspace_paths is empty, no restriction is applied (backward-compatible).
+        """
+        path = invocation.arguments.get("path")
+        if not isinstance(path, str):
+            return None
+
+        try:
+            workspace_paths = await self._session_manager.get_workspace_paths(session_id)
+        except Exception:
+            # If session not found or any error, skip workspace check
+            return None
+
+        if not workspace_paths:
+            return None  # No workspace restriction
+
+        # Resolve the target path to absolute
+        try:
+            resolved = str(PathLib(path).resolve())
+        except (OSError, ValueError):
+            return await self._finalize_denied(
+                invocation=invocation,
+                error=f"Invalid path: {path}",
+                summary="Path could not be resolved",
+            )
+
+        # Check if resolved path is inside any workspace path
+        for ws_path in workspace_paths:
+            try:
+                ws_resolved = str(PathLib(ws_path).resolve())
+            except (OSError, ValueError):
+                continue
+            if resolved == ws_resolved or resolved.startswith(ws_resolved + "/"):
+                return None  # Path is inside this workspace
+
+        return await self._finalize_denied(
+            invocation=invocation,
+            error=f"Path '{path}' is outside session workspace boundaries",
+            summary="Workspace boundary violation",
+        )
 
     async def _finalize_denied(
         self,

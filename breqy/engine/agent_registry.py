@@ -10,6 +10,7 @@ class AgentInfo:
     agent_id: str
     client_id: str
     pid: int | None = None
+    session_id: str = ""
 
 
 class AgentRegistry:
@@ -19,16 +20,24 @@ class AgentRegistry:
         self._agents: dict[str, AgentInfo] = {}
 
     def register(
-        self, agent_id: str, client_id: str, pid: int | None = None
+        self, agent_id: str, client_id: str, pid: int | None = None,
+        session_id: str = "",
     ) -> None:
         """Register an agent connection."""
         self._agents[agent_id] = AgentInfo(
-            agent_id=agent_id, client_id=client_id, pid=pid
+            agent_id=agent_id, client_id=client_id, pid=pid,
+            session_id=session_id,
         )
 
     def unregister(self, agent_id: str) -> None:
         """Remove an agent (called on disconnect)."""
         self._agents.pop(agent_id, None)
+
+    def unregister_by_client_id(self, client_id: str) -> None:
+        """Remove the agent currently bound to a client ID."""
+        info = self.get_by_client_id(client_id)
+        if info is not None:
+            self.unregister(info.agent_id)
 
     def get(self, agent_id: str) -> AgentInfo | None:
         """Return agent info by agent_id, or None."""
@@ -44,3 +53,19 @@ class AgentRegistry:
     def list_agents(self) -> list[AgentInfo]:
         """Return all currently registered agents."""
         return list(self._agents.values())
+
+    def list_by_session(self, session_id: str) -> list[AgentInfo]:
+        """Return all agents registered to a specific session."""
+        return [
+            info for info in self._agents.values()
+            if info.session_id == session_id
+        ]
+
+    def get_by_session_and_agent(
+        self, session_id: str, agent_id: str,
+    ) -> AgentInfo | None:
+        """Return agent info if it belongs to the given session, else None."""
+        info = self._agents.get(agent_id)
+        if info is not None and info.session_id == session_id:
+            return info
+        return None

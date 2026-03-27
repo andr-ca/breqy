@@ -4,11 +4,14 @@ from __future__ import annotations
 import asyncio
 import signal
 from pathlib import Path
+from typing import Any
 
 import structlog
 
 from breqy.config.models import EngineConfig
 from breqy.engine.server import EngineServer
+from breqy.policy.evaluator import PolicyEvaluator
+from breqy.policy.filesystem import FilesystemPolicyChecker
 from breqy.storage.sqlite.connection import create_connection
 from breqy.storage.sqlite.migrations import run_migrations
 from breqy.storage.sqlite.session_repo import SqliteSessionRepository
@@ -16,6 +19,8 @@ from breqy.storage.sqlite.message_repo import SqliteMessageRepository
 from breqy.storage.sqlite.event_repo import SqliteEventRepository
 from breqy.storage.sqlite.task_repo import SqliteTaskRepository
 from breqy.storage.sqlite.approval_repo import SqliteApprovalRepository
+from breqy.storage.sqlite.memory_repo import SqliteMemoryRepository
+from breqy.storage.sqlite.participant_repo import SqliteParticipantRepository
 from breqy.storage.sqlite.tool_invocation_repo import SqliteToolInvocationRepository
 from breqy.utils.logging import setup_logging
 
@@ -28,6 +33,7 @@ class EngineDaemon:
     def __init__(self, config: EngineConfig) -> None:
         self._config = config
         self._server: EngineServer | None = None
+        self._conn: Any | None = None
         self._running = False
 
     @property
@@ -47,6 +53,7 @@ class EngineDaemon:
 
         # Initialize storage layer
         conn = await create_connection(self._config.db_path)
+        self._conn = conn
         await run_migrations(conn)
 
         session_repo = SqliteSessionRepository(conn)
@@ -54,6 +61,8 @@ class EngineDaemon:
         event_repo = SqliteEventRepository(conn)
         task_repo = SqliteTaskRepository(conn)
         approval_repo = SqliteApprovalRepository(conn)
+        memory_repo = SqliteMemoryRepository(conn)
+        participant_repo = SqliteParticipantRepository(conn)
         tool_invocation_repo = SqliteToolInvocationRepository(conn)
 
         self._server = EngineServer(
@@ -63,7 +72,13 @@ class EngineDaemon:
             event_repo=event_repo,
             task_repo=task_repo,
             approval_repo=approval_repo,
+            memory_repo=memory_repo,
             tool_invocation_repo=tool_invocation_repo,
+            policy_evaluator=PolicyEvaluator(self._config.policy_rules),
+            filesystem_policy_checker=FilesystemPolicyChecker(
+                self._config.filesystem_policies
+            ),
+            participant_repo=participant_repo,
         )
         await self._server.start()
         self._running = True
@@ -73,8 +88,49 @@ class EngineDaemon:
         """Gracefully stop the engine."""
         if self._server:
             await self._server.stop()
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
         self._running = False
         logger.info("Engine daemon stopped")
+
+    async def start_default_agent(self) -> int:
+        if self._server is None:
+            raise RuntimeError("Engine server is not started")
+        return self._server.agent_spawner.spawn("agents/breqy")
+
+    async def restore_sessions(self) -> None:
+        """Restore active sessions and respawn their primary agents."""
+        if self._server is None:
+            raise RuntimeError("Engine server is not started")
+
+        sessions = await self._server.session_manager.restore_active_sessions()
+        for session in sessions:
+            agent_dir = self._agent_dir_for(session.primary_agent_id)
+            self._server.agent_spawner.spawn(
+                agent_dir, session_id=session.id,
+            )
+            logger.info(
+                "Agent respawned for restored session",
+                session_id=session.id,
+                agent_id=session.primary_agent_id,
+                agent_dir=agent_dir,
+            )
+
+    @staticmethod
+    def _agent_dir_for(agent_id: str) -> str:
+        """Map agent_id to agent directory.
+
+        Convention: agent_id prefix "agt_" maps to "agents/<name>".
+        Falls back to "agents/breqy" for the default agent.
+        """
+        # Strip common prefixes
+        name = agent_id
+        for prefix in ("agt_", "agent_"):
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+                break
+        return f"agents/{name}" if name else "agents/breqy"
 
 
 def main() -> None:

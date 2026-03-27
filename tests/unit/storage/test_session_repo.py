@@ -77,3 +77,31 @@ async def test_session_roundtrip_workspace_paths(db_connection) -> None:
     result = await repo.get(session.id)
     assert result is not None
     assert result.workspace_paths == ["/home/user", "/tmp"]
+
+
+@pytest.mark.asyncio
+async def test_update_workspace_paths(db_connection) -> None:
+    """update_workspace_paths persists new paths and can be read back."""
+    repo = SqliteSessionRepository(db_connection)
+    session = Session(primary_agent_id="agent_breqy", workspace_paths=["/old/path"])
+    await repo.create(session)
+
+    await repo.update_workspace_paths(session.id, ["/new/path1", "/new/path2"])
+
+    result = await repo.get(session.id)
+    assert result is not None
+    assert result.workspace_paths == ["/new/path1", "/new/path2"]
+
+
+@pytest.mark.asyncio
+async def test_update_workspace_paths_empty_list(db_connection) -> None:
+    """update_workspace_paths can set paths to an empty list."""
+    repo = SqliteSessionRepository(db_connection)
+    session = Session(primary_agent_id="agent_breqy", workspace_paths=["/some/path"])
+    await repo.create(session)
+
+    await repo.update_workspace_paths(session.id, [])
+
+    result = await repo.get(session.id)
+    assert result is not None
+    assert result.workspace_paths == []
