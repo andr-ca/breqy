@@ -1,0 +1,17 @@
+id: breqy
+name: Breqy
+display_name: Breqy
+provider: copilot
+model: gpt-4o
+persona_file: persona.md
+autonomy_level: supervised
+tool_permissions:
+  - shell
+  - fs
+  - memory
+skill_permissions:
+  - plan
+  - review
+provider_settings:
+  reasoning: balanced
+log_level: INFO

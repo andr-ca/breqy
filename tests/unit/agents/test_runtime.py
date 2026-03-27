@@ -1,0 +1,565 @@
+"""Tests for the Phase 8 agent runtime loop."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+
+from breqy.agents.providers.base import CompletionMetadata, ProviderEvent, ProviderRequest
+from breqy.agents.skills import SkillActivationError
+from breqy.domain.events import AgentLifecycleEvent, MessageSentEvent, ToolExecutionRequestedEvent
+from breqy.domain.enums import EventType, MessageRole
+from breqy.domain.events import AgentWorkRequestedEvent, ToolExecutionResultEvent
+from breqy.domain.models import Message, SessionContextBundle, StructuredErrorPayload, StructuredResultPayload
+
+
+class FakeA2AClient:
+    def __init__(self) -> None:
+        self.connected = False
+        self.sent_events: list[object] = []
+
+    async def connect(self) -> None:
+        self.connected = True
+
+    async def disconnect(self) -> None:
+        self.connected = False
+
+    async def send_event(self, event: object) -> None:
+        self.sent_events.append(event)
+
+
+@dataclass
+class FakeProvider:
+    events: list[ProviderEvent]
+    supports_tool_calls: bool = True
+    provider_id: str = "claude"
+    model_id: str = "claude-test"
+    requests: list[ProviderRequest] = field(default_factory=list)
+
+    def stream(self, request: ProviderRequest):
+        self.requests.append(request)
+        for event in self.events:
+            yield event
+
+
+class FakeToolResultWaiter:
+    def __init__(self, result_event: ToolExecutionResultEvent) -> None:
+        self.calls: list[str] = []
+        self._result_event = result_event
+
+    async def wait_for(self, invocation_id: str) -> ToolExecutionResultEvent:
+        self.calls.append(invocation_id)
+        return self._result_event
+
+
+class FailingSkillLoader:
+    def resolve_active(self, **_: Any):
+        raise SkillActivationError(
+            StructuredErrorPayload(
+                code="invalid_skill_activation",
+                message="skill rejected",
+                details={"invalid_skill_ids": ["bad-skill"]},
+            )
+        )
+
+
+def _work_event(*, active_skill_ids: list[str] | None = None) -> AgentWorkRequestedEvent:
+    return AgentWorkRequestedEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id="corr_turn_1",
+        message_id="msg_user",
+        user_message_content="Continue Phase 8.",
+        session_context=SessionContextBundle(
+            messages=[
+                Message(
+                    id="msg_prev",
+                    session_id="ses_123",
+                    role=MessageRole.USER,
+                    content="Previous context",
+                )
+            ]
+        ),
+        active_skill_ids=active_skill_ids or [],
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_starts_and_registers_with_engine(tmp_path: Path) -> None:
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[])),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    await runtime.start()
+
+    assert client.connected is True
+    connected_event = cast(AgentLifecycleEvent, client.sent_events[0])
+    assert connected_event.event_type == EventType.AGENT_CONNECTED
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_rejects_invalid_active_skill_ids_with_structured_error() -> None:
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[])),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    await runtime.handle_work(_work_event(active_skill_ids=["unknown-skill"]))
+
+    failure_event = cast(ToolExecutionResultEvent, client.sent_events[0])
+    assert failure_event.event_type == EventType.TOOL_EXECUTION_RESULT
+    assert failure_event.failure_payload is not None
+    assert failure_event.failure_payload.code == "invalid_skill_activation"
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_emits_chunks_requests_tools_and_final_message() -> None:
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.agents.providers.base import ToolCallDelta
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+    provider = FakeProvider(
+        events=[
+            ProviderEvent(kind="text", text="Hello"),
+            ProviderEvent(
+                kind="tool_call",
+                tool_call=ToolCallDelta(call_id="inv_tool", tool_name="shell", arguments_chunk='{"command":"pwd"}'),
+            ),
+            ProviderEvent(kind="text", text=" world"),
+            ProviderEvent(
+                kind="complete",
+                metadata=CompletionMetadata(provider_id="claude", model_id="claude-test", exit_code=0),
+            ),
+        ]
+    )
+    tool_waiter = FakeToolResultWaiter(
+        ToolExecutionResultEvent(
+            session_id="ses_123",
+            agent_id="breqy",
+            correlation_id="inv_tool",
+            invocation_id="inv_tool",
+            success_payload=StructuredResultPayload(summary="ok", content={"stdout": "/tmp"}),
+        )
+    )
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, provider),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=tool_waiter,
+    )
+
+    await runtime.handle_work(_work_event())
+
+    assert [cast(Any, event).event_type for event in client.sent_events] == [
+        EventType.MESSAGE_CHUNK,
+        EventType.TOOL_EXECUTION_REQUESTED,
+        EventType.MESSAGE_CHUNK,
+        EventType.MESSAGE_SENT,
+    ]
+    final_event = cast(MessageSentEvent, client.sent_events[-1])
+    assert final_event.content == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_stop_sends_disconnect_lifecycle_event() -> None:
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[])),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    await runtime.start()
+    await runtime.stop()
+
+    assert client.connected is False
+    disconnected_event = cast(AgentLifecycleEvent, client.sent_events[-1])
+    assert disconnected_event.event_type == EventType.AGENT_DISCONNECTED
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_uses_skill_loader_error_payload_when_validation_fails() -> None:
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[])),
+        skill_loader=cast(Any, FailingSkillLoader()),
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    await runtime.handle_work(_work_event(active_skill_ids=["bad-skill"]))
+
+    failure_event = cast(ToolExecutionResultEvent, client.sent_events[0])
+    assert failure_event.event_type == EventType.TOOL_EXECUTION_RESULT
+    assert failure_event.failure_payload is not None
+    assert failure_event.failure_payload.message == "skill rejected"
+
+
+def test_runtime_main_builds_runtime_and_runs_start(monkeypatch, tmp_path: Path) -> None:
+    import asyncio
+    import sys
+
+    from breqy.agents import runtime as runtime_module
+    from breqy.config.models import AgentConfig
+
+    config = AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o")
+    observed: dict[str, Any] = {}
+
+    class FakeRuntime:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["kwargs"] = kwargs
+
+        async def start(self) -> None:
+            observed["started"] = True
+
+    def fake_run(coro: Any) -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    monkeypatch.setattr(runtime_module, "AgentRuntime", FakeRuntime)
+    monkeypatch.setattr(runtime_module, "load_agent_config", lambda path: config)
+    monkeypatch.setattr(asyncio, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["runtime", "--agent-dir", str(tmp_path), "--engine-socket", "/tmp/override.sock"])
+
+    runtime_module.main()
+
+    assert observed["started"] is True
+    assert observed["kwargs"]["config"].engine_socket == "/tmp/override.sock"
+    assert observed["kwargs"]["agent_dir"] == tmp_path
+
+
+def test_runtime_null_provider_stream_is_empty() -> None:
+    from breqy.agents.runtime import _NullProvider
+
+    assert list(_NullProvider().stream(ProviderRequest(prompt="hi", work_dir=Path(".")))) == []
+
+
+def test_runtime_module_entrypoint_invokes_main(monkeypatch) -> None:
+    import asyncio
+    import sys
+    import runpy
+
+    from breqy.a2a.client import A2AClient
+    from breqy.config.models import AgentConfig
+
+    observed: dict[str, Any] = {"sent": []}
+
+    def fake_run(coro: Any) -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    monkeypatch.setattr("breqy.config.loader.load_agent_config", lambda path: AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o"))
+    monkeypatch.setattr(asyncio, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["runtime.py", "--agent-dir", "/tmp/fake-agent"])
+
+    async def fake_connect(self) -> None:
+        observed["connected"] = True
+
+    async def fake_send_event(self, event: object) -> None:
+        observed["sent"].append(event)
+
+    async def fake_disconnect(self) -> None:
+        observed["disconnected"] = True
+
+    monkeypatch.setattr(A2AClient, "connect", fake_connect)
+    monkeypatch.setattr(A2AClient, "send_event", fake_send_event)
+    monkeypatch.setattr(A2AClient, "disconnect", fake_disconnect)
+
+    globals_after = runpy.run_path(
+        "/home/andrey/projects/breqy/.worktrees/exp-full-build/breqy/agents/runtime.py",
+        run_name="__main__",
+    )
+
+    assert observed["connected"] is True
+    assert observed["sent"]
+    assert globals_after["__name__"] == "__main__"
+
+
+# --------------------------------------------------------------------------- #
+# Helpers for cooperative cancellation tests
+# --------------------------------------------------------------------------- #
+
+
+def _build_runtime(
+    *,
+    provider: Any = None,
+    skill_loader: Any = None,
+    tool_result_waiter: Any = None,
+    client: Any = None,
+) -> tuple[Any, FakeA2AClient]:
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(
+        str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"))
+    )
+    fake_client = client or FakeA2AClient()
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, fake_client),
+        provider=cast(Any, provider or FakeProvider(events=[])),
+        skill_loader=cast(Any, skill_loader) if skill_loader else None,
+        private_memory_runtime=None,
+        tool_result_waiter=tool_result_waiter,
+    )
+    return runtime, fake_client
+
+
+class CancellingProvider:
+    """Provider that sets cancel on the runtime after emitting N events."""
+
+    def __init__(
+        self,
+        runtime: Any,
+        events: list[ProviderEvent],
+        cancel_after: int = 1,
+    ) -> None:
+        self.supports_tool_calls = True
+        self.provider_id = "test"
+        self.model_id = "test"
+        self._events = events
+        self._runtime = runtime
+        self._cancel_after = cancel_after
+
+    def stream(self, request: ProviderRequest):  # noqa: ANN201
+        for i, event in enumerate(self._events):
+            if i >= self._cancel_after:
+                self._runtime._cancel_requested.set()
+            yield event
+
+
+class CancellingToolWaiter:
+    """Waiter that sets cancel on the runtime when wait_for is called."""
+
+    def __init__(self, runtime: Any, result_event: ToolExecutionResultEvent) -> None:
+        self._runtime = runtime
+        self._result_event = result_event
+
+    async def wait_for(self, invocation_id: str) -> ToolExecutionResultEvent:
+        self._runtime._cancel_requested.set()
+        return self._result_event
+
+
+# --------------------------------------------------------------------------- #
+# Cooperative cancellation tests
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_handle_control_stop_sets_cancel_flag() -> None:
+    from breqy.domain.events import ControlEvent
+
+    runtime, _ = _build_runtime()
+    runtime.handle_control(
+        ControlEvent(event_type=EventType.CONTROL_STOP, session_id="ses_1")
+    )
+    assert runtime.cancel_requested is True
+
+
+@pytest.mark.asyncio
+async def test_handle_control_steer_sets_steer_direction() -> None:
+    from breqy.domain.events import ControlEvent
+
+    runtime, _ = _build_runtime()
+    runtime.handle_control(
+        ControlEvent(
+            event_type=EventType.CONTROL_STEER,
+            session_id="ses_1",
+            new_direction="focus on tests",
+        )
+    )
+    assert runtime.steer_direction == "focus on tests"
+    assert runtime.cancel_requested is False
+
+
+@pytest.mark.asyncio
+async def test_handle_control_stop_and_steer_sets_both() -> None:
+    from breqy.domain.events import ControlEvent
+
+    runtime, _ = _build_runtime()
+    runtime.handle_control(
+        ControlEvent(
+            event_type=EventType.CONTROL_STOP_AND_STEER,
+            session_id="ses_1",
+            new_direction="new plan",
+        )
+    )
+    assert runtime.cancel_requested is True
+    assert runtime.steer_direction == "new plan"
+
+
+@pytest.mark.asyncio
+async def test_handle_control_circuit_break_sets_cancel() -> None:
+    from breqy.domain.events import ControlEvent
+
+    runtime, _ = _build_runtime()
+    runtime.handle_control(
+        ControlEvent(event_type=EventType.CONTROL_CIRCUIT_BREAK, session_id="ses_1")
+    )
+    assert runtime.cancel_requested is True
+
+
+@pytest.mark.asyncio
+async def test_clear_steer_resets_direction() -> None:
+    from breqy.domain.events import ControlEvent
+
+    runtime, _ = _build_runtime()
+    runtime.handle_control(
+        ControlEvent(
+            event_type=EventType.CONTROL_STEER,
+            session_id="ses_1",
+            new_direction="focus on tests",
+        )
+    )
+    assert runtime.steer_direction == "focus on tests"
+    runtime.clear_steer()
+    assert runtime.steer_direction is None
+
+
+@pytest.mark.asyncio
+async def test_handle_work_resets_cancel_flag() -> None:
+    from breqy.domain.events import ControlEvent
+
+    runtime, _ = _build_runtime(provider=FakeProvider(events=[]))
+    # Set the cancel flag before calling handle_work
+    runtime.handle_control(
+        ControlEvent(event_type=EventType.CONTROL_STOP, session_id="ses_1")
+    )
+    assert runtime.cancel_requested is True
+
+    await runtime.handle_work(_work_event())
+
+    # handle_work resets the cancel flag at the start
+    assert runtime.cancel_requested is False
+
+
+@pytest.mark.asyncio
+async def test_handle_work_aborts_on_cancel_before_text() -> None:
+    events = [
+        ProviderEvent(kind="text", text="Hello"),
+        ProviderEvent(kind="text", text=" World"),
+        ProviderEvent(kind="text", text=" Extra"),
+    ]
+    # Build runtime first with a dummy provider, then swap to cancelling
+    runtime, client = _build_runtime()
+    cancelling_provider = CancellingProvider(runtime, events, cancel_after=1)
+    runtime._provider = cancelling_provider  # type: ignore[attr-defined]
+
+    await runtime.handle_work(_work_event())
+
+    # Only 1 chunk event should have been emitted (the first text before cancel)
+    chunk_events = [e for e in client.sent_events if getattr(e, "event_type", None) == EventType.MESSAGE_CHUNK]
+    assert len(chunk_events) == 1
+
+    # Final message should still be emitted with partial content
+    final_events = [e for e in client.sent_events if getattr(e, "event_type", None) == EventType.MESSAGE_SENT]
+    assert len(final_events) == 1
+    assert cast(MessageSentEvent, final_events[0]).content == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_handle_work_aborts_after_tool_call_on_cancel() -> None:
+    from breqy.agents.providers.base import ToolCallDelta
+    from breqy.domain.models import StructuredResultPayload
+
+    events = [
+        ProviderEvent(kind="text", text="Hello"),
+        ProviderEvent(
+            kind="tool_call",
+            tool_call=ToolCallDelta(call_id="inv_tool", tool_name="shell", arguments_chunk='{"command":"pwd"}'),
+        ),
+        ProviderEvent(kind="text", text=" More"),
+    ]
+    tool_result = ToolExecutionResultEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id="inv_tool",
+        invocation_id="inv_tool",
+        success_payload=StructuredResultPayload(summary="ok", content={"stdout": "/tmp"}),
+    )
+    runtime, client = _build_runtime()
+    cancelling_waiter = CancellingToolWaiter(runtime, tool_result)
+    runtime._tool_result_waiter = cancelling_waiter  # type: ignore[attr-defined]
+    runtime._provider = FakeProvider(events=events)  # type: ignore[attr-defined]
+
+    await runtime.handle_work(_work_event())
+
+    # Final message should only contain "Hello" (before the tool call)
+    final_events = [e for e in client.sent_events if getattr(e, "event_type", None) == EventType.MESSAGE_SENT]
+    assert len(final_events) == 1
+    assert cast(MessageSentEvent, final_events[0]).content == "Hello"
+
+    # The second text " More" should NOT appear in any chunk
+    chunk_events = [e for e in client.sent_events if getattr(e, "event_type", None) == EventType.MESSAGE_CHUNK]
+    chunk_texts = [cast(Any, e).chunk for e in chunk_events]
+    assert " More" not in chunk_texts
+
+
+@pytest.mark.asyncio
+async def test_handle_work_emits_final_message_even_when_cancelled() -> None:
+    events = [
+        ProviderEvent(kind="text", text="Hello"),
+        ProviderEvent(kind="text", text=" World"),
+    ]
+    # cancel_after=0 means cancel is set before the first event is yielded
+    runtime, client = _build_runtime()
+    cancelling_provider = CancellingProvider(runtime, events, cancel_after=0)
+    runtime._provider = cancelling_provider  # type: ignore[attr-defined]
+
+    await runtime.handle_work(_work_event())
+
+    # Should still emit a MessageSentEvent even though cancelled immediately
+    final_events = [e for e in client.sent_events if getattr(e, "event_type", None) == EventType.MESSAGE_SENT]
+    assert len(final_events) == 1
+    # Content should be empty since we cancelled before processing any text
+    assert cast(MessageSentEvent, final_events[0]).content == ""
