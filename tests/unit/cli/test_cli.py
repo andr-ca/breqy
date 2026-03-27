@@ -64,12 +64,18 @@ class TestPidFileHelpers:
 
     def test_pid_file_path_uses_env_data_dir(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("BREQY_DATA_DIR", "/custom/data")
-        assert _pid_file_path() == Path("/custom/data/engine.pid")
+        assert _pid_file_path() == Path("/custom/data/engine.pid").resolve()
 
     def test_pid_file_path_uses_default_when_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("BREQY_DATA_DIR", raising=False)
-        expected = Path.home() / ".breqy" / "data" / "engine.pid"
+        expected = (Path.home() / ".breqy" / "data" / "engine.pid").resolve()
         assert _pid_file_path() == expected
+
+    def test_pid_file_path_expands_tilde(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BREQY_DATA_DIR", "~/.local/share/breqy")
+        result = _pid_file_path()
+        assert "~" not in str(result)
+        assert result == (Path.home() / ".local" / "share" / "breqy" / "engine.pid").resolve()
 
     def test_write_pid_creates_parent_dirs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         nested = tmp_path / "deep" / "nested" / "dir"

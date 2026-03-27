@@ -53,7 +53,7 @@ _load_dotenv()
 
 def _pid_file_path() -> Path:
     data_dir = os.getenv("BREQY_DATA_DIR", str(Path.home() / ".breqy" / "data"))
-    return Path(data_dir) / "engine.pid"
+    return Path(os.path.expandvars(os.path.expanduser(data_dir))).resolve() / "engine.pid"
 
 
 def _write_pid(pid: int) -> None:
