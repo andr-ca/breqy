@@ -15,7 +15,7 @@ class CredentialStore:
 
     def get(self, provider: str) -> ProviderCredential | None:
         payload = self._secret_provider.get(self._secret_key(provider))
-        if payload is None:
+        if not payload or not payload.strip():
             return None
         return ProviderCredential.model_validate(json.loads(payload))
 

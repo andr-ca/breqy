@@ -108,3 +108,21 @@ def test_credential_store_delete_removes_provider_secret() -> None:
 
     assert store.get("qwen") is None
     assert provider.values == {}
+
+
+def test_credential_store_returns_none_for_empty_string_payload() -> None:
+    """KeyringSecretProvider may return '' instead of None on some backends."""
+    provider = MemorySecretProvider()
+    provider.values["copilot"] = ""  # Simulate empty keyring entry
+    store = CredentialStore(provider)
+
+    assert store.get("copilot") is None
+
+
+def test_credential_store_returns_none_for_whitespace_only_payload() -> None:
+    """Whitespace-only keyring entries should be treated as absent."""
+    provider = MemorySecretProvider()
+    provider.values["copilot"] = "   "  # Simulate whitespace-only keyring entry
+    store = CredentialStore(provider)
+
+    assert store.get("copilot") is None
