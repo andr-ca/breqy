@@ -50,6 +50,23 @@ async def test_daemon_creates_data_dir(tmp_dir: Path):
 
 
 @pytest.mark.asyncio
+async def test_daemon_creates_socket_parent_dir(tmp_dir: Path):
+    """Daemon creates the socket parent directory on startup if it doesn't exist."""
+    nested_socket = tmp_dir / "deep" / "nested" / "engine.sock"
+    config = EngineConfig(
+        socket_path=str(nested_socket),
+        db_path=str(tmp_dir / "test.db"),
+        data_dir=str(tmp_dir),
+    )
+    daemon = EngineDaemon(config)
+    await daemon.start()
+
+    assert nested_socket.parent.exists()
+
+    await daemon.stop()
+
+
+@pytest.mark.asyncio
 async def test_daemon_wires_tool_service_into_engine_server(tmp_dir: Path):
     """Daemon startup composes a tool service for the engine server."""
     config = EngineConfig(

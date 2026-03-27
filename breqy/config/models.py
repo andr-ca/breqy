@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from breqy.domain.models import FilesystemPolicy, PolicyRule
 
@@ -62,6 +62,15 @@ class EngineConfig(BaseModel):
     default_agent_id: str = "breqy"
     policy_rules: list[PolicyRule] = Field(default_factory=list)
     filesystem_policies: list[FilesystemPolicy] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def expand_paths(self) -> EngineConfig:
+        """Expand ~ and environment variables in all path fields."""
+        for field_name in ("socket_path", "data_dir", "db_path"):
+            raw = getattr(self, field_name)
+            expanded = str(Path(os.path.expandvars(os.path.expanduser(raw))).resolve())
+            object.__setattr__(self, field_name, expanded)
+        return self
 
 
 class AgentConfig(BaseModel):

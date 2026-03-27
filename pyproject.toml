@@ -16,6 +16,8 @@ dependencies = [
     "httpx>=0.27",
     "keyring>=25",
     "pyperclip>=1.8",
+    "click>=8.1",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +30,7 @@ dev = [
 ]
 
 [project.scripts]
+breqy = "breqy.cli:main"
 breqy-orchestrator = "system.orchestrator.main:main"
 
 [tool.hatch.build.targets.wheel]

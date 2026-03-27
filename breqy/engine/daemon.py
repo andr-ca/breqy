@@ -51,6 +51,9 @@ class EngineDaemon:
         # Ensure data directory exists
         Path(self._config.data_dir).mkdir(parents=True, exist_ok=True)
 
+        # Ensure socket parent directory exists
+        Path(self._config.socket_path).parent.mkdir(parents=True, exist_ok=True)
+
         # Initialize storage layer
         conn = await create_connection(self._config.db_path)
         self._conn = conn

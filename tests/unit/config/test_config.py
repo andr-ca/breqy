@@ -38,6 +38,84 @@ def test_engine_config_from_env(monkeypatch):
     assert cfg.log_level == "DEBUG"
 
 
+# ---------------------------------------------------------------------------
+# Path expansion (model_validator)
+# ---------------------------------------------------------------------------
+
+
+def test_engine_config_expands_tilde_in_socket_path(monkeypatch):
+    """EngineConfig resolves ~ in socket_path to home directory."""
+    monkeypatch.delenv("BREQY_ENGINE_SOCKET", raising=False)
+    monkeypatch.delenv("BREQY_DATA_DIR", raising=False)
+    monkeypatch.delenv("BREQY_DB_PATH", raising=False)
+    cfg = EngineConfig(
+        socket_path="~/breqy/engine.sock",
+        data_dir="/tmp/data",
+        db_path="/tmp/data/breqy.db",
+    )
+    assert "~" not in cfg.socket_path
+    assert cfg.socket_path == str(Path(Path.home() / "breqy" / "engine.sock").resolve())
+
+
+def test_engine_config_expands_tilde_in_data_dir(monkeypatch):
+    """EngineConfig resolves ~ in data_dir."""
+    monkeypatch.delenv("BREQY_ENGINE_SOCKET", raising=False)
+    monkeypatch.delenv("BREQY_DATA_DIR", raising=False)
+    monkeypatch.delenv("BREQY_DB_PATH", raising=False)
+    cfg = EngineConfig(
+        socket_path="/tmp/engine.sock",
+        data_dir="~/.local/share/breqy",
+        db_path="/tmp/data/breqy.db",
+    )
+    assert "~" not in cfg.data_dir
+    assert cfg.data_dir == str(Path(Path.home() / ".local" / "share" / "breqy").resolve())
+
+
+def test_engine_config_expands_tilde_in_db_path(monkeypatch):
+    """EngineConfig resolves ~ in db_path."""
+    monkeypatch.delenv("BREQY_ENGINE_SOCKET", raising=False)
+    monkeypatch.delenv("BREQY_DATA_DIR", raising=False)
+    monkeypatch.delenv("BREQY_DB_PATH", raising=False)
+    cfg = EngineConfig(
+        socket_path="/tmp/engine.sock",
+        data_dir="/tmp/data",
+        db_path="~/breqy/breqy.db",
+    )
+    assert "~" not in cfg.db_path
+    assert cfg.db_path == str(Path(Path.home() / "breqy" / "breqy.db").resolve())
+
+
+def test_engine_config_expands_env_vars_in_paths(monkeypatch):
+    """EngineConfig resolves $VAR references in path fields."""
+    monkeypatch.setenv("BREQY_CUSTOM_BASE", "/opt/breqy")
+    monkeypatch.delenv("BREQY_ENGINE_SOCKET", raising=False)
+    monkeypatch.delenv("BREQY_DATA_DIR", raising=False)
+    monkeypatch.delenv("BREQY_DB_PATH", raising=False)
+    cfg = EngineConfig(
+        socket_path="$BREQY_CUSTOM_BASE/engine.sock",
+        data_dir="$BREQY_CUSTOM_BASE/data",
+        db_path="$BREQY_CUSTOM_BASE/data/breqy.db",
+    )
+    assert cfg.socket_path == str(Path("/opt/breqy/engine.sock").resolve())
+    assert cfg.data_dir == str(Path("/opt/breqy/data").resolve())
+    assert cfg.db_path == str(Path("/opt/breqy/data/breqy.db").resolve())
+
+
+def test_engine_config_paths_are_always_absolute(monkeypatch):
+    """model_validator ensures all paths are resolved to absolute form."""
+    monkeypatch.delenv("BREQY_ENGINE_SOCKET", raising=False)
+    monkeypatch.delenv("BREQY_DATA_DIR", raising=False)
+    monkeypatch.delenv("BREQY_DB_PATH", raising=False)
+    cfg = EngineConfig(
+        socket_path="relative/engine.sock",
+        data_dir="relative/data",
+        db_path="relative/data/breqy.db",
+    )
+    assert Path(cfg.socket_path).is_absolute()
+    assert Path(cfg.data_dir).is_absolute()
+    assert Path(cfg.db_path).is_absolute()
+
+
 def test_agent_config_required_fields():
     """AgentConfig requires id, name, provider, and model."""
     cfg = AgentConfig(
