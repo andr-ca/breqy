@@ -16,7 +16,7 @@ from textual.screen import Screen
 from textual.widgets import Static
 
 from breqy.domain.enums import EventType
-from breqy.domain.events import Event
+from breqy.domain.events import Event, SessionCreateRequestedEvent, SessionCreatedEvent
 from breqy.tui.events import EventDispatcher
 from breqy.tui.screens.auth import AuthScreen
 from breqy.tui.screens.chat import ChatScreen
@@ -140,6 +140,12 @@ class BreqyApp(App):
             lambda e: self._route_to_chat("handle_agent_lifecycle", e),
         )
 
+        # Session creation → push ChatScreen
+        self._dispatcher.register(
+            EventType.SESSION_CREATED,
+            self._handle_session_created,
+        )
+
         # Route ALL events to LogsScreen if one is on the stack
         for et in EventType:
             self._dispatcher.register(et, self._route_to_logs)
@@ -168,6 +174,11 @@ class BreqyApp(App):
                     or "",
                 )
                 break
+
+    def _handle_session_created(self, event: Event) -> None:
+        """Handle a SessionCreatedEvent by pushing a ChatScreen."""
+        if isinstance(event, SessionCreatedEvent):
+            self.push_screen(ChatScreen(session_id=event.session_id))
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -290,5 +301,8 @@ class BreqyApp(App):
         self, message: SessionListScreen.NewSessionRequested,
     ) -> None:
         """Request a new session from the engine."""
-        # Will be fully wired when send_event is integrated with session creation
-        pass
+        event = SessionCreateRequestedEvent(
+            session_id="",
+            requested_agent_id="default",
+        )
+        self.run_worker(self.send_event(event), exclusive=False)

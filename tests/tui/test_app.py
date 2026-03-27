@@ -514,3 +514,84 @@ async def _async_iter(items):
     """Helper to create an async iterator from a list."""
     for item in items:
         yield item
+
+
+# ============================================================================ #
+# Session creation via "N" key
+# ============================================================================ #
+
+
+class TestNewSessionCreation:
+    """Tests for wiring the 'N' key to create sessions via the engine."""
+
+    @pytest.mark.asyncio
+    async def test_new_session_requested_sends_event_to_engine(self) -> None:
+        """Pressing N sends a SessionCreateRequestedEvent via send_event."""
+        from breqy.domain.events import SessionCreateRequestedEvent
+        from breqy.tui.screens.session_list import SessionListScreen
+
+        sent_events: list = []
+
+        app = BreqyApp(socket_path="/tmp/test.sock")
+
+        original_send = app.send_event
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            assert isinstance(app.screen, SessionListScreen)
+            # Post the NewSessionRequested message (simulates N press)
+            app.screen.post_message(SessionListScreen.NewSessionRequested())
+            await pilot.pause()
+
+            assert len(sent_events) == 1
+            assert isinstance(sent_events[0], SessionCreateRequestedEvent)
+            assert sent_events[0].requested_agent_id == "default"
+
+    @pytest.mark.asyncio
+    async def test_session_created_event_pushes_chat_screen(self) -> None:
+        """When a SessionCreatedEvent is dispatched, app pushes ChatScreen."""
+        from breqy.domain.enums import EventType
+        from breqy.domain.events import SessionCreatedEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async with app.run_test() as pilot:
+            # Dispatch a SessionCreatedEvent through the dispatcher
+            event = SessionCreatedEvent(
+                session_id="ses_new_123",
+                primary_agent_id="agt_default",
+            )
+            app._dispatcher.dispatch(event)
+            await pilot.pause()
+
+            # ChatScreen should be pushed
+            assert isinstance(app.screen, ChatScreen)
+            assert app.screen.session_id == "ses_new_123"
+
+    @pytest.mark.asyncio
+    async def test_dispatcher_has_handler_for_session_created(self) -> None:
+        """Dispatcher should have a handler for SESSION_CREATED events."""
+        from breqy.domain.enums import EventType
+
+        app = BreqyApp()
+        assert app._dispatcher.has_handler(EventType.SESSION_CREATED)
+
+    @pytest.mark.asyncio
+    async def test_new_session_no_op_without_client(self) -> None:
+        """When no client is configured, the handler should not crash."""
+        from breqy.tui.screens.session_list import SessionListScreen
+
+        app = BreqyApp()  # no socket_path
+
+        async with app.run_test() as pilot:
+            assert isinstance(app.screen, SessionListScreen)
+            # Post the NewSessionRequested message
+            app.screen.post_message(SessionListScreen.NewSessionRequested())
+            await pilot.pause()
+            # Should not crash, should still be on session list
+            # (no engine to create session, so no ChatScreen pushed)

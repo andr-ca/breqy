@@ -902,3 +902,51 @@ def test_deserialize_event_agent_work_requested():
 
     assert isinstance(result, AgentWorkRequestedEvent)
     assert result.session_context.messages[0].content == "Earlier context"
+
+
+# --------------------------------------------------------------------------- #
+# SessionCreateRequestedEvent
+# --------------------------------------------------------------------------- #
+
+
+def test_session_create_requested_event():
+    from breqy.domain.events import SessionCreateRequestedEvent
+    from breqy.domain.enums import EventType
+
+    e = SessionCreateRequestedEvent(
+        session_id="",
+        requested_agent_id="agt_default",
+    )
+    assert e.event_type == EventType.SESSION_CREATE_REQUESTED
+    assert e.requested_agent_id == "agt_default"
+
+
+def test_session_create_requested_event_defaults():
+    from breqy.domain.events import SessionCreateRequestedEvent
+
+    e = SessionCreateRequestedEvent(session_id="")
+    assert e.requested_agent_id == "default"
+
+
+def test_session_create_requested_event_rejects_wrong_type():
+    from pydantic import ValidationError
+    from breqy.domain.events import SessionCreateRequestedEvent
+    from breqy.domain.enums import EventType
+
+    with pytest.raises(ValidationError):
+        SessionCreateRequestedEvent(
+            session_id="",
+            event_type=EventType.SESSION_CREATED,
+        )
+
+
+def test_session_create_requested_event_roundtrip_via_deserialize():
+    from breqy.domain.events import SessionCreateRequestedEvent, deserialize_event
+
+    event = SessionCreateRequestedEvent(
+        session_id="",
+        requested_agent_id="agt_custom",
+    )
+    result = deserialize_event(event.model_dump())
+    assert isinstance(result, SessionCreateRequestedEvent)
+    assert result.requested_agent_id == "agt_custom"

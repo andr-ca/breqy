@@ -20,6 +20,7 @@ class TaskStatus(StrEnum):
 
 
 class EventType(StrEnum):
+    SESSION_CREATE_REQUESTED = "session.create_requested"
     SESSION_CREATED = "session.created"
     SESSION_RESUMED = "session.resumed"
     SESSION_CLOSED = "session.closed"

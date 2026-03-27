@@ -81,6 +81,13 @@ class SessionCreatedEvent(FixedEventTypeEvent):
     workspace: str = ""
 
 
+class SessionCreateRequestedEvent(FixedEventTypeEvent):
+    """TUI → engine: request a new session for a given agent."""
+
+    event_type: EventType = EventType.SESSION_CREATE_REQUESTED
+    requested_agent_id: str = "default"
+
+
 class SessionResumedEvent(FixedEventTypeEvent):
     event_type: EventType = EventType.SESSION_RESUMED
 
@@ -395,6 +402,7 @@ class MemoryPromotionDeniedEvent(FixedEventTypeEvent):
 # --------------------------------------------------------------------------- #
 
 EVENT_TYPE_MAP: dict[EventType, type[Event]] = {
+    EventType.SESSION_CREATE_REQUESTED: SessionCreateRequestedEvent,
     EventType.SESSION_CREATED: SessionCreatedEvent,
     EventType.SESSION_RESUMED: SessionResumedEvent,
     EventType.SESSION_CLOSED: SessionClosedEvent,

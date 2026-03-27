@@ -15,6 +15,8 @@ from breqy.domain.events import (
     MessageSentEvent,
     PrivateMemoryOperationRequestedEvent,
     PrivateMemoryOperationResultEvent,
+    SessionCreateRequestedEvent,
+    SessionCreatedEvent,
     ToolExecutionRequestedEvent,
     ToolExecutionResultEvent,
 )
@@ -156,6 +158,10 @@ class EngineServer:
                 return
             # Fall through to generic publish+broadcast if no control handler
 
+        if isinstance(event, SessionCreateRequestedEvent):
+            await self._handle_session_create_request(event)
+            return
+
         if isinstance(event, ToolExecutionRequestedEvent):
             await self._handle_tool_execution_request(event)
             return
@@ -184,6 +190,16 @@ class EngineServer:
             await self.session_manager.remove_participant(
                 info.session_id, info.agent_id,
             )
+
+    async def _handle_session_create_request(self, event: SessionCreateRequestedEvent) -> None:
+        """Create a new session and broadcast a SessionCreatedEvent."""
+        session = await self.session_manager.create_session(event.requested_agent_id)
+        created_event = SessionCreatedEvent(
+            session_id=session.id,
+            primary_agent_id=session.primary_agent_id,
+        )
+        await self.event_bus.publish(created_event)
+        await self.a2a_server.broadcast(Envelope.from_event(created_event))
 
     async def _handle_user_message(self, event: MessageSentEvent) -> None:
         message = await self.session_manager.add_message(

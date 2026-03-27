@@ -1086,3 +1086,115 @@ async def test_engine_server_control_event_falls_through_when_no_control_handler
     # Falls through to generic publish + broadcast
     assert len(published) == 1
     assert len(broadcasts) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Session creation via SessionCreateRequestedEvent
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_engine_server_handles_session_create_requested(
+    db_connection,
+    socket_path,
+) -> None:
+    """SessionCreateRequestedEvent creates a session and broadcasts SessionCreatedEvent."""
+    from breqy.domain.events import SessionCreateRequestedEvent, SessionCreatedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+
+    broadcasts: list[tuple[Envelope, str]] = []
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append((envelope, exclude_client))
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    request = SessionCreateRequestedEvent(
+        session_id="",
+        requested_agent_id="agt_default",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    # A session should have been created
+    sessions = await session_repo.list_active()
+    assert len(sessions) == 1
+    assert sessions[0].primary_agent_id == "agt_default"
+
+    # A SessionCreatedEvent should have been broadcast
+    assert len(broadcasts) == 1
+    response_event = broadcasts[0][0].to_event()
+    assert isinstance(response_event, SessionCreatedEvent)
+    assert response_event.session_id == sessions[0].id
+    assert response_event.primary_agent_id == "agt_default"
+    # Exclude the requesting client
+    assert broadcasts[0][1] == ""
+
+
+@pytest.mark.asyncio
+async def test_engine_server_session_create_requested_is_not_generic_broadcast(
+    db_connection,
+    socket_path,
+) -> None:
+    """SessionCreateRequestedEvent should NOT fall through to generic publish+broadcast."""
+    from breqy.domain.events import SessionCreateRequestedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+
+    published: list[object] = []
+    broadcasts: list[tuple[Envelope, str]] = []
+
+    async def recording_publish(event: object) -> None:
+        published.append(event)
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append((envelope, exclude_client))
+
+    server.event_bus.publish = recording_publish  # type: ignore[method-assign]
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    request = SessionCreateRequestedEvent(
+        session_id="",
+        requested_agent_id="agt_default",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    # The request event itself should NOT be published to the event bus
+    assert not any(
+        hasattr(e, "event_type") and getattr(e, "event_type") == EventType.SESSION_CREATE_REQUESTED
+        for e in published
+    )
+
+    # Only the SessionCreatedEvent broadcast should exist
+    assert len(broadcasts) == 1
+    assert broadcasts[0][0].event_type == EventType.SESSION_CREATED
