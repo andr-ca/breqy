@@ -6,14 +6,15 @@ listens for incoming events via async iteration.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import AsyncIterator
+
+import structlog
 
 from breqy.a2a.envelope import Envelope
 from breqy.a2a.transport import FrameReader, FrameWriter, connect_unix
 from breqy.domain.events import Event
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class A2AClient:
@@ -31,7 +32,7 @@ class A2AClient:
         self._reader, self._writer = await connect_unix(self._socket_path)
         self._frame_reader = FrameReader(self._reader)
         self._frame_writer = FrameWriter(self._writer)
-        logger.info("Connected to engine at %s", self._socket_path)
+        logger.info("Connected to engine", socket_path=self._socket_path)
 
     async def disconnect(self) -> None:
         """Close the connection."""
@@ -70,5 +71,5 @@ class A2AClient:
             except asyncio.IncompleteReadError:
                 break
             except Exception as exc:
-                logger.error("Error reading from server: %s", exc)
+                logger.error("Error reading from server", error=str(exc))
                 break

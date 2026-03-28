@@ -66,3 +66,15 @@ def test_encode_decode_envelope():
     decoded = decode_envelope(encoded)
     assert decoded.session_id == env.session_id
     assert decoded.payload["content"] == "encode test"
+
+
+# ---------------------------------------------------------------------------
+# structlog migration
+# ---------------------------------------------------------------------------
+
+def test_envelope_uses_structlog():
+    """envelope module-level logger is structlog, not stdlib."""
+    import logging as _logging
+    from breqy.a2a import envelope
+    assert hasattr(envelope, "logger")
+    assert not isinstance(envelope.logger, _logging.Logger)

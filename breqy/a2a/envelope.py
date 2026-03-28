@@ -14,9 +14,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+import structlog
+
 from breqy.domain.enums import EventType
 from breqy.domain.events import Event, deserialize_event
 from breqy.domain.ids import generate_prefixed_id
+
+logger = structlog.get_logger(__name__)
 
 
 class Envelope(BaseModel):
@@ -74,7 +78,15 @@ class Envelope(BaseModel):
             "timestamp": self.timestamp,
             **self.payload,
         }
-        return deserialize_event(data)
+        try:
+            return deserialize_event(data)
+        except Exception:
+            logger.warning(
+                "Envelope deserialization failed",
+                event_type=self.event_type.value,
+                event_id=self.event_id,
+            )
+            raise
 
 
 def encode_envelope(envelope: Envelope) -> bytes:

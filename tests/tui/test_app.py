@@ -700,3 +700,15 @@ class TestUserMessageSend:
                 await pilot.pause()
 
             assert len(sent_events) == 0
+
+
+# ============================================================================ #
+# structlog migration
+# ============================================================================ #
+
+def test_tui_app_uses_structlog():
+    """tui.app module-level logger is structlog, not stdlib."""
+    import logging as _logging
+    from breqy.tui import app as app_module
+    assert hasattr(app_module, "logger")
+    assert not isinstance(app_module.logger, _logging.Logger)

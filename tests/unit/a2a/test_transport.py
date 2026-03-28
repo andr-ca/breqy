@@ -61,3 +61,15 @@ async def test_frame_reader_returns_none_on_eof():
     frame_reader = FrameReader(reader)
     result = await frame_reader.read_frame()
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# structlog migration
+# ---------------------------------------------------------------------------
+
+def test_transport_uses_structlog():
+    """transport module-level logger is structlog, not stdlib."""
+    import logging as _logging
+    from breqy.a2a import transport
+    assert hasattr(transport, "logger")
+    assert not isinstance(transport.logger, _logging.Logger)

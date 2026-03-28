@@ -7,8 +7,8 @@ that streams events from the engine.
 from __future__ import annotations
 
 import asyncio
-import logging
 
+import structlog
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -31,7 +31,7 @@ from breqy.tui.screens.model_select import ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
 from breqy.tui.widgets.message_input import MessageSubmitted
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Initial backoff (seconds) for reconnection; doubles each retry.
 _INITIAL_BACKOFF = 0.1
@@ -224,11 +224,11 @@ class BreqyApp(App):
                     self._dispatcher.dispatch(event)
 
                 # listen() ended normally — server disconnected
-                logger.warning("Disconnected from engine, reconnecting...")
+                logger.warning("Disconnected from engine, reconnecting")
                 await self._client.disconnect()
 
             except ConnectionError as exc:
-                logger.warning("Connection failed: %s (retry in %.1fs)", exc, backoff)
+                logger.warning("Connection failed", error=str(exc), retry_in=backoff)
                 self.notify(
                     f"Connection failed: {exc}",
                     severity="error",
@@ -243,7 +243,7 @@ class BreqyApp(App):
                 return
 
             except Exception as exc:
-                logger.error("Unexpected error in A2A listener: %s", exc, exc_info=True)
+                logger.error("Unexpected error in A2A listener", error=str(exc), exc_info=True)
                 self.notify(
                     f"Listener error: {exc}",
                     severity="error",

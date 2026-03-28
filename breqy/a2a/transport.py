@@ -9,7 +9,11 @@ import asyncio
 import struct
 from typing import Any, Callable, Coroutine
 
+import structlog
+
 from breqy.a2a.envelope import Envelope
+
+logger = structlog.get_logger(__name__)
 
 
 async def start_unix_server(
@@ -44,6 +48,7 @@ class FrameReader:
             return None
         length = struct.unpack("!I", header)[0]
         data = await self._reader.readexactly(length)
+        logger.debug("Frame read", length=length)
         return data
 
     async def read_envelope(self) -> Envelope | None:
@@ -65,6 +70,7 @@ class FrameWriter:
         header = struct.pack("!I", len(data))
         self._writer.write(header + data)
         await self._writer.drain()
+        logger.debug("Frame written", length=len(data))
 
     async def write_envelope(self, envelope: Envelope) -> None:
         """Serialize and write an envelope as a frame."""

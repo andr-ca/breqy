@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 
 @dataclass
 class AgentInfo:
@@ -28,10 +32,17 @@ class AgentRegistry:
             agent_id=agent_id, client_id=client_id, pid=pid,
             session_id=session_id,
         )
+        logger.info(
+            "Agent registered",
+            agent_id=agent_id,
+            client_id=client_id,
+            session_id=session_id,
+        )
 
     def unregister(self, agent_id: str) -> None:
         """Remove an agent (called on disconnect)."""
         self._agents.pop(agent_id, None)
+        logger.info("Agent unregistered", agent_id=agent_id)
 
     def unregister_by_client_id(self, client_id: str) -> None:
         """Remove the agent currently bound to a client ID."""

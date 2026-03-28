@@ -7,14 +7,15 @@ Supports broadcasting events to all connected clients.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any, Callable, Coroutine
+
+import structlog
 
 from breqy.a2a.envelope import Envelope
 from breqy.a2a.transport import FrameReader, FrameWriter, start_unix_server
 from breqy.domain.ids import generate_prefixed_id
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 OnEnvelopeCallback = Callable[[Envelope, str], Coroutine[Any, Any, None]]
 OnDisconnectCallback = Callable[[str], Coroutine[Any, Any, None]]
@@ -42,7 +43,7 @@ class A2AServer:
         self._server = await start_unix_server(
             self._handle_client, self._socket_path
         )
-        logger.info("A2A server started on %s", self._socket_path)
+        logger.info("A2A server started", socket_path=self._socket_path)
 
     async def stop(self) -> None:
         """Close server and disconnect all clients."""
@@ -65,7 +66,7 @@ class A2AServer:
             self._server.close()
             await self._server.wait_closed()
 
-        logger.info("A2A server stopped")
+        logger.info("A2A server stopped", socket_path=self._socket_path)
 
     async def broadcast(
         self, envelope: Envelope, exclude_client: str = ""
@@ -100,7 +101,7 @@ class A2AServer:
         frame_writer = FrameWriter(writer)
         self._clients[client_id] = frame_writer
         self._client_writers[client_id] = writer
-        logger.info("Client connected: %s", client_id)
+        logger.info("Client connected", client_id=client_id)
 
         try:
             while True:
@@ -113,7 +114,9 @@ class A2AServer:
                     break
                 except Exception as exc:
                     logger.error(
-                        "Error reading from client %s: %s", client_id, exc
+                        "Error reading from client",
+                        client_id=client_id,
+                        error=str(exc),
                     )
                     break
         finally:
@@ -126,4 +129,4 @@ class A2AServer:
                 await writer.wait_closed()
             except Exception:
                 pass
-            logger.info("Client disconnected: %s", client_id)
+            logger.info("Client disconnected", client_id=client_id)

@@ -137,3 +137,15 @@ class TestSessionTracking:
         registry.register("a1", client_id="c1")  # no session
 
         assert registry.get_by_session_and_agent("sess-1", "a1") is None
+
+
+# ---------------------------------------------------------------------------
+# structlog migration
+# ---------------------------------------------------------------------------
+
+def test_agent_registry_has_structlog_logger():
+    """AgentRegistry module should have a structlog logger."""
+    import logging as _logging
+    from breqy.engine import agent_registry
+    assert hasattr(agent_registry, "logger")
+    assert not isinstance(agent_registry.logger, _logging.Logger)
