@@ -595,3 +595,77 @@ class TestNewSessionCreation:
             await pilot.pause()
             # Should not crash, should still be on session list
             # (no engine to create session, so no ChatScreen pushed)
+
+
+# ============================================================================ #
+# User message send: MessageSubmitted -> MessageSentEvent -> A2A
+# ============================================================================ #
+
+
+class TestUserMessageSend:
+    """Test that typing a message in ChatScreen sends it to the engine."""
+
+    @pytest.mark.asyncio
+    async def test_message_submitted_sends_message_sent_event(self) -> None:
+        """When MessageSubmitted bubbles from MessageInput, the app creates a
+        MessageSentEvent with role=USER and sends it via A2A."""
+        from breqy.domain.enums import MessageRole
+        from breqy.domain.events import MessageSentEvent
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.session_list import SessionListScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()  # no socket — we capture send_event directly
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            # Push a ChatScreen
+            app.push_screen(ChatScreen(session_id="ses_chat_test"))
+            await pilot.pause()
+
+            # Post MessageSubmitted (simulates user typing + Enter)
+            from breqy.tui.widgets.message_input import MessageSubmitted
+
+            app.screen.query_one("MessageInput").post_message(
+                MessageSubmitted(text="Hello agent!")
+            )
+            await pilot.pause()
+
+            assert len(sent_events) == 1
+            evt = sent_events[0]
+            assert isinstance(evt, MessageSentEvent)
+            assert evt.session_id == "ses_chat_test"
+            assert evt.role == MessageRole.USER
+            assert evt.content == "Hello agent!"
+            assert evt.message_id.startswith("msg_")
+
+    @pytest.mark.asyncio
+    async def test_message_submitted_noop_without_chat_screen(self) -> None:
+        """MessageSubmitted with no ChatScreen on stack is a silent no-op."""
+        from breqy.tui.widgets.message_input import MessageSubmitted
+
+        sent_events: list = []
+
+        app = BreqyApp()  # no socket
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            # Only SessionListScreen on stack — no ChatScreen
+            # Manually call the handler (if it exists) with no ChatScreen
+            msg = MessageSubmitted(text="orphan message")
+            # The message would bubble but there's no ChatScreen
+            # We can't easily post from SessionListScreen, so call directly
+            if hasattr(app, "on_message_submitted"):
+                app.on_message_submitted(msg)
+                await pilot.pause()
+
+            assert len(sent_events) == 0

@@ -15,14 +15,21 @@ from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import Static
 
-from breqy.domain.enums import EventType
-from breqy.domain.events import Event, SessionCreateRequestedEvent, SessionCreatedEvent
+from breqy.domain.enums import EventType, MessageRole
+from breqy.domain.events import (
+    Event,
+    MessageSentEvent,
+    SessionCreateRequestedEvent,
+    SessionCreatedEvent,
+)
+from breqy.domain.ids import generate_prefixed_id
 from breqy.tui.events import EventDispatcher
 from breqy.tui.screens.auth import AuthScreen
 from breqy.tui.screens.chat import ChatScreen
 from breqy.tui.screens.logs import LogsScreen
 from breqy.tui.screens.model_select import ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
+from breqy.tui.widgets.message_input import MessageSubmitted
 
 logger = logging.getLogger(__name__)
 
@@ -304,5 +311,28 @@ class BreqyApp(App):
         event = SessionCreateRequestedEvent(
             session_id="",
             requested_agent_id="default",
+        )
+        self.run_worker(self.send_event(event), exclusive=False)
+
+    # ------------------------------------------------------------------ #
+    # MessageInput message handlers
+    # ------------------------------------------------------------------ #
+
+    def on_message_submitted(self, message: MessageSubmitted) -> None:
+        """Convert a user-typed message into a MessageSentEvent and send to the engine."""
+        # Find the active ChatScreen to get the session_id
+        chat_screen: ChatScreen | None = None
+        for screen in reversed(self.screen_stack):
+            if isinstance(screen, ChatScreen):
+                chat_screen = screen
+                break
+        if chat_screen is None:
+            return
+
+        event = MessageSentEvent(
+            session_id=chat_screen.session_id,
+            message_id=generate_prefixed_id("msg"),
+            role=MessageRole.USER,
+            content=message.text,
         )
         self.run_worker(self.send_event(event), exclusive=False)
