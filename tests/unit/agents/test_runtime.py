@@ -835,3 +835,28 @@ async def test_handle_work_emits_final_message_even_when_cancelled() -> None:
     assert len(final_events) == 1
     # Content should be empty since we cancelled before processing any text
     assert cast(MessageSentEvent, final_events[0]).content == ""
+
+
+# ============================================================================ #
+# structlog migration
+# ============================================================================ #
+
+
+def test_runtime_has_structlog_logger():
+    """Agent runtime module should have a structlog logger."""
+    import logging as _logging
+    from breqy.agents import runtime
+    assert hasattr(runtime, "logger")
+    assert not isinstance(runtime.logger, _logging.Logger)
+
+
+def test_runtime_imports_setup_logging():
+    """Agent runtime should import setup_logging for subprocess init."""
+    from breqy.agents import runtime
+    assert hasattr(runtime, "setup_logging")
+
+
+def test_runtime_imports_default_log_file():
+    """Agent runtime should import default_log_file helper."""
+    from breqy.agents import runtime
+    assert hasattr(runtime, "default_log_file")

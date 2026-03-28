@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, Protocol
 
+import structlog
+
 from breqy.a2a.client import A2AClient
 from breqy.agents.private_memory import PrivateMemoryRuntime
 from breqy.agents.providers.base import ModelProvider, ProviderRequest
@@ -24,6 +26,9 @@ from breqy.domain.events import (
     ToolExecutionResultEvent,
 )
 from breqy.domain.ids import generate_prefixed_id
+from breqy.utils.logging import default_log_file, setup_logging
+
+logger = structlog.get_logger(__name__)
 
 
 class ToolResultWaiter(Protocol):
@@ -56,6 +61,11 @@ class AgentRuntime:
 
     async def start(self) -> None:
         await self._client.connect()
+        logger.info(
+            "Agent runtime started",
+            agent_id=self._config.id,
+            session_id=self._session_id,
+        )
         await self._client.send_event(
             AgentLifecycleEvent(
                 event_type=EventType.AGENT_CONNECTED,
@@ -65,6 +75,7 @@ class AgentRuntime:
         )
 
     async def stop(self) -> None:
+        logger.info("Agent runtime stopping", agent_id=self._config.id)
         await self._client.send_event(
             AgentLifecycleEvent(
                 event_type=EventType.AGENT_DISCONNECTED,
@@ -80,6 +91,11 @@ class AgentRuntime:
         try:
             async for envelope in self._client.listen():
                 event = envelope.to_event()
+                logger.debug(
+                    "Event received from engine",
+                    event_type=type(event).__name__,
+                    session_id=getattr(event, "session_id", ""),
+                )
                 if isinstance(event, AgentWorkRequestedEvent):
                     await self.handle_work(event)
                 elif isinstance(event, ControlEvent):
@@ -118,6 +134,12 @@ class AgentRuntime:
     async def handle_work(self, event: AgentWorkRequestedEvent) -> None:
         self._cancel_requested.clear()
         assistant_message_id = generate_prefixed_id("msg")
+        logger.debug(
+            "Work received",
+            session_id=event.session_id,
+            agent_id=event.agent_id,
+            message_id=assistant_message_id,
+        )
         if event.active_skill_ids:
             if self._skill_loader is None:
                 await self._emit_skill_failure(event, invalid_skill_ids=event.active_skill_ids)
@@ -144,6 +166,11 @@ class AgentRuntime:
         request = ProviderRequest(
             prompt=event.user_message_content,
             work_dir=self._agent_dir,
+        )
+        logger.debug(
+            "Provider stream started",
+            provider=self._provider.provider_id,
+            model=self._provider.model_id,
         )
         for provider_event in self._provider.stream(request):
             # Cancellation checkpoint 1: before processing each provider event
@@ -195,6 +222,12 @@ class AgentRuntime:
                 role=MessageRole.ASSISTANT,
                 content="".join(content_parts),
             )
+        )
+        logger.debug(
+            "Response complete",
+            message_id=assistant_message_id,
+            content_length=len("".join(content_parts)),
+            chunk_count=chunk_index,
         )
 
     async def _emit_skill_failure(
@@ -258,6 +291,21 @@ def main() -> None:
     if args.engine_socket:
         config = config.model_copy(update={"engine_socket": args.engine_socket})
     session_id = args.session_id or "runtime"
+
+    # Initialize logging for agent subprocess
+    import os
+
+    data_dir = Path(
+        os.environ.get("BREQY_DATA_DIR", str(Path.home() / ".breqy" / "data"))
+    )
+    log_dir = data_dir / "logs"
+    setup_logging(
+        level=config.log_level,
+        log_file=default_log_file(log_dir, process="agent", agent_id=config.id),
+        console=False,
+        context={"process": "agent", "agent_id": config.id},
+    )
+
     runtime = AgentRuntime(
         config=config,
         agent_dir=agent_dir,
