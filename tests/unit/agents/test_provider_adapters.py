@@ -92,7 +92,7 @@ def test_build_model_providers_exposes_supported_provider_and_model_identity() -
     assert providers["claude"].supports_tool_calls is True
     assert providers["copilot"].provider_id == "copilot"
     assert providers["copilot"].model_id == "gpt-4o-mini"
-    assert providers["copilot"].supports_tool_calls is False
+    assert providers["copilot"].supports_tool_calls is True
     assert providers["codex"].provider_id == "codex"
     assert providers["gemini"].provider_id == "gemini"
     assert providers["qwen"].provider_id == "qwen"
@@ -469,14 +469,10 @@ def test_claude_adapter_emits_completion_when_stream_ends_without_result(monkeyp
     assert completion.metadata.exit_code == 0
 
 
-@pytest.mark.parametrize(
-    ("provider_id", "expected_prefix"),
-    [("copilot", ["gh", "copilot", "suggest"]), ("qwen", ["qwen"])],
-)
-def test_chat_only_adapters_launch_expected_commands(provider_id: str, expected_prefix: list[str], monkeypatch, tmp_path) -> None:
+def test_qwen_adapter_launches_expected_command(monkeypatch, tmp_path) -> None:
     providers = build_model_providers(
         credential_store=CredentialStore(MemorySecretProvider()),
-        model_by_provider={provider_id: f"{provider_id}-model"},
+        model_by_provider={"qwen": "qwen-model"},
     )
     captured: dict[str, Any] = {}
 
@@ -486,9 +482,9 @@ def test_chat_only_adapters_launch_expected_commands(provider_id: str, expected_
 
     monkeypatch.setattr("subprocess.Popen", fake_popen)
 
-    list(providers[provider_id].stream(ProviderRequest(prompt="Hello", work_dir=tmp_path)))
+    list(providers["qwen"].stream(ProviderRequest(prompt="Hello", work_dir=tmp_path)))
 
-    assert captured["cmd"][: len(expected_prefix)] == expected_prefix
+    assert captured["cmd"][:1] == ["qwen"]
 
 
 def test_build_model_providers_rejects_unsupported_provider() -> None:
@@ -737,3 +733,19 @@ def test_provider_adapters_wrap_runner_class_instances() -> None:
 
     assert cast(Any, providers["claude"])._runner.__class__.__mro__[1].__name__ == "ClaudeRunner"
     assert cast(Any, providers["gemini"])._runner.__class__.__mro__[1].__name__ == "GeminiRunner"
+
+
+class TestBuildCopilotProvider:
+    def test_copilot_returns_copilot_provider(self) -> None:
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        store = CredentialStore(MemorySecretProvider())
+        providers = build_model_providers(
+            credential_store=store,
+            model_by_provider={"copilot": "gpt-4o"},
+        )
+        assert "copilot" in providers
+        assert isinstance(providers["copilot"], CopilotProvider)
+        assert providers["copilot"].provider_id == "copilot"
+        assert providers["copilot"].model_id == "gpt-4o"
+        assert providers["copilot"].supports_tool_calls is True

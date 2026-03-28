@@ -22,7 +22,6 @@ from breqy.agents.providers.base import (
 from system.orchestrator.auth.credential_store import CredentialStore as OrchestratorCredentialStore
 from system.orchestrator.runners.claude_runner import ClaudeRunner
 from system.orchestrator.runners.codex_runner import CodexRunner
-from system.orchestrator.runners.copilot_runner import CopilotRunner
 from system.orchestrator.runners.gemini_runner import GeminiRunner
 from system.orchestrator.runners.qwen_runner import QwenRunner
 from system.orchestrator.schemas.run_result import RunContext
@@ -30,7 +29,6 @@ from system.orchestrator.schemas.run_result import RunContext
 _PROVIDER_AUTH_ENV_VARS = {
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
-    "GITHUB_COPILOT_TOKEN",
     "GOOGLE_API_KEY",
     "DASHSCOPE_API_KEY",
 }
@@ -212,18 +210,6 @@ class _ConfiguredCodexRunner(CodexRunner):
         )
 
 
-class _ConfiguredCopilotRunner(CopilotRunner):
-    def start(self, prompt: str, context: RunContext):
-        return _start_configured_chat_runner(
-            self,
-            provider_name="copilot",
-            provider_env_var="GITHUB_COPILOT_TOKEN",
-            command_prefix=["gh", "copilot", "suggest"],
-            prompt=prompt,
-            context=context,
-        )
-
-
 class _ConfiguredGeminiRunner(GeminiRunner):
     def start(self, prompt: str, context: RunContext):
         return _start_configured_chat_runner(
@@ -262,9 +248,6 @@ class _RunnerFactory:
 
     def make_codex_runner(self) -> _ConfiguredCodexRunner:
         return _ConfiguredCodexRunner(credential_store=self._runner_store())
-
-    def make_copilot_runner(self) -> _ConfiguredCopilotRunner:
-        return _ConfiguredCopilotRunner(credential_store=self._runner_store())
 
     def make_gemini_runner(self) -> _ConfiguredGeminiRunner:
         return _ConfiguredGeminiRunner(credential_store=self._runner_store())
@@ -482,11 +465,16 @@ def build_model_providers(
                 runner_factory=runner_factory,
             )
         elif provider_id == "copilot":
-            providers[provider_id] = _ChatOnlyRunnerProvider(
-                provider_id=provider_id,
+            from breqy.agents.providers.copilot import CopilotProvider
+            from breqy.agents.providers.copilot_auth import CopilotAuthenticator
+            from breqy.agents.providers.copilot_client import CopilotApiClient
+
+            authenticator = CopilotAuthenticator(credential_store)
+            client = CopilotApiClient()
+            providers[provider_id] = CopilotProvider(
                 model_id=model_id,
-                runner=runner_factory.make_copilot_runner(),
-                runner_factory=runner_factory,
+                authenticator=authenticator,
+                client=client,
             )
         elif provider_id == "gemini":
             providers[provider_id] = _ChatOnlyRunnerProvider(
