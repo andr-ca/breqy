@@ -15,6 +15,9 @@ htmlcov/
 # Environment
 .env
 
+# Log files
+*.log
+
 # Orchestrator runtime
 ai-artifacts/
 .breqy/orchestrator/
