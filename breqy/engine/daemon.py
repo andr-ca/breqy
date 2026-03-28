@@ -35,6 +35,7 @@ class EngineDaemon:
         self._server: EngineServer | None = None
         self._conn: Any | None = None
         self._running = False
+        self._stopped_event = asyncio.Event()
 
     @property
     def is_running(self) -> bool:
@@ -43,6 +44,14 @@ class EngineDaemon:
     @property
     def server(self) -> EngineServer | None:
         return self._server
+
+    async def wait_until_stopped(self) -> None:
+        """Block until the daemon has been stopped.
+
+        Uses an :class:`asyncio.Event` so the caller wakes up immediately
+        when :meth:`stop` completes — no polling delay.
+        """
+        await self._stopped_event.wait()
 
     async def start(self) -> None:
         """Initialize storage, build engine server, and start all components."""
@@ -95,6 +104,7 @@ class EngineDaemon:
             await self._conn.close()
             self._conn = None
         self._running = False
+        self._stopped_event.set()
         logger.info("Engine daemon stopped")
 
     async def start_default_agent(self) -> int:
@@ -158,8 +168,7 @@ def main() -> None:
 
         await daemon.start()
 
-        while daemon.is_running:
-            await asyncio.sleep(1)
+        await daemon.wait_until_stopped()
 
     asyncio.run(run())
 

@@ -192,8 +192,30 @@ class EngineServer:
             )
 
     async def _handle_session_create_request(self, event: SessionCreateRequestedEvent) -> None:
-        """Create a new session and broadcast a SessionCreatedEvent."""
-        session = await self.session_manager.create_session(event.requested_agent_id)
+        """Create a new session, spawn an agent, and broadcast SessionCreatedEvent."""
+        # Resolve the agent_id before creating the session so that
+        # primary_agent_id matches the agent's registered ID (e.g. "breqy").
+        resolved_agent_id = self._resolve_agent_id(event.requested_agent_id)
+        session = await self.session_manager.create_session(resolved_agent_id)
+
+        # Spawn an agent process for the new session
+        agent_dir = self._agent_dir_for(resolved_agent_id)
+        try:
+            pid = self.agent_spawner.spawn(agent_dir, session_id=session.id)
+            logger.info(
+                "Agent spawned for new session",
+                agent_dir=agent_dir,
+                session_id=session.id,
+                pid=pid,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to spawn agent for session",
+                agent_dir=agent_dir,
+                session_id=session.id,
+                error=str(exc),
+            )
+
         created_event = SessionCreatedEvent(
             session_id=session.id,
             primary_agent_id=session.primary_agent_id,
@@ -338,6 +360,34 @@ class EngineServer:
             approval_service=approval_service,
             event_bus=self.event_bus,
         )
+
+    @staticmethod
+    def _agent_dir_for(agent_id: str) -> str:
+        """Map agent_id to agent directory path.
+
+        Convention: strip ``agt_`` / ``agent_`` prefixes, then
+        ``agents/<name>``.  Falls back to ``agents/breqy`` for
+        ``"default"`` or empty values.
+        """
+        name = agent_id
+        for prefix in ("agt_", "agent_"):
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+                break
+        if not name or name == "default":
+            return "agents/breqy"
+        return f"agents/{name}"
+
+    @staticmethod
+    def _resolve_agent_id(requested_agent_id: str) -> str:
+        """Normalize a requested agent_id to the canonical agent ID.
+
+        Maps ``"default"`` (and empty) to ``"breqy"`` so the session's
+        ``primary_agent_id`` matches the agent's registered ID.
+        """
+        if not requested_agent_id or requested_agent_id == "default":
+            return "breqy"
+        return requested_agent_id
 
     def _build_default_tool_registry(self) -> ToolRegistry:
         registry = ToolRegistry()

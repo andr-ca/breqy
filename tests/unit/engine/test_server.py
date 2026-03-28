@@ -1198,3 +1198,168 @@ async def test_engine_server_session_create_requested_is_not_generic_broadcast(
     # Only the SessionCreatedEvent broadcast should exist
     assert len(broadcasts) == 1
     assert broadcasts[0][0].event_type == EventType.SESSION_CREATED
+
+
+@pytest.mark.asyncio
+async def test_engine_server_spawns_agent_on_session_create(
+    db_connection,
+    socket_path,
+) -> None:
+    """SessionCreateRequestedEvent spawns an agent for the new session."""
+    from breqy.domain.events import SessionCreateRequestedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+
+    async def noop_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        pass
+
+    async def noop_publish(_: object) -> None:
+        pass
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+    server.a2a_server.broadcast = noop_broadcast  # type: ignore[method-assign]
+
+    # Track spawn calls
+    spawned: list[tuple[str, str]] = []
+
+    def tracking_spawn(agent_dir: str, *, session_id: str = "") -> int:
+        spawned.append((agent_dir, session_id))
+        return 99999
+
+    server.agent_spawner.spawn = tracking_spawn  # type: ignore[method-assign]
+
+    request = SessionCreateRequestedEvent(
+        session_id="",
+        requested_agent_id="default",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    # An agent should have been spawned for the new session
+    assert len(spawned) == 1
+    assert spawned[0][0] == "agents/breqy"  # "default" maps to agents/breqy
+    # session_id should be the newly created session's ID
+    sessions = await session_repo.list_active()
+    assert spawned[0][1] == sessions[0].id
+
+
+@pytest.mark.asyncio
+async def test_engine_server_session_create_normalizes_default_agent_id(
+    db_connection,
+    socket_path,
+) -> None:
+    """Session created with requested_agent_id='default' stores 'breqy' as primary_agent_id.
+
+    This ensures the session's primary_agent_id matches the agent's registered ID
+    so that message routing (agent_registry.get(session.primary_agent_id)) succeeds.
+    """
+    from breqy.domain.events import SessionCreateRequestedEvent, SessionCreatedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+
+    broadcasts: list[tuple[Envelope, str]] = []
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append((envelope, exclude_client))
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    def noop_spawn(agent_dir: str, *, session_id: str = "") -> int:
+        return 99999
+
+    server.agent_spawner.spawn = noop_spawn  # type: ignore[method-assign]
+
+    request = SessionCreateRequestedEvent(
+        session_id="",
+        requested_agent_id="default",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    # The session should store "breqy" not "default"
+    sessions = await session_repo.list_active()
+    assert len(sessions) == 1
+    assert sessions[0].primary_agent_id == "breqy"
+
+    # The broadcast should also reflect the resolved agent_id
+    response_event = broadcasts[0][0].to_event()
+    assert isinstance(response_event, SessionCreatedEvent)
+    assert response_event.primary_agent_id == "breqy"
+
+
+@pytest.mark.asyncio
+async def test_engine_server_session_create_preserves_explicit_agent_id(
+    db_connection,
+    socket_path,
+) -> None:
+    """Session created with an explicit agent_id (not 'default') preserves it."""
+    from breqy.domain.events import SessionCreateRequestedEvent, SessionCreatedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+
+    broadcasts: list[tuple[Envelope, str]] = []
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append((envelope, exclude_client))
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    def noop_spawn(agent_dir: str, *, session_id: str = "") -> int:
+        return 99999
+
+    server.agent_spawner.spawn = noop_spawn  # type: ignore[method-assign]
+
+    request = SessionCreateRequestedEvent(
+        session_id="",
+        requested_agent_id="custom_agent",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    sessions = await session_repo.list_active()
+    assert len(sessions) == 1
+    assert sessions[0].primary_agent_id == "custom_agent"

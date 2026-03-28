@@ -34,6 +34,7 @@ class A2AServer:
         self._on_disconnect = on_disconnect
         self._server: asyncio.AbstractServer | None = None
         self._clients: dict[str, FrameWriter] = {}
+        self._client_writers: dict[str, asyncio.StreamWriter] = {}
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
@@ -44,13 +45,26 @@ class A2AServer:
         logger.info("A2A server started on %s", self._socket_path)
 
     async def stop(self) -> None:
-        """Close server and cancel client tasks."""
+        """Close server and disconnect all clients."""
+        # Close all connected client sockets so _handle_client loops exit
+        for client_id, writer in list(self._client_writers.items()):
+            try:
+                writer.close()
+            except Exception:
+                pass
+        self._client_writers.clear()
+        self._clients.clear()
+
+        # Cancel any tracked tasks
+        for task in list(self._tasks):
+            task.cancel()
+        self._tasks.clear()
+
+        # Now close the server listener
         if self._server:
             self._server.close()
             await self._server.wait_closed()
-        for task in list(self._tasks):
-            task.cancel()
-        self._clients.clear()
+
         logger.info("A2A server stopped")
 
     async def broadcast(
@@ -85,6 +99,7 @@ class A2AServer:
         frame_reader = FrameReader(reader)
         frame_writer = FrameWriter(writer)
         self._clients[client_id] = frame_writer
+        self._client_writers[client_id] = writer
         logger.info("Client connected: %s", client_id)
 
         try:
@@ -103,6 +118,7 @@ class A2AServer:
                     break
         finally:
             self._clients.pop(client_id, None)
+            self._client_writers.pop(client_id, None)
             if self._on_disconnect is not None:
                 await self._on_disconnect(client_id)
             writer.close()

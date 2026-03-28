@@ -111,6 +111,91 @@ async def test_agent_runtime_starts_and_registers_with_engine(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_agent_runtime_uses_session_id_in_lifecycle_events() -> None:
+    """AgentRuntime sends the provided session_id in AGENT_CONNECTED and AGENT_DISCONNECTED events."""
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[])),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+        session_id="ses_real_session",
+    )
+
+    await runtime.start()
+
+    connected_event = cast(AgentLifecycleEvent, client.sent_events[0])
+    assert connected_event.event_type == EventType.AGENT_CONNECTED
+    assert connected_event.session_id == "ses_real_session"
+    assert connected_event.agent_id == "breqy"
+
+    await runtime.stop()
+
+    disconnected_event = cast(AgentLifecycleEvent, client.sent_events[1])
+    assert disconnected_event.event_type == EventType.AGENT_DISCONNECTED
+    assert disconnected_event.session_id == "ses_real_session"
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_defaults_session_id_to_runtime() -> None:
+    """AgentRuntime defaults session_id to 'runtime' for backward compatibility."""
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[])),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    await runtime.start()
+
+    connected_event = cast(AgentLifecycleEvent, client.sent_events[0])
+    assert connected_event.session_id == "runtime"
+
+
+def test_parse_args_accepts_session_id() -> None:
+    """_parse_args() accepts --session-id argument."""
+    from breqy.agents.runtime import _parse_args
+    import sys
+    from unittest.mock import patch as mock_patch
+
+    with mock_patch.object(
+        sys, "argv",
+        ["runtime", "--agent-dir", "agents/breqy", "--engine-socket", "/tmp/test.sock", "--session-id", "ses_xyz"],
+    ):
+        args = _parse_args()
+        assert args.session_id == "ses_xyz"
+
+
+def test_parse_args_session_id_defaults_to_none() -> None:
+    """_parse_args() defaults --session-id to None when not provided."""
+    from breqy.agents.runtime import _parse_args
+    import sys
+    from unittest.mock import patch as mock_patch
+
+    with mock_patch.object(
+        sys, "argv",
+        ["runtime", "--agent-dir", "agents/breqy"],
+    ):
+        args = _parse_args()
+        assert args.session_id is None
+
+
+@pytest.mark.asyncio
 async def test_agent_runtime_rejects_invalid_active_skill_ids_with_structured_error() -> None:
     from breqy.agents.runtime import AgentRuntime
     from breqy.config.loader import load_agent_config

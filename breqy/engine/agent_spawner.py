@@ -28,7 +28,7 @@ class AgentSpawner:
 
     def spawn(self, agent_dir: str, *, session_id: str = "") -> int:
         """Spawn an agent process. Returns PID."""
-        cmd = self._build_command(agent_dir)
+        cmd = self._build_command(agent_dir, session_id=session_id)
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -105,9 +105,12 @@ class AgentSpawner:
         """Return dirs of all currently-running agents."""
         return [d for d in self._processes if self.is_running(d)]
 
-    def _build_command(self, agent_dir: str) -> list[str]:
-        return [
+    def _build_command(self, agent_dir: str, *, session_id: str = "") -> list[str]:
+        cmd = [
             sys.executable, "-m", "breqy.agents.runtime",
             "--agent-dir", agent_dir,
             "--engine-socket", self._engine_socket,
         ]
+        if session_id:
+            cmd.extend(["--session-id", session_id])
+        return cmd

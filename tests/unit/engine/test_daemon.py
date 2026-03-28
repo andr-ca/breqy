@@ -187,6 +187,46 @@ async def test_daemon_tool_service_honors_configured_policy_rules(tmp_dir: Path)
     assert "policy denied" in result.error.lower()
 
 
+@pytest.mark.asyncio
+async def test_wait_until_stopped_returns_immediately_after_stop(tmp_dir: Path):
+    """wait_until_stopped() unblocks as soon as stop() is called — no polling delay."""
+    config = EngineConfig(
+        socket_path=str(tmp_dir / "engine.sock"),
+        db_path=str(tmp_dir / "test.db"),
+        data_dir=str(tmp_dir),
+    )
+    daemon = EngineDaemon(config)
+    await daemon.start()
+
+    # Schedule stop() to fire shortly after we start waiting
+    async def delayed_stop() -> None:
+        await asyncio.sleep(0.01)  # 10 ms
+        await daemon.stop()
+
+    asyncio.create_task(delayed_stop())
+
+    # wait_until_stopped should return almost instantly (well under 1 s)
+    await asyncio.wait_for(daemon.wait_until_stopped(), timeout=1.0)
+    assert not daemon.is_running
+
+
+@pytest.mark.asyncio
+async def test_wait_until_stopped_returns_if_already_stopped(tmp_dir: Path):
+    """wait_until_stopped() returns immediately when stop() was already called."""
+    config = EngineConfig(
+        socket_path=str(tmp_dir / "engine.sock"),
+        db_path=str(tmp_dir / "test.db"),
+        data_dir=str(tmp_dir),
+    )
+    daemon = EngineDaemon(config)
+    await daemon.start()
+    await daemon.stop()
+
+    # Should return immediately since event is already set
+    await asyncio.wait_for(daemon.wait_until_stopped(), timeout=0.1)
+    assert not daemon.is_running
+
+
 def test_main_loads_config_registers_signal_handlers_and_stops_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
     config = EngineConfig(
         socket_path="/tmp/breqy-engine.sock",
@@ -194,13 +234,20 @@ def test_main_loads_config_registers_signal_handlers_and_stops_daemon(monkeypatc
         data_dir="/tmp",
     )
 
+    stopped_event = asyncio.Event()
     daemon = SimpleNamespace(is_running=True)
     daemon.start = AsyncMock()
 
     async def stop() -> None:
         daemon.is_running = False
+        stopped_event.set()
 
     daemon.stop = AsyncMock(side_effect=stop)
+
+    async def wait_until_stopped() -> None:
+        await stopped_event.wait()
+
+    daemon.wait_until_stopped = wait_until_stopped
 
     created_tasks: list[asyncio.Task[None]] = []
     registered_signals: list[object] = []
@@ -221,12 +268,6 @@ def test_main_loads_config_registers_signal_handlers_and_stops_daemon(monkeypatc
     monkeypatch.setattr("breqy.config.loader.load_engine_config", lambda: config)
     monkeypatch.setattr("breqy.engine.daemon.EngineDaemon", lambda loaded_config: daemon)
     monkeypatch.setattr(asyncio, "get_running_loop", lambda: fake_loop)
-
-    async def fake_sleep(_: float) -> None:
-        if created_tasks:
-            await asyncio.gather(*created_tasks)
-
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
 
     from breqy.engine import daemon as daemon_module
 

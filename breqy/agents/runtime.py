@@ -41,6 +41,7 @@ class AgentRuntime:
         skill_loader: SkillLoader | None,
         private_memory_runtime: PrivateMemoryRuntime | None,
         tool_result_waiter: ToolResultWaiter | None,
+        session_id: str = "runtime",
     ) -> None:
         self._config = config
         self._agent_dir = agent_dir
@@ -49,6 +50,7 @@ class AgentRuntime:
         self._skill_loader = skill_loader
         self._private_memory_runtime = private_memory_runtime
         self._tool_result_waiter = tool_result_waiter
+        self._session_id = session_id
         self._cancel_requested = asyncio.Event()
         self._steer_direction: str | None = None
 
@@ -57,7 +59,7 @@ class AgentRuntime:
         await self._client.send_event(
             AgentLifecycleEvent(
                 event_type=EventType.AGENT_CONNECTED,
-                session_id="runtime",
+                session_id=self._session_id,
                 agent_id=self._config.id,
             )
         )
@@ -66,7 +68,7 @@ class AgentRuntime:
         await self._client.send_event(
             AgentLifecycleEvent(
                 event_type=EventType.AGENT_DISCONNECTED,
-                session_id="runtime",
+                session_id=self._session_id,
                 agent_id=self._config.id,
             )
         )
@@ -207,6 +209,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent-dir", required=True)
     parser.add_argument("--engine-socket", required=False)
+    parser.add_argument("--session-id", required=False, default=None)
     return parser.parse_args()
 
 
@@ -216,6 +219,7 @@ def main() -> None:
     config = load_agent_config(str(agent_dir))
     if args.engine_socket:
         config = config.model_copy(update={"engine_socket": args.engine_socket})
+    session_id = args.session_id or "runtime"
     runtime = AgentRuntime(
         config=config,
         agent_dir=agent_dir,
@@ -224,6 +228,7 @@ def main() -> None:
         skill_loader=None,
         private_memory_runtime=None,
         tool_result_waiter=None,
+        session_id=session_id,
     )
 
     import asyncio

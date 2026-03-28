@@ -255,3 +255,44 @@ class TestListBySession:
         """list_by_session() returns empty list when no agents match."""
         spawner = AgentSpawner(engine_socket="/tmp/test.sock")
         assert spawner.list_by_session("nonexistent") == []
+
+
+# ---------------------------------------------------------------------------
+# _build_command() includes --session-id
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCommandSessionId:
+    def test_build_command_includes_session_id_when_provided(self) -> None:
+        """_build_command() includes --session-id when session_id is passed."""
+        spawner = AgentSpawner(engine_socket="/tmp/test.sock")
+        cmd = spawner._build_command("agents/breqy", session_id="ses_abc123")
+        assert "--session-id" in cmd
+        idx = cmd.index("--session-id")
+        assert cmd[idx + 1] == "ses_abc123"
+
+    def test_build_command_omits_session_id_when_empty(self) -> None:
+        """_build_command() does not include --session-id when empty."""
+        spawner = AgentSpawner(engine_socket="/tmp/test.sock")
+        cmd = spawner._build_command("agents/breqy")
+        assert "--session-id" not in cmd
+
+    def test_spawn_passes_session_id_to_build_command(self) -> None:
+        """spawn() passes session_id through to _build_command()."""
+        spawner = AgentSpawner(engine_socket="/tmp/test.sock")
+        built_commands: list[tuple[str, str]] = []
+
+        original_build = spawner._build_command
+
+        def tracking_build(agent_dir: str, session_id: str = "") -> list[str]:
+            built_commands.append((agent_dir, session_id))
+            return original_build(agent_dir, session_id=session_id)
+
+        spawner._build_command = tracking_build  # type: ignore[method-assign]
+
+        with patch("breqy.engine.agent_spawner.subprocess.Popen") as mock_popen:
+            mock_popen.return_value = _make_mock_process(pid=77)
+            spawner.spawn("agents/breqy", session_id="ses_test")
+
+        assert len(built_commands) == 1
+        assert built_commands[0] == ("agents/breqy", "ses_test")

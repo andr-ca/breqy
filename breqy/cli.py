@@ -165,8 +165,7 @@ def engine_start(
 
         click.echo("Engine ready. Press Ctrl+C to stop.")
 
-        while daemon.is_running:
-            await asyncio.sleep(1)
+        await daemon.wait_until_stopped()
 
         _remove_pid()
 

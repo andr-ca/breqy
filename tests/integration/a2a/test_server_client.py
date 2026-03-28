@@ -126,3 +126,28 @@ async def test_full_duplex_exchange(socket_path: Path):
     assert len(server_received) == 1
     assert len(client_received) == 1
     assert client_received[0].payload["content"] == "ping"
+
+
+@pytest.mark.asyncio
+async def test_server_stop_disconnects_connected_clients(socket_path: Path):
+    """Server.stop() closes all client connections so the server exits promptly."""
+
+    async def on_envelope(envelope: Envelope, client_id: str) -> None:
+        pass
+
+    server = A2AServer(str(socket_path), on_envelope=on_envelope)
+    await server.start()
+
+    client = A2AClient(str(socket_path))
+    await client.connect()
+    await asyncio.sleep(0.1)
+
+    # Client is still connected — stop should not hang
+    await asyncio.wait_for(server.stop(), timeout=2.0)
+
+    # Client listen should end (connection closed by server)
+    ended = False
+    async for _ in client.listen():
+        break
+    ended = True
+    assert ended
