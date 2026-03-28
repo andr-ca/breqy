@@ -7,6 +7,7 @@ that streams events from the engine.
 from __future__ import annotations
 
 import asyncio
+import collections
 
 import structlog
 from textual import work
@@ -26,7 +27,7 @@ from breqy.domain.ids import generate_prefixed_id
 from breqy.tui.events import EventDispatcher
 from breqy.tui.screens.auth import AuthScreen
 from breqy.tui.screens.chat import ChatScreen
-from breqy.tui.screens.logs import LogsScreen
+from breqy.tui.screens.logs import LogEntry, LogsScreen
 from breqy.tui.screens.model_select import ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
 from breqy.tui.widgets.message_input import MessageSubmitted
@@ -84,6 +85,9 @@ class BreqyApp(App):
             self._client: A2AClient | None = A2AClient(socket_path)
         else:
             self._client = None
+
+        # Background log buffer — stores recent events for LogsScreen pre-population
+        self._log_buffer: collections.deque[LogEntry] = collections.deque(maxlen=1000)
 
         # Event dispatcher — routes domain events to screen handlers
         self._dispatcher = EventDispatcher()
@@ -169,16 +173,24 @@ class BreqyApp(App):
                 break
 
     def _route_to_logs(self, event: Event) -> None:
-        """Route an event to the LogsScreen if one is on the stack."""
+        """Buffer an event for LogsScreen and route live if one is visible."""
+        entry = LogEntry(
+            timestamp=event.timestamp,
+            source=event.agent_id or "engine",
+            event_type=event.event_type.value,
+            summary=str(getattr(event, "content", ""))
+            or str(getattr(event, "summary", ""))
+            or "",
+        )
+        self._log_buffer.append(entry)
+
         for screen in reversed(self.screen_stack):
             if isinstance(screen, LogsScreen):
                 screen.add_event(
-                    timestamp=event.timestamp,
-                    source=event.agent_id or "engine",
-                    event_type=event.event_type.value,
-                    summary=str(getattr(event, "content", ""))
-                    or str(getattr(event, "summary", ""))
-                    or "",
+                    timestamp=entry.timestamp,
+                    source=entry.source,
+                    event_type=entry.event_type,
+                    summary=entry.summary,
                 )
                 break
 

@@ -70,7 +70,12 @@ class LogsScreen(Screen[None]):
         )
 
     def on_mount(self) -> None:
-        """Render the empty state on mount."""
+        """Pre-populate from app's log buffer (if available), then render."""
+        buffer = getattr(self.app, "_log_buffer", None)
+        if buffer:
+            for entry in buffer:
+                if entry not in self._entries:
+                    self._entries.append(entry)
         self._refresh_display()
 
     # ------------------------------------------------------------------ #

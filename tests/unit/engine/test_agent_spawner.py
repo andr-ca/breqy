@@ -296,3 +296,30 @@ class TestBuildCommandSessionId:
 
         assert len(built_commands) == 1
         assert built_commands[0] == ("agents/breqy", "ses_test")
+
+
+# ---------------------------------------------------------------------------
+# Observability: Task 7 — subprocess DEVNULL
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnUsesDevnull:
+    @patch("breqy.engine.agent_spawner.subprocess.Popen")
+    def test_spawn_uses_devnull_for_stdout_and_stderr(
+        self, mock_popen: MagicMock
+    ) -> None:
+        """spawn() should use DEVNULL for stdout and stderr (not PIPE)."""
+        import subprocess as _subprocess
+
+        mock_popen.return_value = _make_mock_process(pid=200)
+        spawner = AgentSpawner(engine_socket="/tmp/test.sock")
+
+        spawner.spawn("agents/breqy", session_id="ses_1")
+
+        call_kwargs = mock_popen.call_args
+        assert call_kwargs[1]["stdout"] == _subprocess.DEVNULL, (
+            "stdout must be DEVNULL to avoid pipe buffer hang"
+        )
+        assert call_kwargs[1]["stderr"] == _subprocess.DEVNULL, (
+            "stderr must be DEVNULL to avoid pipe buffer hang"
+        )

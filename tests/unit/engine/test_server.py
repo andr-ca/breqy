@@ -1363,3 +1363,41 @@ async def test_engine_server_session_create_preserves_explicit_agent_id(
     sessions = await session_repo.list_active()
     assert len(sessions) == 1
     assert sessions[0].primary_agent_id == "custom_agent"
+
+
+# --------------------------------------------------------------------------- #
+# Observability: Task 6 — DEBUG trace calls in engine server
+# --------------------------------------------------------------------------- #
+
+
+def test_handle_envelope_logs_debug() -> None:
+    """_handle_envelope should contain logger.debug calls for envelope tracing."""
+    import inspect
+    from breqy.engine import server as server_module
+
+    source = inspect.getsource(server_module.EngineServer._handle_envelope)
+    assert "logger.debug" in source, (
+        "_handle_envelope must have logger.debug calls for envelope tracing"
+    )
+
+
+def test_handle_user_message_logs_debug() -> None:
+    """_handle_user_message should contain logger.debug calls for persist+dispatch tracing."""
+    import inspect
+    from breqy.engine import server as server_module
+
+    source = inspect.getsource(server_module.EngineServer._handle_user_message)
+    assert "logger.debug" in source, (
+        "_handle_user_message must have logger.debug calls for message persist/dispatch tracing"
+    )
+
+
+def test_handle_runtime_message_logs_debug() -> None:
+    """_handle_runtime_message should contain logger.debug for runtime message tracing."""
+    import inspect
+    from breqy.engine import server as server_module
+
+    source = inspect.getsource(server_module.EngineServer._handle_runtime_message)
+    assert "logger.debug" in source, (
+        "_handle_runtime_message must have logger.debug calls for runtime message tracing"
+    )

@@ -234,6 +234,20 @@ def tui(socket_path: str | None) -> None:
 
     resolved = socket_path or os.getenv("BREQY_ENGINE_SOCKET", "/tmp/breqy-engine.sock")
 
+    # Set up structured logging for the TUI process
+    from breqy.utils.logging import default_log_file, setup_logging
+
+    data_dir = os.getenv("BREQY_DATA_DIR", str(Path.home() / ".breqy" / "data"))
+    log_dir = Path(os.path.expandvars(os.path.expanduser(data_dir))).resolve() / "logs"
+    log_level = os.getenv("BREQY_LOG_LEVEL", "INFO").upper()
+
+    setup_logging(
+        level=log_level,
+        log_file=default_log_file(log_dir, process="tui"),
+        console=False,
+        context={"process": "tui"},
+    )
+
     from breqy.tui.app import BreqyApp
 
     app = BreqyApp(socket_path=resolved)

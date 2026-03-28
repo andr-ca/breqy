@@ -712,3 +712,42 @@ def test_tui_app_uses_structlog():
     from breqy.tui import app as app_module
     assert hasattr(app_module, "logger")
     assert not isinstance(app_module.logger, _logging.Logger)
+
+
+# ============================================================================ #
+# Observability: Task 8 — background log buffer
+# ============================================================================ #
+
+
+class TestLogBuffer:
+    """Tests for BreqyApp._log_buffer background event buffer."""
+
+    def test_breqy_app_has_log_buffer(self) -> None:
+        """BreqyApp should have a _log_buffer deque for background logging."""
+        import collections
+
+        app = BreqyApp()
+        assert hasattr(app, "_log_buffer")
+        assert isinstance(app._log_buffer, collections.deque)
+
+    def test_route_to_logs_appends_to_buffer(self) -> None:
+        """_route_to_logs should always append to _log_buffer, even without LogsScreen."""
+        from breqy.domain.enums import EventType, MessageRole
+        from breqy.domain.events import MessageSentEvent
+
+        app = BreqyApp()
+        event = MessageSentEvent(
+            session_id="ses_test",
+            message_id="msg_001",
+            role=MessageRole.USER,
+            content="Hello",
+        )
+        # No LogsScreen on the stack, but buffer should still get the entry
+        app._route_to_logs(event)
+        assert len(app._log_buffer) == 1
+
+    def test_log_buffer_has_maxlen(self) -> None:
+        """_log_buffer should have a maxlen to avoid unbounded growth."""
+        app = BreqyApp()
+        assert app._log_buffer.maxlen is not None
+        assert app._log_buffer.maxlen > 0

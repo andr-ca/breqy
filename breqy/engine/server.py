@@ -139,6 +139,12 @@ class EngineServer:
     async def _handle_envelope(self, envelope: Envelope, client_id: str) -> None:
         """Route incoming A2A envelopes from agents/TUI."""
         event = envelope.to_event()
+        logger.debug(
+            "Envelope received",
+            client_id=client_id,
+            event_type=event.event_type.value,
+            session_id=event.session_id,
+        )
 
         if isinstance(event, AgentLifecycleEvent) and event.event_type == EventType.AGENT_CONNECTED:
             self.agent_registry.register(
@@ -180,11 +186,13 @@ class EngineServer:
 
         await self.event_bus.publish(event)
         await self.a2a_server.broadcast(envelope, exclude_client=client_id)
+        logger.debug("Event broadcast", event_type=event.event_type.value, exclude_client=client_id)
 
     async def _handle_disconnect(self, client_id: str) -> None:
         # Look up agent info before unregistering so we have session_id
         info = self.agent_registry.get_by_client_id(client_id)
         self.agent_registry.unregister_by_client_id(client_id)
+        logger.debug("Client disconnected", client_id=client_id, agent_id=info.agent_id if info else None)
         # Mark participant as left if we have session context
         if info is not None and info.session_id and self._participant_repo is not None:
             await self.session_manager.remove_participant(
@@ -230,6 +238,7 @@ class EngineServer:
             content=event.content,
             agent_id=event.agent_id or None,
         )
+        logger.debug("Message persisted", session_id=event.session_id, message_id=message.id)
         await self.event_bus.publish(event)
 
         session = await self.session_manager.get_session(event.session_id)
@@ -250,6 +259,7 @@ class EngineServer:
             active_skill_ids=[],
         )
         await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(work_event))
+        logger.debug("Work dispatched", session_id=event.session_id, agent_id=session.primary_agent_id)
 
     async def _handle_runtime_message(self, event: MessageSentEvent, *, client_id: str) -> None:
         message = Message(
@@ -261,10 +271,23 @@ class EngineServer:
         )
         await self._message_repo.create(message)
         await self._session_repo.update_timestamp(event.session_id)
+        logger.debug(
+            "Runtime message persisted",
+            session_id=event.session_id,
+            message_id=event.message_id,
+            role=event.role.value,
+        )
         await self.event_bus.publish(event)
         await self.a2a_server.broadcast(Envelope.from_event(event), exclude_client=client_id)
 
     async def _handle_tool_execution_request(self, event: ToolExecutionRequestedEvent) -> None:
+        logger.debug(
+            "Tool execution requested",
+            session_id=event.session_id,
+            agent_id=event.agent_id,
+            tool_name=event.tool_name,
+            invocation_id=event.invocation_id,
+        )
         result = await self.execute_tool(
             session_id=event.session_id,
             agent_id=event.agent_id,
@@ -299,6 +322,12 @@ class EngineServer:
         await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(response))
 
     async def _route_private_memory_request(self, event: PrivateMemoryOperationRequestedEvent) -> None:
+        logger.debug(
+            "Private memory request routed",
+            session_id=event.session_id,
+            agent_id=event.agent_id,
+            operation=event.operation_name,
+        )
         agent_info = self.agent_registry.get(event.agent_id)
         if agent_info is None:
             return

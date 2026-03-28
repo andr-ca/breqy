@@ -22,7 +22,7 @@ from breqy.storage.sqlite.approval_repo import SqliteApprovalRepository
 from breqy.storage.sqlite.memory_repo import SqliteMemoryRepository
 from breqy.storage.sqlite.participant_repo import SqliteParticipantRepository
 from breqy.storage.sqlite.tool_invocation_repo import SqliteToolInvocationRepository
-from breqy.utils.logging import setup_logging
+from breqy.utils.logging import default_log_file, setup_logging
 
 logger = structlog.get_logger(__name__)
 
@@ -55,7 +55,12 @@ class EngineDaemon:
 
     async def start(self) -> None:
         """Initialize storage, build engine server, and start all components."""
-        setup_logging(self._config.log_level)
+        log_dir = Path(self._config.data_dir) / "logs"
+        setup_logging(
+            level=self._config.log_level,
+            log_file=default_log_file(log_dir, process="engine"),
+            context={"process": "engine"},
+        )
 
         # Ensure data directory exists
         Path(self._config.data_dir).mkdir(parents=True, exist_ok=True)

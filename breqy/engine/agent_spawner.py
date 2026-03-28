@@ -31,8 +31,8 @@ class AgentSpawner:
         cmd = self._build_command(agent_dir, session_id=session_id)
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         self._processes[agent_dir] = SpawnedAgent(
             agent_dir=agent_dir, process=process, session_id=session_id

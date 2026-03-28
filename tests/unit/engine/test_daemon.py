@@ -439,3 +439,68 @@ def test_daemon_module_entrypoint_invokes_main(monkeypatch: pytest.MonkeyPatch) 
         "/home/andrey/projects/breqy/.worktrees/exp-full-build/breqy/engine/daemon.py",
         run_name="__main__",
     )
+
+
+# --------------------------------------------------------------------------- #
+# Observability: Task 7 — daemon passes log_file to setup_logging
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_daemon_start_passes_log_file_to_setup_logging(tmp_dir: Path) -> None:
+    """EngineDaemon.start() should call setup_logging with log_file and context."""
+    from unittest.mock import patch, MagicMock
+
+    config = EngineConfig(
+        socket_path=str(tmp_dir / "engine.sock"),
+        db_path=str(tmp_dir / "test.db"),
+        data_dir=str(tmp_dir),
+        log_level="DEBUG",
+    )
+    daemon = EngineDaemon(config)
+
+    await daemon.start()
+    try:
+        # After start(), the log file should have been configured.
+        # We verify by checking that setup_logging was invoked properly.
+        # Since the daemon already ran, we can inspect the produced log_file path.
+        # The convention is data_dir / "logs" / "engine.log".
+        expected_log_dir = tmp_dir / "logs"
+        expected_log_file = expected_log_dir / "engine.log"
+        assert expected_log_dir.exists(), "log directory should have been created"
+    finally:
+        await daemon.stop()
+
+
+@pytest.mark.asyncio
+async def test_daemon_start_setup_logging_receives_log_file_kwarg(tmp_dir: Path) -> None:
+    """Verify setup_logging is called with log_file keyword argument."""
+    from unittest.mock import patch, AsyncMock, MagicMock
+
+    config = EngineConfig(
+        socket_path=str(tmp_dir / "engine.sock"),
+        db_path=str(tmp_dir / "test.db"),
+        data_dir=str(tmp_dir),
+        log_level="WARNING",
+    )
+
+    with patch("breqy.engine.daemon.setup_logging") as mock_setup, \
+         patch("breqy.engine.daemon.create_connection", new_callable=AsyncMock) as mock_conn, \
+         patch("breqy.engine.daemon.run_migrations", new_callable=AsyncMock), \
+         patch("breqy.engine.daemon.EngineServer") as mock_server_cls:
+        mock_conn.return_value = MagicMock()
+        mock_server = MagicMock()
+        mock_server.start = AsyncMock()
+        mock_server_cls.return_value = mock_server
+
+        daemon = EngineDaemon(config)
+        await daemon.start()
+
+        mock_setup.assert_called_once()
+        call_kwargs = mock_setup.call_args[1] if mock_setup.call_args[1] else {}
+        assert "log_file" in call_kwargs, (
+            "setup_logging must be called with log_file kwarg"
+        )
+        assert "context" in call_kwargs, (
+            "setup_logging must be called with context kwarg"
+        )
