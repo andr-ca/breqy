@@ -715,8 +715,36 @@ def test_tui_app_uses_structlog():
 
 
 # ============================================================================ #
-# Observability: Task 8 — background log buffer
+# Observability: Task 9 — DEBUG trace calls in TUI event flow
 # ============================================================================ #
+
+
+class TestTuiDebugTracing:
+    """Tests that key TUI event flow methods contain debug logging."""
+
+    def test_on_message_submitted_has_debug_logging(self) -> None:
+        """on_message_submitted should include debug logging."""
+        import inspect
+        source = inspect.getsource(BreqyApp.on_message_submitted)
+        assert "logger.debug" in source
+
+    def test_start_listener_has_debug_logging(self) -> None:
+        """_start_listener should log when events are received."""
+        import inspect
+        source = inspect.getsource(BreqyApp._start_listener)
+        assert "logger.debug" in source
+
+    def test_route_to_chat_has_debug_logging(self) -> None:
+        """_route_to_chat should log when dispatching to a screen."""
+        import inspect
+        source = inspect.getsource(BreqyApp._route_to_chat)
+        assert "logger.debug" in source
+
+    def test_send_event_has_debug_logging(self) -> None:
+        """send_event should log when sending events to the engine."""
+        import inspect
+        source = inspect.getsource(BreqyApp.send_event)
+        assert "logger.debug" in source
 
 
 class TestLogBuffer:

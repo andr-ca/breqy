@@ -1,15 +1,16 @@
-"""LogsScreen — overlay screen for viewing event logs.
+"""LogsScreen — overlay screen for viewing event logs and Python log entries.
 
-Displays a live stream of domain events with timestamp, source, event type,
-and summary.  Supports filtering by event type prefix and uses a ring buffer
-(``collections.deque``) to limit memory usage.
+Displays a live stream of domain events (Events view) or Python structlog
+entries (Logs view) with timestamp, source/level, event type/logger, and
+summary/message.  Supports filtering and uses ring buffers to limit memory.
 
+Toggle between views with the ``Tab`` key.
 Push as an overlay from the app's ``ctrl+l`` binding.
 """
 from __future__ import annotations
 
 import collections
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from textual import on
@@ -21,7 +22,7 @@ from textual.widgets import Input, RichLog, Static
 
 @dataclass
 class LogEntry:
-    """A single event log entry."""
+    """A single domain-event log entry."""
 
     timestamp: datetime
     source: str
@@ -29,31 +30,45 @@ class LogEntry:
     summary: str
 
 
+@dataclass
+class PythonLogEntry:
+    """A Python log entry from structlog."""
+
+    timestamp: datetime
+    level: str
+    logger_name: str
+    message: str
+    extra: dict[str, str] = field(default_factory=dict)
+
+
 class LogsScreen(Screen[None]):
-    """Overlay screen for viewing event logs with filtering.
+    """Overlay screen for viewing event logs with filtering and dual view.
 
     Layout::
 
         ┌─────────────────────────────────────────────┐
-        │  Static("Event Logs")                       │
+        │  Static("Event Logs" / "Python Logs")       │
         ├─────────────────────────────────────────────┤
-        │  Input(placeholder="Filter by event type…") │
+        │  Input(placeholder="Filter…")               │
         ├─────────────────────────────────────────────┤
         │  RichLog (scrollable log display)           │
         ├─────────────────────────────────────────────┤
-        │  Static (key hints: Escape=Back, C=Clear)   │
+        │  Static (key hints)                         │
         └─────────────────────────────────────────────┘
     """
 
     BINDINGS = [
         Binding("escape", "pop_screen", "Back", show=True),
         Binding("c", "clear_filter", "Clear filter", show=True),
+        Binding("tab", "toggle_view", "Toggle Events/Logs", show=True),
     ]
 
     def __init__(self, max_entries: int = 500, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._entries: collections.deque[LogEntry] = collections.deque(maxlen=max_entries)
+        self._log_entries: collections.deque[PythonLogEntry] = collections.deque(maxlen=max_entries)
         self._filter_prefix: str = ""
+        self._view_mode: str = "events"
 
     # ------------------------------------------------------------------ #
     # Compose
@@ -65,7 +80,7 @@ class LogsScreen(Screen[None]):
         yield Input(placeholder="Filter by event type...", id="filter-input")
         yield RichLog(id="logs-display", wrap=True, markup=True)
         yield Static(
-            "[b]Escape[/b] Back  [b]C[/b] Clear filter",
+            "[b]Escape[/b] Back  [b]Tab[/b] Events/Logs  [b]C[/b] Clear filter",
             id="logs-footer",
         )
 
@@ -88,7 +103,7 @@ class LogsScreen(Screen[None]):
         self.set_filter(event.value)
 
     # ------------------------------------------------------------------ #
-    # Public API
+    # Public API — domain events
     # ------------------------------------------------------------------ #
 
     def add_event(
@@ -98,7 +113,7 @@ class LogsScreen(Screen[None]):
         event_type: str,
         summary: str,
     ) -> None:
-        """Add a log entry to the ring buffer and refresh display."""
+        """Add a domain-event entry to the ring buffer and refresh display."""
         entry = LogEntry(
             timestamp=timestamp,
             source=source,
@@ -106,15 +121,62 @@ class LogsScreen(Screen[None]):
             summary=summary,
         )
         self._entries.append(entry)
+        if self._view_mode == "events":
+            self._refresh_display()
+
+    # ------------------------------------------------------------------ #
+    # Public API — Python log entries
+    # ------------------------------------------------------------------ #
+
+    def add_log_entry(
+        self,
+        timestamp: datetime,
+        level: str,
+        logger_name: str,
+        message: str,
+        extra: dict[str, str] | None = None,
+    ) -> None:
+        """Add a Python log entry to the ring buffer and refresh display."""
+        entry = PythonLogEntry(
+            timestamp=timestamp,
+            level=level,
+            logger_name=logger_name,
+            message=message,
+            extra=extra or {},
+        )
+        self._log_entries.append(entry)
+        if self._view_mode == "logs":
+            self._refresh_display()
+
+    # ------------------------------------------------------------------ #
+    # View mode toggle
+    # ------------------------------------------------------------------ #
+
+    def toggle_view(self) -> None:
+        """Switch between events and logs view."""
+        self._view_mode = "logs" if self._view_mode == "events" else "events"
+        self._update_header()
         self._refresh_display()
 
+    def _update_header(self) -> None:
+        """Update the header text to reflect the current view mode."""
+        try:
+            header = self.query_one("#logs-header", Static)
+            header.update("Python Logs" if self._view_mode == "logs" else "Event Logs")
+        except Exception:
+            pass  # Header may not be mounted yet
+
+    # ------------------------------------------------------------------ #
+    # Filter
+    # ------------------------------------------------------------------ #
+
     def set_filter(self, prefix: str) -> None:
-        """Filter displayed events to those whose event_type starts with prefix."""
+        """Filter displayed entries by prefix."""
         self._filter_prefix = prefix
         self._refresh_display()
 
     def clear_filter(self) -> None:
-        """Remove filter, show all events."""
+        """Remove filter, show all entries."""
         self._filter_prefix = ""
         filter_input = self.query_one("#filter-input", Input)
         filter_input.value = ""
@@ -132,33 +194,75 @@ class LogsScreen(Screen[None]):
         """Clear the active filter via key binding."""
         self.clear_filter()
 
+    def action_toggle_view(self) -> None:
+        """Toggle view mode via key binding."""
+        self.toggle_view()
+
     # ------------------------------------------------------------------ #
     # Internal rendering
     # ------------------------------------------------------------------ #
 
     def _get_visible_entries(self) -> list[LogEntry]:
-        """Return entries matching the current filter."""
+        """Return domain-event entries matching the current filter."""
         if not self._filter_prefix:
             return list(self._entries)
+        prefix = self._filter_prefix.lower()
         return [
             entry
             for entry in self._entries
-            if entry.event_type.startswith(self._filter_prefix)
+            if entry.event_type.lower().startswith(prefix)
+            or entry.source.lower().startswith(prefix)
+        ]
+
+    def _get_visible_log_entries(self) -> list[PythonLogEntry]:
+        """Return Python log entries matching the current filter."""
+        if not self._filter_prefix:
+            return list(self._log_entries)
+        return [
+            e
+            for e in self._log_entries
+            if e.level.startswith(self._filter_prefix.upper())
+            or e.logger_name.startswith(self._filter_prefix)
         ]
 
     def _refresh_display(self) -> None:
-        """Clear and re-render all visible log entries."""
-        log = self.query_one("#logs-display", RichLog)
+        """Clear and re-render visible entries based on current view mode."""
+        try:
+            log = self.query_one("#logs-display", RichLog)
+        except Exception:
+            return  # Not mounted yet
+
         log.clear()
 
-        visible = self._get_visible_entries()
-        if not visible:
-            log.write("[dim]No events[/dim]")
-            return
-
-        for entry in visible:
-            ts_str = entry.timestamp.strftime("%H:%M:%S")
-            log.write(
-                f"[dim]{ts_str}[/dim] [{entry.source}] "
-                f"[bold]{entry.event_type}[/bold] {entry.summary}"
-            )
+        if self._view_mode == "events":
+            visible = self._get_visible_entries()
+            if not visible:
+                log.write("[dim]No events[/dim]")
+                return
+            for entry in visible:
+                ts_str = entry.timestamp.strftime("%H:%M:%S")
+                log.write(
+                    f"[dim]{ts_str}[/dim] [{entry.source}] "
+                    f"[bold]{entry.event_type}[/bold] {entry.summary}"
+                )
+        else:
+            visible_logs = self._get_visible_log_entries()
+            if not visible_logs:
+                log.write("[dim]No log entries[/dim]")
+                return
+            _level_colors = {
+                "DEBUG": "dim",
+                "INFO": "green",
+                "WARNING": "yellow",
+                "ERROR": "red",
+            }
+            for entry in visible_logs:
+                ts_str = entry.timestamp.strftime("%H:%M:%S")
+                color = _level_colors.get(entry.level, "")
+                level_fmt = (
+                    f"[{color}]{entry.level}[/{color}]" if color else entry.level
+                )
+                log.write(
+                    f"[dim]{ts_str}[/dim] {level_fmt} "
+                    f"[bold]{entry.logger_name}[/bold] {entry.message}"
+                )

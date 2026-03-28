@@ -313,3 +313,142 @@ class TestLogsScreenRingBuffer:
             # The log display should show 5 lines
             log = screen.query_one("#logs-display", RichLog)
             assert len(log.lines) == 5
+
+
+# ============================================================================ #
+# Observability: Task 11 — Dual view (Events + Logs with Tab toggle)
+# ============================================================================ #
+
+
+class TestLogsScreenDualView:
+    """Tests for Events/Logs dual view mode."""
+
+    def test_logs_screen_has_view_mode(self) -> None:
+        """LogsScreen should support 'events' and 'logs' view modes."""
+        screen = LogsScreen()
+        assert hasattr(screen, "_view_mode")
+        assert screen._view_mode in ("events", "logs")
+
+    def test_logs_screen_default_view_is_events(self) -> None:
+        """Default view mode should be 'events'."""
+        screen = LogsScreen()
+        assert screen._view_mode == "events"
+
+    def test_logs_screen_toggle_view(self) -> None:
+        """toggle_view() should switch between events and logs."""
+        screen = LogsScreen()
+        assert screen._view_mode == "events"
+        screen.toggle_view()
+        assert screen._view_mode == "logs"
+        screen.toggle_view()
+        assert screen._view_mode == "events"
+
+    def test_logs_screen_add_log_entry(self) -> None:
+        """LogsScreen should accept Python log entries separate from domain events."""
+        from breqy.tui.screens.logs import PythonLogEntry
+
+        screen = LogsScreen()
+        screen.add_log_entry(
+            timestamp=_ts(14, 0, 0),
+            level="INFO",
+            logger_name="breqy.engine.server",
+            message="Test log message",
+            extra={"session_id": "ses_1"},
+        )
+        assert len(screen._log_entries) == 1
+        assert isinstance(screen._log_entries[0], PythonLogEntry)
+
+    def test_logs_screen_has_log_entries_deque(self) -> None:
+        """LogsScreen should have a _log_entries deque for Python log entries."""
+        import collections
+        screen = LogsScreen()
+        assert hasattr(screen, "_log_entries")
+        assert isinstance(screen._log_entries, collections.deque)
+
+    @pytest.mark.asyncio
+    async def test_logs_view_renders_log_entries(self) -> None:
+        """When in 'logs' mode, display should render Python log entries."""
+        app = LogsScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.add_log_entry(
+                timestamp=_ts(14, 0, 0),
+                level="INFO",
+                logger_name="breqy.engine.server",
+                message="Server started",
+            )
+            screen.toggle_view()
+            await pilot.pause()
+            log = screen.query_one("#logs-display", RichLog)
+            assert len(log.lines) == 1
+
+    @pytest.mark.asyncio
+    async def test_events_view_does_not_show_log_entries(self) -> None:
+        """In 'events' mode, Python log entries should not appear."""
+        app = LogsScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.add_log_entry(
+                timestamp=_ts(14, 0, 0),
+                level="INFO",
+                logger_name="breqy.engine.server",
+                message="Server started",
+            )
+            # Default mode is events
+            assert screen._view_mode == "events"
+            await pilot.pause()
+            log = screen.query_one("#logs-display", RichLog)
+            # Should only have the empty state ("No events"), not the log entry
+            assert len(log.lines) == 1  # "No events" message
+
+
+# ============================================================================ #
+# Observability: Task 12 — Filter matches source (agent_id) and event_type
+# ============================================================================ #
+
+
+class TestLogsScreenFilterEnhanced:
+    """Filter should match source field in addition to event_type."""
+
+    def test_filter_matches_source(self) -> None:
+        """Filter should match against source field (which contains agent_id)."""
+        screen = LogsScreen()
+        screen._entries.append(LogEntry(
+            timestamp=_ts(14, 0, 0), source="breqy",
+            event_type="message_sent", summary="hello",
+        ))
+        screen._entries.append(LogEntry(
+            timestamp=_ts(14, 1, 0), source="engine",
+            event_type="session_created", summary="new session",
+        ))
+        screen.set_filter("breqy")
+        visible = screen._get_visible_entries()
+        assert len(visible) == 1
+        assert visible[0].source == "breqy"
+
+    def test_filter_still_matches_event_type(self) -> None:
+        """Filter should still match event_type prefix as before."""
+        screen = LogsScreen()
+        screen._entries.append(LogEntry(
+            timestamp=_ts(14, 0, 0), source="engine",
+            event_type="session.created", summary="one",
+        ))
+        screen._entries.append(LogEntry(
+            timestamp=_ts(14, 1, 0), source="engine",
+            event_type="message.sent", summary="two",
+        ))
+        screen.set_filter("session")
+        visible = screen._get_visible_entries()
+        assert len(visible) == 1
+        assert visible[0].event_type == "session.created"
+
+    def test_filter_is_case_insensitive(self) -> None:
+        """Filter matching should be case-insensitive."""
+        screen = LogsScreen()
+        screen._entries.append(LogEntry(
+            timestamp=_ts(14, 0, 0), source="Breqy",
+            event_type="MESSAGE_SENT", summary="hello",
+        ))
+        screen.set_filter("breqy")
+        visible = screen._get_visible_entries()
+        assert len(visible) == 1

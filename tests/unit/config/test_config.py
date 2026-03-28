@@ -414,3 +414,14 @@ def test_load_agent_config_empty_yaml_uses_empty_mapping_then_fails_validation(t
 
     with pytest.raises(ValidationError):
         load_agent_config(str(tmp_path))
+
+
+# ============================================================================ #
+# Observability: Task 10 — log_dir property on EngineConfig
+# ============================================================================ #
+
+
+def test_engine_config_log_dir(tmp_path: Path) -> None:
+    """EngineConfig.log_dir should be derived from data_dir."""
+    config = EngineConfig(data_dir=str(tmp_path / "data"))
+    assert config.log_dir == str(tmp_path / "data" / "logs")

@@ -72,6 +72,11 @@ class EngineConfig(BaseModel):
             object.__setattr__(self, field_name, expanded)
         return self
 
+    @property
+    def log_dir(self) -> str:
+        """Log directory derived from data_dir."""
+        return str(Path(self.data_dir) / "logs")
+
 
 class AgentConfig(BaseModel):
     """Agent process configuration loaded from agent.yaml."""

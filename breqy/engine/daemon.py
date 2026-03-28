@@ -55,7 +55,7 @@ class EngineDaemon:
 
     async def start(self) -> None:
         """Initialize storage, build engine server, and start all components."""
-        log_dir = Path(self._config.data_dir) / "logs"
+        log_dir = Path(self._config.log_dir)
         setup_logging(
             level=self._config.log_level,
             log_file=default_log_file(log_dir, process="engine"),

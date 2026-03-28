@@ -169,6 +169,11 @@ class BreqyApp(App):
         """Route an event to the active ChatScreen if one is on the stack."""
         for screen in reversed(self.screen_stack):
             if isinstance(screen, ChatScreen):
+                logger.debug(
+                    "Dispatched to ChatScreen",
+                    handler=handler_name,
+                    event_type=event.event_type.value,
+                )
                 getattr(screen, handler_name)(event)
                 break
 
@@ -233,6 +238,11 @@ class BreqyApp(App):
 
                 async for envelope in self._client.listen():
                     event = envelope.to_event()
+                    logger.debug(
+                        "Event received from engine",
+                        event_type=event.event_type.value,
+                        session_id=event.session_id,
+                    )
                     self._dispatcher.dispatch(event)
 
                 # listen() ended normally — server disconnected
@@ -283,6 +293,11 @@ class BreqyApp(App):
         """
         if self._client is None:
             return
+        logger.debug(
+            "Sending event to engine",
+            event_type=event.event_type.value,
+            session_id=event.session_id,
+        )
         await self._client.send_event(event)
 
     # ------------------------------------------------------------------ #
@@ -340,6 +355,12 @@ class BreqyApp(App):
                 break
         if chat_screen is None:
             return
+
+        logger.debug(
+            "User message submitted",
+            session_id=chat_screen.session_id,
+            content_length=len(message.text),
+        )
 
         event = MessageSentEvent(
             session_id=chat_screen.session_id,
