@@ -8,9 +8,22 @@ from breqy.agents.providers.base import (
     ToolCallDelta,
     ToolDefinition,
 )
+from breqy.agents.providers.copilot import CopilotProvider
+from breqy.agents.providers.copilot_auth import (
+    CopilotAuthenticator,
+    CopilotAuthError,
+    DeviceFlowInfo,
+)
+from breqy.agents.providers.copilot_client import CopilotApiClient, CopilotApiError
 
 __all__ = [
     "CompletionMetadata",
+    "CopilotApiClient",
+    "CopilotApiError",
+    "CopilotAuthError",
+    "CopilotAuthenticator",
+    "CopilotProvider",
+    "DeviceFlowInfo",
     "ModelProvider",
     "ProviderEvent",
     "ProviderRequest",
