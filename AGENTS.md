@@ -12,6 +12,7 @@ Read these files in order before writing any code, creating any file, or making 
 | 2 | [agents/project.instructions.md](agents/project.instructions.md) | Project architecture, domain model, tech stack, Slice 1 scope, hard constraints |
 | 3 | [agents/python.instructions.md](agents/python.instructions.md) | Python 3.12 modular design, DI patterns, SOLID, import rules, testing patterns |
 | 4 | [agents/tdd.instructions.md](agents/tdd.instructions.md) | Red-Green-Refactor cycle, TDD workflow steps, test quality standards |
+| 5 | [agents/troubleshooting.instructions.md](agents/troubleshooting.instructions.md) | Runtime debugging: ID mismatches, event handler gaps, subprocess issues, message flow tracing |
 
 These instructions are authoritative. If there is a conflict between a general coding convention and a project instruction, project instructions win. If there is a conflict between project instructions and core instructions, core instructions win (they encode safety and process rules).
 
@@ -41,6 +42,7 @@ Before any file operation or code change:
 │  ├─ project.instructions.md        # Project architecture and constraints
 │  ├─ python.instructions.md         # Python 3.12 modular dev and DI
 │  ├─ tdd.instructions.md            # Red-Green-Refactor workflow
+│  ├─ troubleshooting.instructions.md # Runtime debugging knowledge
 │  └─ config-code-user-prompts/      # Role-specific agent prompts
 │     ├─ developer.agent.md
 │     ├─ dev-manager.agent.md
