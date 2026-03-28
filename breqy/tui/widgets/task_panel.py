@@ -26,6 +26,12 @@ class _TaskEntry(TypedDict):
 class TaskPanel(Widget):
     """Side-panel widget that lists tasks with status icons."""
 
+    DEFAULT_CSS = """
+    TaskPanel {
+        height: 1fr;
+    }
+    """
+
     def __init__(self, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._tasks: dict[str, _TaskEntry] = {}

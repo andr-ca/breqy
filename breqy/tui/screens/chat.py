@@ -14,6 +14,7 @@ from __future__ import annotations
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
+from textual.widgets import Input
 
 from breqy.domain.enums import ApprovalStatus, EventType
 from breqy.domain.events import (
@@ -58,6 +59,12 @@ class ChatScreen(Screen[None]):
         └─────────────────────────────────────────────┘
     """
 
+    DEFAULT_CSS = """
+    ChatScreen > Vertical > Horizontal {
+        height: 1fr;
+    }
+    """
+
     BINDINGS = [
         Binding("escape", "pop_screen", "Back", show=True),
     ]
@@ -78,6 +85,10 @@ class ChatScreen(Screen[None]):
             yield ApprovalPrompt()
             yield MessageInput()
             yield ControlBar()
+
+    def on_mount(self) -> None:
+        """Focus the message input so the user can type immediately."""
+        self.query_one("#message-input", Input).focus()
 
     def action_pop_screen(self) -> None:
         """Pop this screen (go back to session list)."""

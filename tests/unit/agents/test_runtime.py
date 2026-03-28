@@ -19,6 +19,7 @@ class FakeA2AClient:
     def __init__(self) -> None:
         self.connected = False
         self.sent_events: list[object] = []
+        self._listen_envelopes: list[Any] = []
 
     async def connect(self) -> None:
         self.connected = True
@@ -28,6 +29,15 @@ class FakeA2AClient:
 
     async def send_event(self, event: object) -> None:
         self.sent_events.append(event)
+
+    def set_listen_envelopes(self, envelopes: list[Any]) -> None:
+        """Set envelopes to yield from listen()."""
+        self._listen_envelopes = list(envelopes)
+
+    async def listen(self):  # noqa: ANN201
+        """Async generator that yields pre-set envelopes."""
+        for envelope in self._listen_envelopes:
+            yield envelope
 
 
 @dataclass
@@ -196,6 +206,76 @@ def test_parse_args_session_id_defaults_to_none() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_runtime_run_listens_and_dispatches_work() -> None:
+    """AgentRuntime.run() starts, listens for events, dispatches work, and stops on disconnect."""
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+    from breqy.a2a.envelope import Envelope
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+
+    work_event = _work_event()
+    client.set_listen_envelopes([Envelope.from_event(work_event)])
+
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[
+            ProviderEvent(kind="text", text="Done"),
+        ])),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+        session_id="ses_test",
+    )
+
+    await runtime.run()
+
+    # Should have connected, sent AGENT_CONNECTED, processed work, sent AGENT_DISCONNECTED
+    event_types = [getattr(e, "event_type", None) for e in client.sent_events]
+    assert EventType.AGENT_CONNECTED in event_types
+    assert EventType.AGENT_DISCONNECTED in event_types
+    assert EventType.MESSAGE_SENT in event_types
+    assert client.connected is False  # stop() disconnects
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_run_dispatches_control_events() -> None:
+    """AgentRuntime.run() dispatches ControlEvent to handle_control."""
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.loader import load_agent_config
+    from breqy.a2a.envelope import Envelope
+    from breqy.domain.events import ControlEvent
+
+    config = load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")))
+    client = FakeA2AClient()
+
+    control_event = ControlEvent(
+        event_type=EventType.CONTROL_STOP,
+        session_id="ses_test",
+    )
+    client.set_listen_envelopes([Envelope.from_event(control_event)])
+
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        client=cast(Any, client),
+        provider=cast(Any, FakeProvider(events=[])),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+        session_id="ses_test",
+    )
+
+    await runtime.run()
+
+    # Control event should have set the cancel flag
+    assert runtime.cancel_requested is True
+
+
+@pytest.mark.asyncio
 async def test_agent_runtime_rejects_invalid_active_skill_ids_with_structured_error() -> None:
     from breqy.agents.runtime import AgentRuntime
     from breqy.config.loader import load_agent_config
@@ -337,7 +417,7 @@ def test_runtime_main_builds_runtime_and_runs_start(monkeypatch, tmp_path: Path)
         def __init__(self, **kwargs: Any) -> None:
             observed["kwargs"] = kwargs
 
-        async def start(self) -> None:
+        async def run(self) -> None:
             observed["started"] = True
 
     def fake_run(coro: Any) -> None:
@@ -395,9 +475,14 @@ def test_runtime_module_entrypoint_invokes_main(monkeypatch) -> None:
     async def fake_disconnect(self) -> None:
         observed["disconnected"] = True
 
+    async def fake_listen(self):
+        return
+        yield  # make it an async generator that yields nothing
+
     monkeypatch.setattr(A2AClient, "connect", fake_connect)
     monkeypatch.setattr(A2AClient, "send_event", fake_send_event)
     monkeypatch.setattr(A2AClient, "disconnect", fake_disconnect)
+    monkeypatch.setattr(A2AClient, "listen", fake_listen)
 
     globals_after = runpy.run_path(
         "/home/andrey/projects/breqy/.worktrees/exp-full-build/breqy/agents/runtime.py",

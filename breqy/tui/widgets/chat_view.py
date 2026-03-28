@@ -15,6 +15,12 @@ from breqy.tui.widgets.stream_buffer import StreamBuffer
 class ChatView(Widget):
     """Displays chat messages with streaming support."""
 
+    DEFAULT_CSS = """
+    ChatView {
+        height: 1fr;
+    }
+    """
+
     def __init__(self, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._stream_buffer = StreamBuffer()

@@ -21,11 +21,7 @@ Screen {
     background: $primary-background;
 }
 
-/* Chat area */
-.chat-view {
-    height: 1fr;
-    overflow-y: auto;
-}
+/* Chat area — layout heights are set via DEFAULT_CSS on each widget class */
 
 /* Message styles */
 .message-user {

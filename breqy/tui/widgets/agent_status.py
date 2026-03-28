@@ -15,6 +15,13 @@ from breqy.tui.constants import AGENT_CONNECTED_ICON, AGENT_DISCONNECTED_ICON
 class AgentStatusBar(Widget):
     """Displays agent connection status as a compact status line."""
 
+    DEFAULT_CSS = """
+    AgentStatusBar {
+        height: auto;
+        max-height: 3;
+    }
+    """
+
     def __init__(self, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._agents: dict[str, bool] = {}

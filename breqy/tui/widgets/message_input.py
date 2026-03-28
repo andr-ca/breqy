@@ -34,6 +34,13 @@ class CommandExecuted(TextualMessage):
 class MessageInput(Widget):
     """Text input bar with slash-command support."""
 
+    DEFAULT_CSS = """
+    MessageInput {
+        height: auto;
+        max-height: 5;
+    }
+    """
+
     def __init__(self, command_registry: CommandRegistry | None = None, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self.command_registry = command_registry or CommandRegistry()

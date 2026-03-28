@@ -567,3 +567,92 @@ class TestChatScreenEscape:
             await pilot.pause()
             # After escape, ChatScreen should be popped
             assert not isinstance(app.screen, ChatScreen)
+
+
+# --------------------------------------------------------------------------- #
+# Focus tests — MessageInput should be focused on mount
+# --------------------------------------------------------------------------- #
+
+
+class TestChatScreenFocus:
+    """Test that ChatScreen focuses the message input on mount."""
+
+    @pytest.mark.asyncio
+    async def test_message_input_focused_on_mount(self) -> None:
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            focused = app.focused
+            inner_input = screen.query_one("#message-input", Input)
+            assert focused is inner_input
+
+    @pytest.mark.asyncio
+    async def test_message_input_accepts_keyboard_input(self) -> None:
+        """Typing on the keyboard should insert characters into the input.
+
+        This fails if the input widget is rendered off-screen (invisible)
+        because Textual won't deliver key events to invisible widgets.
+        """
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            await pilot.press("h", "i")
+            inner_input = screen.query_one("#message-input", Input)
+            assert inner_input.value == "hi"
+
+
+# --------------------------------------------------------------------------- #
+# Layout tests — widgets must have sensible heights
+# --------------------------------------------------------------------------- #
+
+
+class TestChatScreenLayout:
+    """Verify that chrome widgets have bounded heights so content is visible."""
+
+    @pytest.mark.asyncio
+    async def test_message_input_is_visible_in_viewport(self) -> None:
+        """MessageInput must be within the visible viewport region."""
+        app = ChatScreenApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = _get_screen(app)
+            msg_input = screen.query_one(MessageInput)
+            # Widget's region.y + height must be <= terminal height (40)
+            assert msg_input.region.y < 40, (
+                f"MessageInput at y={msg_input.region.y} is off-screen "
+                f"(viewport height=40)"
+            )
+
+    @pytest.mark.asyncio
+    async def test_agent_status_bar_height_bounded(self) -> None:
+        """AgentStatusBar should not consume more than 3 rows."""
+        app = ChatScreenApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = _get_screen(app)
+            bar = screen.query_one(AgentStatusBar)
+            assert bar.region.height <= 3, (
+                f"AgentStatusBar height={bar.region.height}, expected <= 3"
+            )
+
+    @pytest.mark.asyncio
+    async def test_control_bar_is_visible_in_viewport(self) -> None:
+        """ControlBar must be within the visible viewport region."""
+        app = ChatScreenApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = _get_screen(app)
+            control = screen.query_one(ControlBar)
+            assert control.region.y < 40, (
+                f"ControlBar at y={control.region.y} is off-screen "
+                f"(viewport height=40)"
+            )
+
+    @pytest.mark.asyncio
+    async def test_chat_view_gets_majority_of_space(self) -> None:
+        """ChatView (main area) should occupy the majority of the viewport."""
+        app = ChatScreenApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = _get_screen(app)
+            chat_view = screen.query_one(ChatView)
+            # ChatView should get at least 50% of the 40-row viewport
+            assert chat_view.region.height >= 20, (
+                f"ChatView height={chat_view.region.height}, expected >= 20"
+            )

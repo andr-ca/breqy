@@ -29,6 +29,12 @@ class _ToolEntry:
 class ToolPanel(Widget):
     """Displays tool invocations with status icons and output."""
 
+    DEFAULT_CSS = """
+    ToolPanel {
+        height: 1fr;
+    }
+    """
+
     MAX_TOOLS: int = 50
 
     def __init__(self, **kwargs) -> None:  # type: ignore[override]

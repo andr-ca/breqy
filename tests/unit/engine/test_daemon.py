@@ -139,7 +139,7 @@ async def test_daemon_spawns_default_agent_runtime_from_agents_directory(tmp_dir
     try:
         assert daemon.server is not None
 
-        def fake_spawn(agent_dir: str) -> int:
+        def fake_spawn(agent_dir: str, *, session_id: str = "") -> int:
             spawned.append(agent_dir)
             return 12345
 
@@ -150,6 +150,39 @@ async def test_daemon_spawns_default_agent_runtime_from_agents_directory(tmp_dir
         await daemon.stop()
 
     assert spawned == ["agents/breqy"]
+
+
+@pytest.mark.asyncio
+async def test_start_default_agent_creates_session_and_passes_session_id(tmp_dir: Path, monkeypatch: pytest.MonkeyPatch):
+    """start_default_agent creates a session before spawning so the agent has a valid session_id."""
+    config = EngineConfig(
+        socket_path=str(tmp_dir / "engine.sock"),
+        db_path=str(tmp_dir / "test.db"),
+        data_dir=str(tmp_dir),
+    )
+    daemon = EngineDaemon(config)
+    spawned: list[tuple[str, str]] = []
+
+    await daemon.start()
+    try:
+        assert daemon.server is not None
+
+        def tracking_spawn(agent_dir: str, *, session_id: str = "") -> int:
+            spawned.append((agent_dir, session_id))
+            return 12345
+
+        monkeypatch.setattr(daemon.server.agent_spawner, "spawn", tracking_spawn)
+
+        await daemon.start_default_agent()
+
+        # Should have spawned with a real session_id (not empty)
+        assert len(spawned) == 1
+        agent_dir, session_id = spawned[0]
+        assert agent_dir == "agents/breqy"
+        assert session_id != "", "start_default_agent must create a session and pass its id"
+        assert session_id.startswith("ses_"), f"Expected session ID prefix 'ses_', got: {session_id}"
+    finally:
+        await daemon.stop()
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,13 @@ from breqy.domain.enums import EventType
 class ControlBar(Widget):
     """Footer bar with agent control buttons."""
 
+    DEFAULT_CSS = """
+    ControlBar {
+        height: auto;
+        max-height: 5;
+    }
+    """
+
     class ControlAction(Message):
         """Posted when user activates a control action."""
 

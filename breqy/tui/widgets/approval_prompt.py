@@ -23,6 +23,13 @@ class ApprovalPrompt(Widget):
 
     can_focus = True
 
+    DEFAULT_CSS = """
+    ApprovalPrompt {
+        height: auto;
+        max-height: 10;
+    }
+    """
+
     BINDINGS = [
         Binding("a", "approve", "Approve", show=False),
         Binding("s", "approve_session", "Approve for Session", show=False),

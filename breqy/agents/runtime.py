@@ -74,6 +74,19 @@ class AgentRuntime:
         )
         await self._client.disconnect()
 
+    async def run(self) -> None:
+        """Start, listen for incoming events, and stop on disconnect."""
+        await self.start()
+        try:
+            async for envelope in self._client.listen():
+                event = envelope.to_event()
+                if isinstance(event, AgentWorkRequestedEvent):
+                    await self.handle_work(event)
+                elif isinstance(event, ControlEvent):
+                    self.handle_control(event)
+        finally:
+            await self.stop()
+
     def handle_control(self, event: ControlEvent) -> None:
         """Process a control event from the engine."""
         if event.event_type in (
@@ -234,7 +247,7 @@ def main() -> None:
     import asyncio
 
     async def run() -> None:
-        await runtime.start()
+        await runtime.run()
 
     asyncio.run(run())
 

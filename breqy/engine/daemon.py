@@ -110,7 +110,8 @@ class EngineDaemon:
     async def start_default_agent(self) -> int:
         if self._server is None:
             raise RuntimeError("Engine server is not started")
-        return self._server.agent_spawner.spawn("agents/breqy")
+        session = await self._server.session_manager.create_session("breqy")
+        return self._server.agent_spawner.spawn("agents/breqy", session_id=session.id)
 
     async def restore_sessions(self) -> None:
         """Restore active sessions and respawn their primary agents."""
