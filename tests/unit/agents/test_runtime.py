@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -443,6 +444,107 @@ def test_runtime_null_provider_stream_is_empty() -> None:
     from breqy.agents.runtime import _NullProvider
 
     assert list(_NullProvider().stream(ProviderRequest(prompt="hi", work_dir=Path(".")))) == []
+
+
+def test_runtime_main_builds_real_provider_from_config(monkeypatch, tmp_path: Path) -> None:
+    """main() should call _build_provider() to construct a real ModelProvider,
+    not use _NullProvider directly."""
+    import asyncio
+    import sys
+
+    from breqy.agents import runtime as runtime_module
+    from breqy.agents.runtime import _NullProvider
+    from breqy.config.models import AgentConfig
+
+    config = AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o")
+    observed: dict[str, Any] = {}
+
+    class FakeRuntime:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["kwargs"] = kwargs
+
+        async def run(self) -> None:
+            observed["started"] = True
+
+    # Track _build_provider calls
+    build_provider_calls: list[AgentConfig] = []
+
+    def fake_build_provider(cfg: AgentConfig):
+        build_provider_calls.append(cfg)
+        return FakeProvider(events=[])
+
+    def fake_run(coro: Any) -> None:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    monkeypatch.setattr(runtime_module, "AgentRuntime", FakeRuntime)
+    monkeypatch.setattr(runtime_module, "load_agent_config", lambda path: config)
+    monkeypatch.setattr(runtime_module, "_build_provider", fake_build_provider)
+    monkeypatch.setattr(asyncio, "run", fake_run)
+    monkeypatch.setattr(sys, "argv", ["runtime", "--agent-dir", str(tmp_path), "--engine-socket", "/tmp/override.sock"])
+
+    runtime_module.main()
+
+    assert observed["started"] is True
+    # _build_provider was called with the config
+    assert len(build_provider_calls) == 1
+    assert build_provider_calls[0].provider == "copilot"
+    # The provider passed to AgentRuntime is a real one, not _NullProvider
+    provider = observed["kwargs"]["provider"]
+    assert not isinstance(provider, _NullProvider), (
+        "main() should build a real ModelProvider, not _NullProvider"
+    )
+
+
+def test_build_provider_returns_real_provider_when_available(monkeypatch) -> None:
+    """_build_provider() returns a real ModelProvider when construction succeeds."""
+    from breqy.agents.runtime import _build_provider, _NullProvider
+    from breqy.config.models import AgentConfig
+
+    config = AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o")
+
+    fake_provider = FakeProvider(events=[])
+
+    def mock_build_model_providers(*, credential_store, model_by_provider):
+        assert "copilot" in model_by_provider
+        assert model_by_provider["copilot"] == "gpt-4o"
+        return {"copilot": fake_provider}
+
+    monkeypatch.setattr(
+        "breqy.agents.providers.adapters.build_model_providers",
+        mock_build_model_providers,
+    )
+    # Monkeypatch KeyringSecretProvider to avoid real keyring dependency
+    monkeypatch.setattr(
+        "breqy.secrets.provider.KeyringSecretProvider",
+        lambda: MagicMock(),
+    )
+
+    result = _build_provider(config)
+    assert result is fake_provider
+    assert not isinstance(result, _NullProvider)
+
+
+def test_build_provider_falls_back_to_null_on_error(monkeypatch) -> None:
+    """_build_provider() returns _NullProvider when construction fails."""
+    from breqy.agents.runtime import _build_provider, _NullProvider
+    from breqy.config.models import AgentConfig
+
+    config = AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o")
+
+    def mock_build_raises(*, credential_store, model_by_provider):
+        raise RuntimeError("keyring not available")
+
+    monkeypatch.setattr(
+        "breqy.agents.providers.adapters.build_model_providers",
+        mock_build_raises,
+    )
+
+    result = _build_provider(config)
+    assert isinstance(result, _NullProvider)
 
 
 def test_runtime_module_entrypoint_invokes_main(monkeypatch) -> None:

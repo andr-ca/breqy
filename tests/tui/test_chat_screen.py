@@ -151,6 +151,52 @@ class TestChatScreenMessageSent:
             chat_view = screen.query_one(ChatView)
             assert len(chat_view.log_widget.lines) == 1
 
+    @pytest.mark.asyncio
+    async def test_handle_message_sent_completes_stream_if_chunks_buffered(self) -> None:
+        """When handle_message_sent() receives a MessageSentEvent for a message_id
+        that has chunks in the stream buffer, it should call complete_stream()
+        to flush the buffer instead of add_message(), preventing double-rendering."""
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            chat_view = screen.query_one(ChatView)
+
+            # First, stream some chunks for msg_002
+            chunk1 = MessageChunkEvent(
+                session_id=SESSION_ID,
+                message_id="msg_002",
+                chunk="Hello",
+                chunk_index=0,
+            )
+            chunk2 = MessageChunkEvent(
+                session_id=SESSION_ID,
+                message_id="msg_002",
+                chunk=" world",
+                chunk_index=1,
+            )
+            screen.handle_message_chunk(chunk1)
+            screen.handle_message_chunk(chunk2)
+
+            # Verify chunks are in buffer
+            assert chat_view._stream_buffer.has_message("msg_002")
+
+            # Now send the final MessageSentEvent for the same message_id
+            final_event = MessageSentEvent(
+                session_id=SESSION_ID,
+                message_id="msg_002",
+                role=MessageRole.ASSISTANT,
+                agent_id="breqy",
+                content="Hello world",
+            )
+            screen.handle_message_sent(final_event)
+            await pilot.pause()
+
+            # Buffer should be flushed (complete was called)
+            assert not chat_view._stream_buffer.has_message("msg_002")
+
+            # Should have exactly 1 line in the log (not 0, not 2)
+            assert len(chat_view.log_widget.lines) == 1
+
 
 # --------------------------------------------------------------------------- #
 # Event routing tests — MessageChunkEvent (streaming)

@@ -99,13 +99,24 @@ class ChatScreen(Screen[None]):
     # ------------------------------------------------------------------ #
 
     def handle_message_sent(self, event: MessageSentEvent) -> None:
-        """Route a ``MessageSentEvent`` to the ``ChatView``."""
+        """Route a ``MessageSentEvent`` to the ``ChatView``.
+
+        If the message was being streamed (chunks are in the buffer),
+        complete the stream instead of adding a duplicate message.
+        """
         chat_view = self.query_one(ChatView)
-        chat_view.add_message(
-            role=event.role,
-            content=event.content,
-            agent_id=event.agent_id,
-        )
+        if chat_view._stream_buffer.has_message(event.message_id):
+            chat_view.complete_stream(
+                message_id=event.message_id,
+                role=event.role,
+                agent_id=event.agent_id,
+            )
+        else:
+            chat_view.add_message(
+                role=event.role,
+                content=event.content,
+                agent_id=event.agent_id,
+            )
 
     def handle_message_chunk(self, event: MessageChunkEvent) -> None:
         """Route a ``MessageChunkEvent`` to the ``ChatView`` for streaming."""

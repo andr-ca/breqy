@@ -645,6 +645,37 @@ class TestUserMessageSend:
             assert evt.message_id.startswith("msg_")
 
     @pytest.mark.asyncio
+    async def test_message_submitted_echoes_locally_to_chat_view(self) -> None:
+        """When user submits a message, it should immediately appear in ChatView
+        as a local echo (USER message), before the engine round-trip completes."""
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.widgets.chat_view import ChatView
+        from breqy.tui.widgets.message_input import MessageSubmitted
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            app.push_screen(ChatScreen(session_id="ses_echo_test"))
+            await pilot.pause()
+
+            # Post MessageSubmitted
+            app.screen.query_one("MessageInput").post_message(
+                MessageSubmitted(text="Hello, local echo!")
+            )
+            await pilot.pause()
+
+            # ChatView should contain the user message
+            chat_screen = app.screen
+            assert isinstance(chat_screen, ChatScreen)
+            chat_view = chat_screen.query_one(ChatView)
+            assert len(chat_view.log_widget.lines) == 1
+
+    @pytest.mark.asyncio
     async def test_message_submitted_noop_without_chat_screen(self) -> None:
         """MessageSubmitted with no ChatScreen on stack is a silent no-op."""
         from breqy.tui.widgets.message_input import MessageSubmitted

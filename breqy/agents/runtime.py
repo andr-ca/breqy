@@ -226,6 +226,31 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _build_provider(config: AgentConfig) -> ModelProvider | _NullProvider:
+    """Build a real ModelProvider from agent config.
+
+    Falls back to _NullProvider if provider construction fails
+    (e.g., missing credentials backend or unsupported provider).
+    """
+    try:
+        from breqy.agents.credentials import CredentialStore
+        from breqy.agents.providers.adapters import build_model_providers
+        from breqy.secrets.provider import KeyringSecretProvider
+
+        secret_provider = KeyringSecretProvider()
+        credential_store = CredentialStore(secret_provider)
+        providers = build_model_providers(
+            credential_store=credential_store,
+            model_by_provider={config.provider: config.model},
+        )
+        provider = providers.get(config.provider)
+        if provider is not None:
+            return provider
+    except Exception:
+        pass
+    return _NullProvider()
+
+
 def main() -> None:
     args = _parse_args()
     agent_dir = Path(args.agent_dir)
@@ -237,7 +262,7 @@ def main() -> None:
         config=config,
         agent_dir=agent_dir,
         client=A2AClient(config.engine_socket),
-        provider=_NullProvider(),
+        provider=_build_provider(config),
         skill_loader=None,
         private_memory_runtime=None,
         tool_result_waiter=None,

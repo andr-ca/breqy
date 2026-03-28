@@ -335,4 +335,6 @@ class BreqyApp(App):
             role=MessageRole.USER,
             content=message.text,
         )
+        # Local echo: show the user message in ChatView immediately
+        self._route_to_chat("handle_message_sent", event)
         self.run_worker(self.send_event(event), exclusive=False)
