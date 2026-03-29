@@ -1401,3 +1401,398 @@ def test_handle_runtime_message_logs_debug() -> None:
     assert "logger.debug" in source, (
         "_handle_runtime_message must have logger.debug calls for runtime message tracing"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 (M2): Engine routing for model events
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_engine_server_routes_model_list_request_to_primary_agent(
+    db_connection,
+    socket_path,
+) -> None:
+    """ModelListRequestedEvent from TUI is forwarded to the session's primary agent via send_to."""
+    from breqy.domain.events import ModelListRequestedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.agent_registry.register("agt_breqy", client_id="cli_agent", session_id=session.id)
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+
+    # Suppress default broadcast to verify the event is NOT broadcast
+    broadcasts: list[object] = []
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append(envelope)
+
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+
+    request = ModelListRequestedEvent(session_id=session.id)
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    # Forwarded to the primary agent via send_to
+    assert len(sent) == 1
+    assert sent[0][0] == "cli_agent"
+    assert sent[0][1].event_type == EventType.MODEL_LIST_REQUESTED
+
+    # NOT broadcast to all clients
+    assert broadcasts == []
+
+
+@pytest.mark.asyncio
+async def test_engine_server_routes_model_switch_request_to_primary_agent(
+    db_connection,
+    socket_path,
+) -> None:
+    """ModelSwitchRequestedEvent from TUI is forwarded to the session's primary agent via send_to."""
+    from breqy.domain.events import ModelSwitchRequestedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.agent_registry.register("agt_breqy", client_id="cli_agent", session_id=session.id)
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+
+    broadcasts: list[object] = []
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append(envelope)
+
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+
+    request = ModelSwitchRequestedEvent(
+        session_id=session.id,
+        provider_id="copilot",
+        model_id="gpt-4o",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    # Forwarded to the primary agent via send_to
+    assert len(sent) == 1
+    assert sent[0][0] == "cli_agent"
+    routed_event = sent[0][1].to_event()
+    assert isinstance(routed_event, ModelSwitchRequestedEvent)
+    assert routed_event.provider_id == "copilot"
+    assert routed_event.model_id == "gpt-4o"
+
+    # NOT broadcast to all clients
+    assert broadcasts == []
+
+
+@pytest.mark.asyncio
+async def test_engine_server_model_list_request_returns_early_when_session_missing(
+    socket_path,
+) -> None:
+    """ModelListRequestedEvent with unknown session_id silently returns without send_to."""
+    from breqy.domain.events import ModelListRequestedEvent
+
+    class FakeSessionRepo:
+        async def get(self, session_id: str):
+            return None
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=cast(Any, FakeSessionRepo()),
+        message_repo=cast(Any, object()),
+        event_repo=cast(Any, object()),
+        task_repo=cast(Any, object()),
+        approval_repo=cast(Any, object()),
+    )
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+
+    async def noop_broadcast(_: Envelope, exclude_client: str = "") -> None:
+        return None
+
+    server.a2a_server.broadcast = noop_broadcast  # type: ignore[method-assign]
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+
+    request = ModelListRequestedEvent(session_id="ses_nonexistent")
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_engine_server_model_switch_request_returns_early_when_session_missing(
+    socket_path,
+) -> None:
+    """ModelSwitchRequestedEvent with unknown session_id silently returns without send_to."""
+    from breqy.domain.events import ModelSwitchRequestedEvent
+
+    class FakeSessionRepo:
+        async def get(self, session_id: str):
+            return None
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=cast(Any, FakeSessionRepo()),
+        message_repo=cast(Any, object()),
+        event_repo=cast(Any, object()),
+        task_repo=cast(Any, object()),
+        approval_repo=cast(Any, object()),
+    )
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+
+    async def noop_broadcast(_: Envelope, exclude_client: str = "") -> None:
+        return None
+
+    server.a2a_server.broadcast = noop_broadcast  # type: ignore[method-assign]
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+
+    request = ModelSwitchRequestedEvent(
+        session_id="ses_nonexistent",
+        provider_id="copilot",
+        model_id="gpt-4o",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_engine_server_model_list_request_returns_early_when_agent_not_registered(
+    db_connection,
+    socket_path,
+) -> None:
+    """ModelListRequestedEvent returns early when primary agent is not in the registry."""
+    from breqy.domain.events import ModelListRequestedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_missing")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    # Do NOT register "agt_missing" in the registry
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+
+    async def noop_broadcast(_: Envelope, exclude_client: str = "") -> None:
+        return None
+
+    server.a2a_server.broadcast = noop_broadcast  # type: ignore[method-assign]
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+
+    request = ModelListRequestedEvent(session_id=session.id)
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_engine_server_model_switch_request_returns_early_when_agent_not_registered(
+    db_connection,
+    socket_path,
+) -> None:
+    """ModelSwitchRequestedEvent returns early when primary agent is not in the registry."""
+    from breqy.domain.events import ModelSwitchRequestedEvent
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_missing")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+
+    async def noop_broadcast(_: Envelope, exclude_client: str = "") -> None:
+        return None
+
+    server.a2a_server.broadcast = noop_broadcast  # type: ignore[method-assign]
+
+    async def noop_publish(_: object) -> None:
+        return None
+
+    server.event_bus.publish = noop_publish  # type: ignore[method-assign]
+
+    request = ModelSwitchRequestedEvent(
+        session_id=session.id,
+        provider_id="copilot",
+        model_id="gpt-4o",
+    )
+    await server._handle_envelope(Envelope.from_event(request), client_id="cli_tui")
+
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_engine_server_model_info_event_uses_default_broadcast(
+    socket_path,
+) -> None:
+    """ModelInfoEvent (agent → TUI) falls through to default publish+broadcast."""
+    from breqy.domain.events import ModelInfoEvent
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=cast(Any, object()),
+        message_repo=cast(Any, object()),
+        event_repo=cast(Any, object()),
+        task_repo=cast(Any, object()),
+        approval_repo=cast(Any, object()),
+    )
+    published: list[object] = []
+    broadcasts: list[tuple[Envelope, str]] = []
+
+    async def recording_publish(event: object) -> None:
+        published.append(event)
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append((envelope, exclude_client))
+
+    server.event_bus.publish = recording_publish  # type: ignore[method-assign]
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    event = ModelInfoEvent(
+        session_id="ses_123",
+        agent_id="agt_breqy",
+        provider_id="copilot",
+        model_id="gpt-4o",
+    )
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_agent")
+
+    assert len(published) == 1
+    assert published[0].event_type == EventType.MODEL_INFO
+    assert len(broadcasts) == 1
+    assert broadcasts[0][1] == "cli_agent"
+
+
+@pytest.mark.asyncio
+async def test_engine_server_model_list_response_uses_default_broadcast(
+    socket_path,
+) -> None:
+    """ModelListResponseEvent (agent → TUI) falls through to default publish+broadcast."""
+    from breqy.domain.events import ModelListResponseEvent
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=cast(Any, object()),
+        message_repo=cast(Any, object()),
+        event_repo=cast(Any, object()),
+        task_repo=cast(Any, object()),
+        approval_repo=cast(Any, object()),
+    )
+    published: list[object] = []
+    broadcasts: list[tuple[Envelope, str]] = []
+
+    async def recording_publish(event: object) -> None:
+        published.append(event)
+
+    async def recording_broadcast(envelope: Envelope, exclude_client: str = "") -> None:
+        broadcasts.append((envelope, exclude_client))
+
+    server.event_bus.publish = recording_publish  # type: ignore[method-assign]
+    server.a2a_server.broadcast = recording_broadcast  # type: ignore[method-assign]
+
+    event = ModelListResponseEvent(
+        session_id="ses_123",
+        agent_id="agt_breqy",
+        models=[],
+        current_provider="copilot",
+        current_model="gpt-4o",
+    )
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_agent")
+
+    assert len(published) == 1
+    assert published[0].event_type == EventType.MODEL_LIST_RESPONSE
+    assert len(broadcasts) == 1
+    assert broadcasts[0][1] == "cli_agent"

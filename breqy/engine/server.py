@@ -13,6 +13,8 @@ from breqy.domain.events import (
     AgentWorkRequestedEvent,
     ControlEvent,
     MessageSentEvent,
+    ModelListRequestedEvent,
+    ModelSwitchRequestedEvent,
     PrivateMemoryOperationRequestedEvent,
     PrivateMemoryOperationResultEvent,
     SessionCreateRequestedEvent,
@@ -184,6 +186,10 @@ class EngineServer:
             await self._handle_runtime_message(event, client_id=client_id)
             return
 
+        if isinstance(event, (ModelListRequestedEvent, ModelSwitchRequestedEvent)):
+            await self._route_model_request_to_agent(event)
+            return
+
         await self.event_bus.publish(event)
         await self.a2a_server.broadcast(envelope, exclude_client=client_id)
         logger.debug("Event broadcast", event_type=event.event_type.value, exclude_client=client_id)
@@ -332,6 +338,35 @@ class EngineServer:
         if agent_info is None:
             return
         await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(event))
+
+    async def _route_model_request_to_agent(
+        self, event: ModelListRequestedEvent | ModelSwitchRequestedEvent,
+    ) -> None:
+        """Forward a model request (list or switch) to the session's primary agent."""
+        session = await self.session_manager.get_session(event.session_id)
+        if session is None:
+            logger.debug(
+                "Model request dropped: session not found",
+                session_id=event.session_id,
+                event_type=event.event_type.value,
+            )
+            return
+        agent_info = self.agent_registry.get(session.primary_agent_id)
+        if agent_info is None:
+            logger.debug(
+                "Model request dropped: agent not registered",
+                session_id=event.session_id,
+                agent_id=session.primary_agent_id,
+                event_type=event.event_type.value,
+            )
+            return
+        await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(event))
+        logger.debug(
+            "Model request forwarded to agent",
+            session_id=event.session_id,
+            agent_id=session.primary_agent_id,
+            event_type=event.event_type.value,
+        )
 
     async def execute_tool(
         self,
