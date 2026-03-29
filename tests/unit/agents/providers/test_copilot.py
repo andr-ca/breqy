@@ -118,12 +118,165 @@ class TestToolConversion:
         ]
 
 
+class TestCopilotTokenUsage:
+    """Verify that CopilotProvider uses get_copilot_token() (session token)
+    instead of raw get_token() (OAuth token) for API calls."""
+
+    def test_stream_uses_copilot_session_token(self) -> None:
+        """stream() must call get_copilot_token() for the token passed to the API."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=abc;exp=9999999999;sku=copilot_pro"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter([
+            {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+        ])
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        list(provider.stream(_make_request("hi")))
+
+        mock_auth.get_copilot_token.assert_called()
+        # The session token (not OAuth) should be passed to stream_chat
+        token_used = mock_client.stream_chat.call_args.kwargs.get("token")
+        assert token_used == "tid=abc;exp=9999999999;sku=copilot_pro"
+
+    def test_stream_does_not_call_get_token_for_api_auth(self) -> None:
+        """stream() should use get_copilot_token(), not get_token(), when token exists."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=abc;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter([
+            {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+        ])
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        list(provider.stream(_make_request("hi")))
+
+        # get_token() should NOT be used for the API call token
+        # get_copilot_token() should be the method called
+        mock_auth.get_copilot_token.assert_called()
+
+    def test_list_models_uses_copilot_session_token(self) -> None:
+        """list_models() must use get_copilot_token() for Bearer auth."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=xyz;exp=9999999999;sku=copilot_pro"
+
+        mock_client = MagicMock()
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+
+        import httpx
+        from unittest.mock import patch
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "gpt-4o", "name": "GPT-4o"},
+                {"id": "gpt-5.4-mini", "name": "GPT-5.4 Mini"},
+            ]
+        }
+
+        with patch.object(httpx, "get", return_value=mock_response) as mock_get:
+            models = provider.list_models()
+
+        mock_auth.get_copilot_token.assert_called_once()
+        # Verify the session token was used in the Authorization header
+        call_kwargs = mock_get.call_args
+        headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers")
+        assert headers["Authorization"] == "Bearer tid=xyz;exp=9999999999;sku=copilot_pro"
+        assert len(models) == 2
+
+    def test_list_models_returns_fallback_when_no_session_token(self) -> None:
+        """list_models() should return fallback when get_copilot_token() returns None."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = None
+
+        mock_client = MagicMock()
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        models = provider.list_models()
+
+        assert models == [("gpt-4o", "gpt-4o")]
+
+    def test_stream_null_copilot_token_triggers_device_flow(self) -> None:
+        """When get_copilot_token() returns None, device flow should start."""
+        from breqy.agents.providers.copilot import CopilotProvider
+        from breqy.agents.providers.copilot_auth import DeviceFlowInfo
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = None
+        mock_auth.start_device_flow.return_value = DeviceFlowInfo(
+            user_code="ABCD-EFGH",
+            verification_uri="https://github.com/login/device",
+            device_code="dc_123",
+            interval=5,
+            expires_in=900,
+        )
+        mock_auth.poll_for_token.return_value = "gho_fresh"
+        # After device flow, get_copilot_token should return a session token
+        mock_auth.get_copilot_token.side_effect = [None, "tid=new;exp=9999999999"]
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter([
+            {"choices": [{"delta": {"content": "hi"}, "index": 0}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+        ])
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        events = list(provider.stream(_make_request("hi")))
+
+        mock_auth.start_device_flow.assert_called_once()
+        mock_auth.poll_for_token.assert_called_once()
+        assert any(e.kind == "notice" for e in events)
+
+    def test_401_retry_uses_copilot_session_token(self) -> None:
+        """On 401, after clearing token, retry should use get_copilot_token()."""
+        from breqy.agents.providers.copilot import CopilotProvider
+        from breqy.agents.providers.copilot_client import CopilotApiError
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.side_effect = [
+            "tid=old;exp=9999999999",  # first call
+            "tid=new;exp=9999999999",  # after clear_token, second call
+        ]
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.side_effect = [
+            CopilotApiError(401, "Unauthorized"),
+            iter([
+                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]),
+        ]
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        events = list(provider.stream(_make_request("hi")))
+
+        mock_auth.clear_token.assert_called_once()
+        assert mock_auth.get_copilot_token.call_count == 2
+        # Second stream_chat call should use the new session token
+        second_call = mock_client.stream_chat.call_args_list[1]
+        assert second_call.kwargs.get("token") == "tid=new;exp=9999999999"
+
+
 class TestStreamTextEvents:
     def test_stream_text_events(self) -> None:
         from breqy.agents.providers.copilot import CopilotProvider
 
         mock_auth = MagicMock()
-        mock_auth.get_token.return_value = "gho_test"
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_client = MagicMock()
         mock_client.stream_chat.return_value = iter([
@@ -152,7 +305,7 @@ class TestStreamToolCallEvents:
         from breqy.agents.providers.copilot import CopilotProvider
 
         mock_auth = MagicMock()
-        mock_auth.get_token.return_value = "gho_test"
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_client = MagicMock()
         mock_client.stream_chat.return_value = iter([
@@ -181,7 +334,7 @@ class TestApiErrors:
         from breqy.agents.providers.copilot_client import CopilotApiError
 
         mock_auth = MagicMock()
-        mock_auth.get_token.return_value = "gho_test"
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_client = MagicMock()
         mock_client.stream_chat.side_effect = CopilotApiError(500, "Internal Server Error")
@@ -206,7 +359,10 @@ class TestAuthRetry:
         from breqy.agents.providers.copilot_client import CopilotApiError
 
         mock_auth = MagicMock()
-        mock_auth.get_token.side_effect = ["gho_old", "gho_new"]
+        mock_auth.get_copilot_token.side_effect = [
+            "tid=old;exp=9999999999",
+            "tid=new;exp=9999999999",
+        ]
 
         mock_client = MagicMock()
         # First call raises 401, second succeeds
@@ -232,8 +388,9 @@ class TestAuthRetry:
         from breqy.agents.providers.copilot_auth import DeviceFlowInfo
 
         mock_auth = MagicMock()
-        # First call returns None (no token), then returns token after device flow
-        mock_auth.get_token.side_effect = [None, "gho_new"]
+        # First call returns None (no session token), triggering device flow
+        # After poll_for_token stores OAuth, second call returns session token
+        mock_auth.get_copilot_token.side_effect = [None, "tid=new;exp=9999999999"]
         mock_auth.start_device_flow.return_value = DeviceFlowInfo(
             user_code="ABCD-EFGH",
             verification_uri="https://github.com/login/device",
@@ -264,7 +421,7 @@ class TestAuthRetry:
         from breqy.agents.providers.copilot_auth import DeviceFlowInfo
 
         mock_auth = MagicMock()
-        mock_auth.get_token.return_value = None
+        mock_auth.get_copilot_token.side_effect = [None, "tid=new;exp=9999999999"]
         mock_auth.start_device_flow.return_value = DeviceFlowInfo(
             user_code="ABCD-1234",
             verification_uri="https://github.com/login/device",
@@ -306,7 +463,7 @@ class TestAuthRetry:
         call_order: list[str] = []
 
         mock_auth = MagicMock()
-        mock_auth.get_token.return_value = None
+        mock_auth.get_copilot_token.side_effect = [None, "tid=poll;exp=9999999999"]
         mock_auth.start_device_flow.return_value = DeviceFlowInfo(
             user_code="TEST-CODE",
             verification_uri="https://github.com/login/device",

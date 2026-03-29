@@ -102,7 +102,7 @@ class TestCopilotListModels:
     def test_returns_models_from_api(self):
         """list_models() parses API response into (id, name) pairs."""
         auth = MagicMock()
-        auth.get_token.return_value = "test-token"
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -128,7 +128,7 @@ class TestCopilotListModels:
     def test_sends_auth_header(self):
         """list_models() sends Authorization: Bearer header."""
         auth = MagicMock()
-        auth.get_token.return_value = "my-token-123"
+        auth.get_copilot_token.return_value = "tid=abc;exp=9999999999"
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -140,12 +140,12 @@ class TestCopilotListModels:
             provider.list_models()
 
         call_kwargs = mock_httpx.get.call_args
-        assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer my-token-123"
+        assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer tid=abc;exp=9999999999"
 
     def test_model_name_defaults_to_id(self):
         """If model has no 'name' field, use 'id' as display name."""
         auth = MagicMock()
-        auth.get_token.return_value = "token"
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -183,7 +183,7 @@ class TestCopilotListModelsFallback:
     def test_fallback_when_no_token(self):
         """Returns configured model when authenticator has no token."""
         auth = MagicMock()
-        auth.get_token.return_value = None
+        auth.get_copilot_token.return_value = None
 
         provider = self._make_provider(authenticator=auth)
         result = provider.list_models()
@@ -192,7 +192,7 @@ class TestCopilotListModelsFallback:
     def test_fallback_on_http_error(self):
         """Returns configured model on non-200 response."""
         auth = MagicMock()
-        auth.get_token.return_value = "token"
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_response = MagicMock()
         mock_response.status_code = 500
@@ -207,7 +207,7 @@ class TestCopilotListModelsFallback:
     def test_fallback_on_401(self):
         """Returns configured model on 401 (expired token)."""
         auth = MagicMock()
-        auth.get_token.return_value = "expired-token"
+        auth.get_copilot_token.return_value = "tid=expired;exp=9999999999"
 
         mock_response = MagicMock()
         mock_response.status_code = 401
@@ -222,7 +222,7 @@ class TestCopilotListModelsFallback:
     def test_fallback_on_network_error(self):
         """Returns configured model when HTTP request raises."""
         auth = MagicMock()
-        auth.get_token.return_value = "token"
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
             mock_httpx.get.side_effect = Exception("connection refused")

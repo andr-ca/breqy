@@ -61,6 +61,7 @@ class CopilotApiClient:
             model=model,
             message_count=len(messages),
             has_tools=bool(tools),
+            body_keys=list(body.keys()),
         )
 
         with self._http_client.stream("POST", url, headers=headers, json=body) as response:
@@ -74,7 +75,9 @@ class CopilotApiClient:
                 logger.warning(
                     "copilot_api_error",
                     status_code=response.status_code,
-                    error=error_text[:200],
+                    model=model,
+                    error_body=error_text[:500],
+                    response_headers=dict(response.headers),
                 )
                 raise CopilotApiError(response.status_code, error_text)
 

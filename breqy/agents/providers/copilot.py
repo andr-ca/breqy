@@ -59,7 +59,7 @@ class CopilotProvider(ModelProvider):
 
     def list_models(self) -> list[tuple[str, str]]:
         """Query Copilot API for available models."""
-        token = self._authenticator.get_token()
+        token = self._authenticator.get_copilot_token()
         if token is None:
             return [(self.model_id, self.model_id)]
         headers = {
@@ -84,15 +84,17 @@ class CopilotProvider(ModelProvider):
             return [(self.model_id, self.model_id)]
 
     def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]:
-        token = self._authenticator.get_token()
+        token = self._authenticator.get_copilot_token()
         pending_flow = None
 
         if token is None:
             pending_flow = self._start_device_flow()
             yield pending_flow.auth_event  # Yield auth instructions BEFORE blocking poll
-            token = self._authenticator.poll_for_token(
+            self._authenticator.poll_for_token(
                 pending_flow.device_code, interval=pending_flow.interval
             )
+            # After device flow stores the OAuth token, exchange it for a session token
+            token = self._authenticator.get_copilot_token()
 
         messages = self._build_messages(request)
         tools = self._convert_tools(request.tools) if request.tools else None
@@ -103,13 +105,14 @@ class CopilotProvider(ModelProvider):
             if exc.status_code == 401:
                 logger.info("copilot_token_expired_retrying")
                 self._authenticator.clear_token()
-                token = self._authenticator.get_token()
+                token = self._authenticator.get_copilot_token()
                 if token is None:
                     pending_flow = self._start_device_flow()
                     yield pending_flow.auth_event
-                    token = self._authenticator.poll_for_token(
+                    self._authenticator.poll_for_token(
                         pending_flow.device_code, interval=pending_flow.interval
                     )
+                    token = self._authenticator.get_copilot_token()
                 yield from self._do_stream(token, messages, tools)
             else:
                 yield ProviderEvent(

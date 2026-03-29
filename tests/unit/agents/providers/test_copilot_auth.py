@@ -307,3 +307,176 @@ class TestStartDeviceFlowNetworkError:
         ):
             with pytest.raises(CopilotAuthError, match="Failed to initiate device flow"):
                 auth.start_device_flow()
+
+
+def _make_session_token(exp_offset_s: int = 1800) -> str:
+    """Build a fake Copilot session token with exp set relative to now."""
+    import time
+
+    exp = int(time.time()) + exp_offset_s
+    return f"tid=test123;exp={exp};sku=copilot_pro;st=dotcom;chat=1"
+
+
+class TestGetCopilotToken:
+    """Tests for the Copilot session token exchange (OAuth→session token)."""
+
+    def test_exchanges_oauth_token_for_session_token(self) -> None:
+        """get_copilot_token() should call /copilot_internal/v2/token and return session token."""
+        from breqy.agents.providers.copilot_auth import CopilotAuthenticator
+
+        store = _make_credential_store()
+        _store_token(store, "gho_oauth_abc")
+        auth = CopilotAuthenticator(store)
+
+        session_token = _make_session_token(exp_offset_s=1800)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "token": session_token,
+            "expires_at": 1800,
+        }
+
+        with patch("breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response) as mock_get:
+            result = auth.get_copilot_token()
+
+        assert result == session_token
+        mock_get.assert_called_once()
+        call_args = mock_get.call_args
+        assert "copilot_internal/v2/token" in call_args[0][0]
+        assert "gho_oauth_abc" in call_args[1]["headers"]["Authorization"]
+
+    def test_caches_session_token_on_second_call(self) -> None:
+        """Second call should return cached token without another HTTP request."""
+        from breqy.agents.providers.copilot_auth import CopilotAuthenticator
+
+        store = _make_credential_store()
+        _store_token(store, "gho_oauth_abc")
+        auth = CopilotAuthenticator(store)
+
+        session_token = _make_session_token(exp_offset_s=1800)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"token": session_token}
+
+        with patch("breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response) as mock_get:
+            first = auth.get_copilot_token()
+            second = auth.get_copilot_token()
+
+        assert first == second == session_token
+        # Only one HTTP call — second was served from cache
+        assert mock_get.call_count == 1
+
+    def test_refreshes_expired_session_token(self) -> None:
+        """If cached session token is expired, a new one should be fetched."""
+        from breqy.agents.providers.copilot_auth import CopilotAuthenticator
+
+        store = _make_credential_store()
+        _store_token(store, "gho_oauth_abc")
+        auth = CopilotAuthenticator(store)
+
+        expired_token = _make_session_token(exp_offset_s=-60)  # Already expired
+        fresh_token = _make_session_token(exp_offset_s=1800)
+
+        expired_resp = MagicMock()
+        expired_resp.status_code = 200
+        expired_resp.json.return_value = {"token": expired_token}
+
+        fresh_resp = MagicMock()
+        fresh_resp.status_code = 200
+        fresh_resp.json.return_value = {"token": fresh_token}
+
+        with patch(
+            "breqy.agents.providers.copilot_auth.httpx.get",
+            side_effect=[expired_resp, fresh_resp],
+        ) as mock_get:
+            first = auth.get_copilot_token()
+            # First call returns expired token (but it's still returned since just fetched)
+            # Second call should detect it's expired and refetch
+            second = auth.get_copilot_token()
+
+        assert second == fresh_token
+        assert mock_get.call_count == 2
+
+    def test_returns_none_when_no_oauth_token(self) -> None:
+        """If there is no stored OAuth token, get_copilot_token should return None."""
+        from breqy.agents.providers.copilot_auth import CopilotAuthenticator
+
+        store = _make_credential_store()
+        auth = CopilotAuthenticator(store)
+        assert auth.get_copilot_token() is None
+
+    def test_raises_on_http_error(self) -> None:
+        """If the token exchange endpoint returns an error, raise CopilotAuthError."""
+        from breqy.agents.providers.copilot_auth import CopilotAuthenticator, CopilotAuthError
+
+        store = _make_credential_store()
+        _store_token(store, "gho_oauth_abc")
+        auth = CopilotAuthenticator(store)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Unauthorized", request=MagicMock(), response=mock_response
+        )
+
+        with patch("breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response):
+            with pytest.raises(CopilotAuthError, match="token exchange"):
+                auth.get_copilot_token()
+
+    def test_raises_on_network_error(self) -> None:
+        """Network failures during token exchange should raise CopilotAuthError."""
+        from breqy.agents.providers.copilot_auth import CopilotAuthenticator, CopilotAuthError
+
+        store = _make_credential_store()
+        _store_token(store, "gho_oauth_abc")
+        auth = CopilotAuthenticator(store)
+
+        with patch(
+            "breqy.agents.providers.copilot_auth.httpx.get",
+            side_effect=httpx.ConnectError("connection refused"),
+        ):
+            with pytest.raises(CopilotAuthError, match="token exchange"):
+                auth.get_copilot_token()
+
+    def test_sends_correct_headers(self) -> None:
+        """Token exchange should send editor-version and user-agent headers."""
+        from breqy.agents.providers.copilot_auth import CopilotAuthenticator
+
+        store = _make_credential_store()
+        _store_token(store, "gho_test_token")
+        auth = CopilotAuthenticator(store)
+
+        session_token = _make_session_token(exp_offset_s=1800)
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"token": session_token}
+
+        with patch("breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response) as mock_get:
+            auth.get_copilot_token()
+
+        headers = mock_get.call_args[1]["headers"]
+        assert headers["Authorization"] == "token gho_test_token"
+        assert "editor-version" in {k.lower() for k in headers}
+        assert "user-agent" in {k.lower() for k in headers}
+
+
+class TestParseTokenExpiry:
+    """Tests for parsing expiry from Copilot session token format."""
+
+    def test_extracts_exp_from_token(self) -> None:
+        from breqy.agents.providers.copilot_auth import _parse_token_expiry
+
+        token = "tid=abc;exp=1700000000;sku=copilot_pro"
+        assert _parse_token_expiry(token) == 1700000000
+
+    def test_returns_zero_for_missing_exp(self) -> None:
+        from breqy.agents.providers.copilot_auth import _parse_token_expiry
+
+        token = "tid=abc;sku=copilot_pro"
+        assert _parse_token_expiry(token) == 0
+
+    def test_returns_zero_for_invalid_exp(self) -> None:
+        from breqy.agents.providers.copilot_auth import _parse_token_expiry
+
+        token = "tid=abc;exp=notanumber;sku=copilot_pro"
+        assert _parse_token_expiry(token) == 0
