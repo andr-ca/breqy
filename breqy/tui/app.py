@@ -96,6 +96,9 @@ class BreqyApp(App):
         # Debounce flag for model list requests (ctrl+m)
         self._model_list_pending: bool = False
 
+        # Timer handle for model list request timeout
+        self._model_list_timer: object | None = None
+
         # Event dispatcher — routes domain events to screen handlers
         self._dispatcher = EventDispatcher()
         self._setup_dispatcher()
@@ -148,14 +151,14 @@ class BreqyApp(App):
             lambda e: self._route_to_chat("handle_approval_requested", e),
         )
 
-        # Agent lifecycle → ChatScreen
+        # Agent lifecycle → ChatScreen + app-level cleanup
         self._dispatcher.register(
             EventType.AGENT_CONNECTED,
             lambda e: self._route_to_chat("handle_agent_lifecycle", e),
         )
         self._dispatcher.register(
             EventType.AGENT_DISCONNECTED,
-            lambda e: self._route_to_chat("handle_agent_lifecycle", e),
+            self._handle_agent_disconnected,
         )
 
         # Session creation → push ChatScreen
@@ -221,15 +224,28 @@ class BreqyApp(App):
         if isinstance(event, SessionCreatedEvent):
             self.push_screen(ChatScreen(session_id=event.session_id))
 
+    def _handle_agent_disconnected(self, event: Event) -> None:
+        """Handle agent disconnect: route to ChatScreen and reset pending state."""
+        self._route_to_chat("handle_agent_lifecycle", event)
+        self._cancel_model_list_timer()
+        self._model_list_pending = False
+
     def _handle_model_list_response(self, event: Event) -> None:
         """Handle a ModelListResponseEvent by pushing ModelSelectScreen.
 
         Converts ``ModelEntry`` domain objects to ``ModelOption`` dataclasses
-        used by the TUI screen.  Only pushes if a ``ChatScreen`` is active.
+        used by the TUI screen.  Only pushes if a ``ChatScreen`` is active
+        and the request has not already timed out.
         """
+        was_pending = self._model_list_pending
         self._model_list_pending = False
+        self._cancel_model_list_timer()
 
         if not isinstance(event, ModelListResponseEvent):
+            return
+
+        # Ignore late responses that arrive after timeout
+        if not was_pending:
             return
 
         # Only push ModelSelectScreen if a ChatScreen is on the stack
@@ -248,6 +264,22 @@ class BreqyApp(App):
         self.push_screen(
             ModelSelectScreen(models=options, current_model=event.current_model)
         )
+
+    def _on_model_list_timeout(self) -> None:
+        """Called when the model list request times out."""
+        self._model_list_pending = False
+        self._model_list_timer = None
+        self.notify(
+            "Model discovery timed out",
+            severity="warning",
+            timeout=5,
+        )
+
+    def _cancel_model_list_timer(self) -> None:
+        """Cancel the model list timeout timer if active."""
+        if self._model_list_timer is not None:
+            self._model_list_timer.stop()
+            self._model_list_timer = None
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -379,6 +411,14 @@ class BreqyApp(App):
 
         self._model_list_pending = True
 
+        # Start timeout timer (15 seconds)
+        self._cancel_model_list_timer()
+        self._model_list_timer = self.set_timer(
+            15.0, self._on_model_list_timeout
+        )
+
+        self.notify("Discovering models…", timeout=3)
+
         event = ModelListRequestedEvent(session_id=chat_screen.session_id)
         self.run_worker(self.send_event(event), exclusive=False)
 
@@ -454,6 +494,15 @@ class BreqyApp(App):
                 break
         if chat_screen is None:
             return
+
+        # Show switching state in the status bar
+        from breqy.tui.widgets.agent_status import AgentStatusBar
+
+        try:
+            bar = chat_screen.query_one(AgentStatusBar)
+            bar.set_switching()
+        except Exception:
+            pass  # Status bar may not be mounted yet
 
         event = ModelSwitchRequestedEvent(
             session_id=chat_screen.session_id,

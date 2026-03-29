@@ -10,6 +10,7 @@ from typing import Any, Protocol
 import structlog
 
 from breqy.a2a.client import A2AClient
+from breqy.agents.credentials import CredentialStore
 from breqy.agents.private_memory import PrivateMemoryRuntime
 from breqy.agents.providers.base import ModelProvider, ProviderRequest
 from breqy.agents.skills import SkillLoader, SkillActivationError
@@ -151,7 +152,11 @@ class AgentRuntime:
 
     async def _handle_model_list(self, event: ModelListRequestedEvent) -> None:
         """Handle a model list request by discovering models and responding."""
-        models = await self._discover_models()
+        try:
+            models = await self._discover_models()
+        except Exception:
+            logger.warning("Model discovery failed, sending empty response")
+            models = []
         await self._client.send_event(
             ModelListResponseEvent(
                 session_id=event.session_id,
@@ -178,10 +183,20 @@ class AgentRuntime:
             return
 
         # Attempt provider rebuild
-        new_config = self._config.model_copy(
-            update={"provider": event.provider_id, "model": event.model_id}
-        )
-        new_provider = _build_provider(new_config)
+        try:
+            new_config = self._config.model_copy(
+                update={"provider": event.provider_id, "model": event.model_id}
+            )
+            new_provider = _build_provider(new_config)
+        except Exception:
+            logger.warning(
+                "Provider build failed during switch",
+                provider=event.provider_id,
+                model=event.model_id,
+                exc_info=True,
+            )
+            new_provider = _NullProvider()
+            new_config = self._config  # preserve original config
 
         if isinstance(new_provider, _NullProvider):
             # Switch failed — preserve old provider, send error + old model info
@@ -414,29 +429,37 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_provider(config: AgentConfig) -> ModelProvider | _NullProvider:
+def _build_provider(
+    config: AgentConfig,
+    credential_store: CredentialStore | None = None,
+) -> ModelProvider | _NullProvider:
     """Build a real ModelProvider from agent config.
 
     Falls back to _NullProvider if provider construction fails
     (e.g., missing credentials backend or unsupported provider).
+
+    When *credential_store* is provided it is used directly; otherwise
+    a fresh ``CredentialStore`` is created internally (legacy path).
     """
     try:
-        from breqy.agents.credentials import CredentialStore
         from breqy.agents.providers.adapters import build_model_providers
-        from breqy.secrets.provider import FileSecretProvider, KeyringSecretProvider
 
-        try:
-            secret_provider = KeyringSecretProvider()
-            # Probe: verify keyring is functional
-            secret_provider.get("__probe__")
-        except Exception:
-            structlog.get_logger().info(
-                "keyring_unavailable_using_file_store",
-                provider=config.provider,
-            )
-            secret_provider = FileSecretProvider()
+        if credential_store is None:
+            from breqy.secrets.provider import FileSecretProvider, KeyringSecretProvider
 
-        credential_store = CredentialStore(secret_provider)
+            try:
+                secret_provider = KeyringSecretProvider()
+                # Probe: verify keyring is functional
+                secret_provider.get("__probe__")
+            except Exception:
+                structlog.get_logger().info(
+                    "keyring_unavailable_using_file_store",
+                    provider=config.provider,
+                )
+                secret_provider = FileSecretProvider()
+
+            credential_store = CredentialStore(secret_provider)
+
         providers = build_model_providers(
             credential_store=credential_store,
             model_by_provider={config.provider: config.model},
@@ -454,6 +477,20 @@ def _build_provider(config: AgentConfig) -> ModelProvider | _NullProvider:
             exc_info=True,
         )
     return _NullProvider()
+
+
+def _create_credential_store() -> CredentialStore:
+    """Create a CredentialStore with the best available secret backend."""
+    from breqy.secrets.provider import FileSecretProvider, KeyringSecretProvider
+
+    try:
+        secret_provider = KeyringSecretProvider()
+        secret_provider.get("__probe__")
+    except Exception:
+        structlog.get_logger().info("keyring_unavailable_using_file_store")
+        secret_provider = FileSecretProvider()
+
+    return CredentialStore(secret_provider)
 
 
 def main() -> None:
@@ -478,15 +515,19 @@ def main() -> None:
         context={"process": "agent", "agent_id": config.id},
     )
 
+    # Create credential store once — shared by provider builder and runtime
+    credential_store = _create_credential_store()
+
     runtime = AgentRuntime(
         config=config,
         agent_dir=agent_dir,
         client=A2AClient(config.engine_socket),
-        provider=_build_provider(config),
+        provider=_build_provider(config, credential_store=credential_store),
         skill_loader=None,
         private_memory_runtime=None,
         tool_result_waiter=None,
         session_id=session_id,
+        credential_store=credential_store,
     )
 
     import asyncio
@@ -505,6 +546,9 @@ class _NullProvider:
     def stream(self, request: ProviderRequest):
         if False:
             yield request
+
+    def list_models(self) -> list[tuple[str, str]]:
+        return [("null", "null")]
 
 
 if __name__ == "__main__":

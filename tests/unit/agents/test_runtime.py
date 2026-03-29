@@ -469,7 +469,7 @@ def test_runtime_main_builds_real_provider_from_config(monkeypatch, tmp_path: Pa
     # Track _build_provider calls
     build_provider_calls: list[AgentConfig] = []
 
-    def fake_build_provider(cfg: AgentConfig):
+    def fake_build_provider(cfg: AgentConfig, credential_store=None):
         build_provider_calls.append(cfg)
         return FakeProvider(events=[])
 

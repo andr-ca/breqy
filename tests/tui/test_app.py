@@ -864,6 +864,9 @@ class TestModelListResponseDispatcher:
             app.push_screen(chat)
             await pilot.pause()
 
+            # Simulate pending request (as if ctrl+m was pressed)
+            app._model_list_pending = True
+
             event = ModelListResponseEvent(
                 session_id="ses_test",
                 models=[
@@ -902,6 +905,9 @@ class TestModelListResponseDispatcher:
             chat = ChatScreen(session_id="ses_test")
             app.push_screen(chat)
             await pilot.pause()
+
+            # Simulate pending request (as if ctrl+m was pressed)
+            app._model_list_pending = True
 
             event = ModelListResponseEvent(
                 session_id="ses_test",
@@ -1233,3 +1239,294 @@ class TestModelSelectedHandler:
             await pilot.pause()
 
             assert len(sent_events) == 0
+
+
+# ============================================================================ #
+# Phase 6a: _model_list_pending deadlock prevention
+# ============================================================================ #
+
+
+class TestModelListPendingDeadlockPrevention:
+    """Tests that _model_list_pending cannot get stuck True permanently."""
+
+    @pytest.mark.asyncio
+    async def test_pending_flag_cleared_on_agent_disconnect(self) -> None:
+        """When an agent disconnects while a model list request is pending,
+        _model_list_pending should be reset to False."""
+        from breqy.domain.enums import EventType
+        from breqy.domain.events import AgentLifecycleEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Set pending flag (simulating ctrl+m press)
+            app._model_list_pending = True
+
+            # Dispatch an agent disconnect event
+            disconnect = AgentLifecycleEvent(
+                session_id="ses_test",
+                agent_id="agt_default",
+                event_type=EventType.AGENT_DISCONNECTED,
+            )
+            app._dispatcher.dispatch(disconnect)
+            await pilot.pause()
+
+            # Pending flag should be cleared
+            assert app._model_list_pending is False
+
+    @pytest.mark.asyncio
+    async def test_ctrl_m_starts_timeout_timer(self) -> None:
+        """When ctrl+m fires, a timeout timer should be scheduled."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            app.action_push_model_select()
+            await pilot.pause()
+
+            # Timer should exist
+            assert app._model_list_timer is not None
+
+    @pytest.mark.asyncio
+    async def test_timeout_resets_pending_flag(self) -> None:
+        """When the model list timeout fires, _model_list_pending resets to False."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Trigger ctrl+m
+            app.action_push_model_select()
+            await pilot.pause()
+            assert app._model_list_pending is True
+
+            # Manually fire the timeout handler
+            app._on_model_list_timeout()
+
+            assert app._model_list_pending is False
+            assert app._model_list_timer is None
+
+    @pytest.mark.asyncio
+    async def test_timeout_shows_notification(self) -> None:
+        """When timeout fires, user should see an error notification."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture_notify(message, **kwargs):
+            notifications.append(str(message))
+            original_notify(message, **kwargs)
+
+        app.notify = capture_notify  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            app._model_list_pending = True
+            app._on_model_list_timeout()
+            await pilot.pause()
+
+            assert any("timed out" in n.lower() or "timeout" in n.lower() for n in notifications)
+
+    @pytest.mark.asyncio
+    async def test_successful_response_cancels_timer(self) -> None:
+        """When MODEL_LIST_RESPONSE arrives, the timeout timer should be cancelled."""
+        from breqy.domain.events import ModelListResponseEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Simulate pending request with timer
+            app.action_push_model_select()
+            await pilot.pause()
+            assert app._model_list_timer is not None
+
+            # Dispatch a response
+            response = ModelListResponseEvent(
+                session_id="ses_test",
+                models=[],
+                current_provider="copilot",
+                current_model="gpt-4o",
+            )
+            app._handle_model_list_response(response)
+            await pilot.pause()
+
+            # Timer should be cancelled/cleared
+            assert app._model_list_timer is None
+
+    @pytest.mark.asyncio
+    async def test_late_response_after_timeout_does_not_push_screen(self) -> None:
+        """If MODEL_LIST_RESPONSE arrives after timeout, it should not push ModelSelectScreen."""
+        from breqy.domain.events import ModelListResponseEvent
+        from breqy.domain.models import ModelEntry
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.model_select import ModelSelectScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Simulate: request was sent, then timed out
+            app._model_list_pending = False  # timeout already reset it
+            app._model_list_timer = None
+
+            # Late response arrives
+            response = ModelListResponseEvent(
+                session_id="ses_test",
+                models=[
+                    ModelEntry(
+                        provider="copilot",
+                        model_id="gpt-4o",
+                        display_name="GPT-4o",
+                        is_authenticated=True,
+                    ),
+                ],
+                current_provider="copilot",
+                current_model="gpt-4o",
+            )
+            app._handle_model_list_response(response)
+            await pilot.pause()
+
+            # Should still be on ChatScreen, NOT ModelSelectScreen
+            assert isinstance(app.screen, ChatScreen)
+
+    @pytest.mark.asyncio
+    async def test_ctrl_m_shows_loading_notification(self) -> None:
+        """When ctrl+m fires, a loading notification should be shown."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture_notify(message, **kwargs):
+            notifications.append(str(message))
+            original_notify(message, **kwargs)
+
+        app.notify = capture_notify  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            app.action_push_model_select()
+            await pilot.pause()
+
+            assert any("model" in n.lower() for n in notifications)
+
+
+# ============================================================================ #
+# Phase 6d: Switching state triggered from model selection
+# ============================================================================ #
+
+
+class TestModelSelectionTriggersSwitching:
+    """Model selection should trigger switching state in the status bar."""
+
+    @pytest.mark.asyncio
+    async def test_model_selected_sets_switching_state(self) -> None:
+        """When ModelSelected is handled, AgentStatusBar should show switching state."""
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
+        from breqy.tui.widgets.agent_status import AgentStatusBar
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_switch_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Set up initial model info
+            bar = chat.query_one(AgentStatusBar)
+            bar.update_model_info("copilot", "gpt-4o")
+            await pilot.pause()
+
+            # Push model select screen and make a selection
+            model_screen = ModelSelectScreen(
+                models=[
+                    ModelOption(provider="claude", model_id="sonnet", display_name="Sonnet"),
+                ],
+                current_model="gpt-4o",
+            )
+            app.push_screen(model_screen)
+            await pilot.pause()
+
+            model_screen.post_message(
+                ModelSelectScreen.ModelSelected(provider="claude", model_id="sonnet")
+            )
+            await pilot.pause()
+
+            # The status bar should be in switching state
+            assert bar._switching is True

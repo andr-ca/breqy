@@ -303,3 +303,65 @@ class TestAgentStatusBarModelInfo:
             bar.update_model_info("copilot", "gpt-4o")
             bar.clear_model_info()
             assert bar._model_info is None
+
+
+# ============================================================================ #
+# Phase 6d: Switching state in AgentStatusBar
+# ============================================================================ #
+
+
+class TestAgentStatusBarSwitchingState:
+    """Test the 'switching...' transitional display state."""
+
+    @pytest.mark.asyncio
+    async def test_set_switching_shows_switching_text(self) -> None:
+        """After set_switching(), the status bar shows switching indicator."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_agent("agt_breqy", connected=True)
+            bar.update_model_info("copilot", "gpt-4o")
+            await pilot.pause()
+
+            bar.set_switching()
+            await pilot.pause()
+            rendered = str(bar.status_widget.content)
+            assert "switching" in rendered.lower()
+
+    @pytest.mark.asyncio
+    async def test_set_switching_sets_internal_flag(self) -> None:
+        """set_switching() should set _switching to True."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.set_switching()
+            assert bar._switching is True
+
+    @pytest.mark.asyncio
+    async def test_update_model_info_clears_switching(self) -> None:
+        """update_model_info() should clear the switching state."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_agent("agt_breqy", connected=True)
+            bar.set_switching()
+            assert bar._switching is True
+
+            bar.update_model_info("claude", "sonnet")
+            assert bar._switching is False
+            await pilot.pause()
+            rendered = str(bar.status_widget.content)
+            assert "switching" not in rendered.lower()
+            assert "claude" in rendered
+
+    @pytest.mark.asyncio
+    async def test_clear_model_info_clears_switching(self) -> None:
+        """clear_model_info() should clear the switching state."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.set_switching()
+            assert bar._switching is True
+
+            bar.clear_model_info()
+            assert bar._switching is False
