@@ -52,6 +52,10 @@ class EventType(StrEnum):
     MEMORY_PROMOTION_REQUESTED = "memory.promotion.requested"
     MEMORY_PROMOTION_APPROVED = "memory.promotion.approved"
     MEMORY_PROMOTION_DENIED = "memory.promotion.denied"
+    MODEL_INFO = "model.info"
+    MODEL_LIST_REQUESTED = "model.list.requested"
+    MODEL_LIST_RESPONSE = "model.list.response"
+    MODEL_SWITCH_REQUESTED = "model.switch.requested"
 
 
 class MessageRole(StrEnum):

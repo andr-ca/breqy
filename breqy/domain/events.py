@@ -23,6 +23,7 @@ from breqy.domain.enums import (
 )
 from breqy.domain.ids import generate_prefixed_id
 from breqy.domain.models import (
+    ModelEntry,
     SessionContextBundle,
     StructuredErrorPayload,
     StructuredResultPayload,
@@ -398,6 +399,42 @@ class MemoryPromotionDeniedEvent(FixedEventTypeEvent):
 
 
 # --------------------------------------------------------------------------- #
+# Model events
+# --------------------------------------------------------------------------- #
+
+
+class ModelInfoEvent(FixedEventTypeEvent):
+    """Agent announces its current provider and model."""
+
+    event_type: EventType = EventType.MODEL_INFO
+    provider_id: str
+    model_id: str
+
+
+class ModelListRequestedEvent(FixedEventTypeEvent):
+    """TUI asks agent for available models across all providers."""
+
+    event_type: EventType = EventType.MODEL_LIST_REQUESTED
+
+
+class ModelListResponseEvent(FixedEventTypeEvent):
+    """Agent returns discovered models to the TUI."""
+
+    event_type: EventType = EventType.MODEL_LIST_RESPONSE
+    models: list[ModelEntry] = Field(default_factory=list)
+    current_provider: str = ""
+    current_model: str = ""
+
+
+class ModelSwitchRequestedEvent(FixedEventTypeEvent):
+    """TUI requests the agent switch to a different provider/model."""
+
+    event_type: EventType = EventType.MODEL_SWITCH_REQUESTED
+    provider_id: str
+    model_id: str
+
+
+# --------------------------------------------------------------------------- #
 # Registry + deserializer
 # --------------------------------------------------------------------------- #
 
@@ -434,6 +471,10 @@ EVENT_TYPE_MAP: dict[EventType, type[Event]] = {
     EventType.MEMORY_PROMOTION_REQUESTED: MemoryPromotionRequestedEvent,
     EventType.MEMORY_PROMOTION_APPROVED: MemoryPromotionApprovedEvent,
     EventType.MEMORY_PROMOTION_DENIED: MemoryPromotionDeniedEvent,
+    EventType.MODEL_INFO: ModelInfoEvent,
+    EventType.MODEL_LIST_REQUESTED: ModelListRequestedEvent,
+    EventType.MODEL_LIST_RESPONSE: ModelListResponseEvent,
+    EventType.MODEL_SWITCH_REQUESTED: ModelSwitchRequestedEvent,
 }
 
 

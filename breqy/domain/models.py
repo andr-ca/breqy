@@ -204,3 +204,12 @@ class MemoryPromotion(BaseModel):
         if self.status == MemoryPromotionStatus.APPROVED and self.target_record_id is None:
             raise ValueError("approved memory promotions require target_record_id")
         return self
+
+
+class ModelEntry(BaseModel):
+    """A model available from a provider, for model selector UI."""
+
+    provider: str
+    model_id: str
+    display_name: str
+    is_authenticated: bool
