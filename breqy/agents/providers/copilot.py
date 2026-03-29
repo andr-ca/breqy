@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 import structlog
 
 from breqy.agents.providers.base import (
@@ -55,6 +56,32 @@ class CopilotProvider(ModelProvider):
     @property
     def supports_tool_calls(self) -> bool:
         return True
+
+    def list_models(self) -> list[tuple[str, str]]:
+        """Query Copilot API for available models."""
+        token = self._authenticator.get_token()
+        if token is None:
+            return [(self.model_id, self.model_id)]
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        }
+        try:
+            resp = httpx.get(
+                "https://api.githubcopilot.com/models",
+                headers=headers,
+                timeout=10.0,
+            )
+            if resp.status_code != 200:
+                return [(self.model_id, self.model_id)]
+            data = resp.json()
+            return [
+                (m["id"], m.get("name", m["id"]))
+                for m in data.get("data", [])
+            ]
+        except Exception:
+            logger.debug("copilot_list_models_failed", exc_info=True)
+            return [(self.model_id, self.model_id)]
 
     def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]:
         token = self._authenticator.get_token()

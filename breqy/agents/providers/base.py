@@ -59,3 +59,11 @@ class ModelProvider(ABC):
 
     @abstractmethod
     def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]: ...
+
+    def list_models(self) -> list[tuple[str, str]]:
+        """Return available models as (model_id, display_name) pairs.
+
+        Default returns just the configured model. Providers with
+        API-based discovery override this.
+        """
+        return [(self.model_id, self.model_id)]

@@ -55,6 +55,31 @@ _ISOLATED_CONFIG_ENV_VARS = {
     "ANTHROPIC_CONFIG_DIR": "anthropic",
 }
 
+PROVIDER_FALLBACK_MODELS: dict[str, list[tuple[str, str]]] = {
+    "copilot": [
+        ("gpt-4o", "GPT-4o"),
+        ("gpt-4o-mini", "GPT-4o Mini"),
+        ("o3-mini", "O3 Mini"),
+        ("claude-3.5-sonnet", "Claude 3.5 Sonnet"),
+    ],
+    "claude": [
+        ("sonnet", "Claude Sonnet"),
+        ("opus", "Claude Opus"),
+        ("haiku", "Claude Haiku"),
+    ],
+    "codex": [
+        ("codex", "OpenAI Codex"),
+    ],
+    "gemini": [
+        ("gemini-2.0-flash", "Gemini 2.0 Flash"),
+        ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+    ],
+    "qwen": [
+        ("qwen-max", "Qwen Max"),
+        ("qwen-plus", "Qwen Plus"),
+    ],
+}
+
 
 def _isolated_runtime_env(*, extra_env: dict[str, str], provider_id: str) -> dict[str, str]:
     env = {
