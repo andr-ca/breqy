@@ -322,77 +322,100 @@ class AgentRuntime:
             provider=self._provider.provider_id,
             model=self._provider.model_id,
         )
-        for provider_event in self._provider.stream(request):
-            # Cancellation checkpoint 1: before processing each provider event
-            if self._cancel_requested.is_set():
-                break
-
-            if provider_event.kind == "notice" and provider_event.text is not None:
-                # Notice events are sent as complete standalone messages
-                # so the TUI renders them immediately (e.g. auth instructions).
-                notice_message_id = generate_prefixed_id("msg")
-                await self._client.send_event(
-                    MessageSentEvent(
-                        session_id=event.session_id,
-                        agent_id=event.agent_id,
-                        correlation_id=event.correlation_id,
-                        message_id=notice_message_id,
-                        role=MessageRole.SYSTEM,
-                        content=provider_event.text,
-                    )
-                )
-                # Reset for the next (real) streaming message
-                assistant_message_id = generate_prefixed_id("msg")
-                content_parts = []
-                chunk_index = 0
-                continue
-
-            if provider_event.kind == "text" and provider_event.text is not None:
-                content_parts.append(provider_event.text)
-                await self._client.send_event(
-                    MessageChunkEvent(
-                        session_id=event.session_id,
-                        agent_id=event.agent_id,
-                        correlation_id=event.correlation_id,
-                        message_id=assistant_message_id,
-                        chunk=provider_event.text,
-                        chunk_index=chunk_index,
-                    )
-                )
-                chunk_index += 1
-                continue
-
-            if provider_event.kind == "tool_call" and provider_event.tool_call is not None:
-                arguments: dict[str, Any] = {}
-                if provider_event.tool_call.arguments_chunk:
-                    arguments = json.loads(provider_event.tool_call.arguments_chunk)
-                await self._client.send_event(
-                    ToolExecutionRequestedEvent(
-                        session_id=event.session_id,
-                        agent_id=event.agent_id,
-                        correlation_id=provider_event.tool_call.call_id,
-                        invocation_id=provider_event.tool_call.call_id,
-                        tool_name=provider_event.tool_call.tool_name,
-                        arguments=arguments,
-                    )
-                )
-                if self._tool_result_waiter is not None:
-                    await self._tool_result_waiter.wait_for(provider_event.tool_call.call_id)
-
-                # Cancellation checkpoint 2: after tool result
+        stream_error: Exception | None = None
+        try:
+            for provider_event in self._provider.stream(request):
+                # Cancellation checkpoint 1: before processing each provider event
                 if self._cancel_requested.is_set():
                     break
 
-        await self._client.send_event(
-            MessageSentEvent(
-                session_id=event.session_id,
-                agent_id=event.agent_id,
-                correlation_id=event.correlation_id,
-                message_id=assistant_message_id,
-                role=MessageRole.ASSISTANT,
-                content="".join(content_parts),
+                if provider_event.kind == "notice" and provider_event.text is not None:
+                    # Notice events are sent as complete standalone messages
+                    # so the TUI renders them immediately (e.g. auth instructions).
+                    notice_message_id = generate_prefixed_id("msg")
+                    await self._client.send_event(
+                        MessageSentEvent(
+                            session_id=event.session_id,
+                            agent_id=event.agent_id,
+                            correlation_id=event.correlation_id,
+                            message_id=notice_message_id,
+                            role=MessageRole.SYSTEM,
+                            content=provider_event.text,
+                        )
+                    )
+                    # Reset for the next (real) streaming message
+                    assistant_message_id = generate_prefixed_id("msg")
+                    content_parts = []
+                    chunk_index = 0
+                    continue
+
+                if provider_event.kind == "text" and provider_event.text is not None:
+                    content_parts.append(provider_event.text)
+                    await self._client.send_event(
+                        MessageChunkEvent(
+                            session_id=event.session_id,
+                            agent_id=event.agent_id,
+                            correlation_id=event.correlation_id,
+                            message_id=assistant_message_id,
+                            chunk=provider_event.text,
+                            chunk_index=chunk_index,
+                        )
+                    )
+                    chunk_index += 1
+                    continue
+
+                if provider_event.kind == "tool_call" and provider_event.tool_call is not None:
+                    arguments: dict[str, Any] = {}
+                    if provider_event.tool_call.arguments_chunk:
+                        arguments = json.loads(provider_event.tool_call.arguments_chunk)
+                    await self._client.send_event(
+                        ToolExecutionRequestedEvent(
+                            session_id=event.session_id,
+                            agent_id=event.agent_id,
+                            correlation_id=provider_event.tool_call.call_id,
+                            invocation_id=provider_event.tool_call.call_id,
+                            tool_name=provider_event.tool_call.tool_name,
+                            arguments=arguments,
+                        )
+                    )
+                    if self._tool_result_waiter is not None:
+                        await self._tool_result_waiter.wait_for(provider_event.tool_call.call_id)
+
+                    # Cancellation checkpoint 2: after tool result
+                    if self._cancel_requested.is_set():
+                        break
+        except Exception as exc:
+            stream_error = exc
+            logger.error(
+                "Provider stream error",
+                provider=self._provider.provider_id,
+                model=self._provider.model_id,
+                error=str(exc),
             )
-        )
+
+        if stream_error is not None:
+            error_message_id = generate_prefixed_id("msg")
+            await self._client.send_event(
+                MessageSentEvent(
+                    session_id=event.session_id,
+                    agent_id=event.agent_id,
+                    correlation_id=event.correlation_id,
+                    message_id=error_message_id,
+                    role=MessageRole.SYSTEM,
+                    content=f"Error from {self._provider.provider_id}/{self._provider.model_id}: {stream_error}",
+                )
+            )
+        else:
+            await self._client.send_event(
+                MessageSentEvent(
+                    session_id=event.session_id,
+                    agent_id=event.agent_id,
+                    correlation_id=event.correlation_id,
+                    message_id=assistant_message_id,
+                    role=MessageRole.ASSISTANT,
+                    content="".join(content_parts),
+                )
+            )
         logger.debug(
             "Response complete",
             message_id=assistant_message_id,

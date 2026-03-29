@@ -42,6 +42,8 @@ class CopilotApiClient:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "User-Agent": "breqy/0.1.0",
+            "Copilot-Integration-Id": "breqy",
+            "Editor-Version": "breqy/0.1.0",
             "Openai-Intent": "conversation-edits",
             "x-initiator": "user",
             "Accept": "text/event-stream",

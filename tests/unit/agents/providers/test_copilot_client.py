@@ -243,3 +243,76 @@ class TestStreamPartialChunks:
             if r.get("choices", [{}])[0].get("delta", {}).get("content")
         ]
         assert text_chunks == ["part1", "part2"]
+
+
+class TestOriginatorHeaders:
+    """TUI-13: Verify originator identity headers are sent on every request."""
+
+    def test_stream_chat_sends_copilot_integration_id(self) -> None:
+        """Copilot-Integration-Id header must be set to 'breqy'."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(client.stream_chat(
+            token="gho_test",
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+        ))
+
+        call_args = mock_client.stream.call_args
+        headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
+        assert headers["Copilot-Integration-Id"] == "breqy"
+
+    def test_stream_chat_sends_editor_version(self) -> None:
+        """Editor-Version header must identify breqy."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(client.stream_chat(
+            token="gho_test",
+            model="gpt-5.4-mini",
+            messages=[{"role": "user", "content": "hi"}],
+        ))
+
+        call_args = mock_client.stream.call_args
+        headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
+        assert "Editor-Version" in headers
+        assert "breqy" in headers["Editor-Version"]
+
+    def test_originator_headers_present_with_tools(self) -> None:
+        """Originator headers must also be sent on tool-use follow-up requests."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(client.stream_chat(
+            token="gho_test",
+            model="gpt-4o",
+            messages=[
+                {"role": "user", "content": "read file"},
+                {"role": "assistant", "content": None, "tool_calls": [
+                    {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
+                ]},
+                {"role": "tool", "tool_call_id": "c1", "content": "file contents"},
+            ],
+            tools=[{"type": "function", "function": {"name": "read_file", "description": "Read a file", "parameters": {}}}],
+        ))
+
+        call_args = mock_client.stream.call_args
+        headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
+        assert headers["Copilot-Integration-Id"] == "breqy"
+        assert "breqy" in headers["Editor-Version"]

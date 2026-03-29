@@ -961,3 +961,97 @@ async def test_handle_work_sends_notice_as_complete_message():
     assert "Please authenticate at https://example.com" not in chunk_texts
     assert "Hello" in chunk_texts
     assert " world" in chunk_texts
+
+
+@dataclass
+class ErroringProvider:
+    """Provider that raises an exception during stream()."""
+
+    error: Exception
+    events_before_error: list[ProviderEvent] = field(default_factory=list)
+    supports_tool_calls: bool = True
+    provider_id: str = "copilot"
+    model_id: str = "gpt-5.4-mini"
+    requests: list[ProviderRequest] = field(default_factory=list)
+
+    def stream(self, request: ProviderRequest):  # noqa: ANN201
+        self.requests.append(request)
+        for event in self.events_before_error:
+            yield event
+        raise self.error
+
+
+class TestStreamErrorHandling:
+    """Tests that provider stream errors are caught and reported to the TUI."""
+
+    @pytest.mark.asyncio
+    async def test_provider_error_sends_error_message_to_tui(self) -> None:
+        """When provider.stream() raises, an error MessageSentEvent should be emitted."""
+        from breqy.agents.providers.copilot_client import CopilotApiError
+
+        provider = ErroringProvider(error=CopilotApiError(400, "model not available"))
+        runtime, client = _build_runtime(provider=provider)
+        await runtime.handle_work(_work_event())
+
+        sent_types = [cast(Any, e).event_type for e in client.sent_events]
+        assert EventType.MESSAGE_SENT in sent_types
+        final = cast(MessageSentEvent, client.sent_events[-1])
+        assert final.role == MessageRole.SYSTEM
+        assert "error" in final.content.lower() or "400" in final.content
+
+    @pytest.mark.asyncio
+    async def test_provider_error_preserves_partial_content(self) -> None:
+        """If some text was streamed before the error, chunks should still be emitted."""
+        from breqy.agents.providers.copilot_client import CopilotApiError
+
+        provider = ErroringProvider(
+            error=CopilotApiError(500, "Internal Server Error"),
+            events_before_error=[
+                ProviderEvent(kind="text", text="Hello"),
+            ],
+        )
+        runtime, client = _build_runtime(provider=provider)
+        await runtime.handle_work(_work_event())
+
+        sent_types = [cast(Any, e).event_type for e in client.sent_events]
+        # Should have: MESSAGE_CHUNK (for "Hello") + MESSAGE_SENT (error)
+        assert EventType.MESSAGE_CHUNK in sent_types
+        assert EventType.MESSAGE_SENT in sent_types
+
+    @pytest.mark.asyncio
+    async def test_provider_generic_exception_sends_error_message(self) -> None:
+        """Non-API exceptions (e.g. ConnectionError) should also produce error messages."""
+        provider = ErroringProvider(error=ConnectionError("connection refused"))
+        runtime, client = _build_runtime(provider=provider)
+        await runtime.handle_work(_work_event())
+
+        sent_types = [cast(Any, e).event_type for e in client.sent_events]
+        assert EventType.MESSAGE_SENT in sent_types
+        final = cast(MessageSentEvent, client.sent_events[-1])
+        assert final.role == MessageRole.SYSTEM
+        assert "error" in final.content.lower() or "connection" in final.content.lower()
+
+    @pytest.mark.asyncio
+    async def test_provider_error_does_not_crash_runtime(self) -> None:
+        """After a stream error, the runtime should remain operational (not raise)."""
+        from breqy.agents.providers.copilot_client import CopilotApiError
+
+        provider = ErroringProvider(error=CopilotApiError(400, "bad request"))
+        runtime, client = _build_runtime(provider=provider)
+
+        # Should not raise — error is caught and reported
+        await runtime.handle_work(_work_event())
+
+        # Runtime should be able to handle another work event
+        provider2 = FakeProvider(events=[
+            ProviderEvent(kind="text", text="recovered"),
+            ProviderEvent(kind="complete", metadata=CompletionMetadata(
+                provider_id="copilot", model_id="gpt-4o", exit_code=0,
+            )),
+        ])
+        runtime._provider = cast(Any, provider2)
+        await runtime.handle_work(_work_event())
+
+        # The second call should produce normal events
+        final = cast(MessageSentEvent, client.sent_events[-1])
+        assert final.content == "recovered"
