@@ -11,7 +11,7 @@ from textual.message import Message as TextualMessage
 from textual.widget import Widget
 from textual.widgets import Input
 
-from breqy.tui.commands import CommandRegistry, CommandResult
+from breqy.tui.commands import CommandRegistry, CommandResult, SlashCommandSuggester
 
 
 class MessageSubmitted(TextualMessage):
@@ -46,7 +46,12 @@ class MessageInput(Widget):
         self.command_registry = command_registry or CommandRegistry()
 
     def compose(self):  # noqa: ANN201
-        yield Input(placeholder="Type a message or /command...", id="message-input")
+        suggester = SlashCommandSuggester.from_registry(self.command_registry)
+        yield Input(
+            placeholder="Type a message or /command...",
+            id="message-input",
+            suggester=suggester,
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle the inner Input's Submitted event."""

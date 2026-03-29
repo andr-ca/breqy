@@ -30,6 +30,7 @@ from breqy.domain.events import (
     ToolOutputChunkEvent,
 )
 from breqy.domain.models import ApprovalRequest
+from breqy.tui.commands import CommandRegistry, CommandResult
 from breqy.tui.widgets.agent_status import AgentStatusBar
 from breqy.tui.widgets.approval_prompt import ApprovalPrompt
 from breqy.tui.widgets.chat_view import ChatView
@@ -73,6 +74,23 @@ class ChatScreen(Screen[None]):
     def __init__(self, session_id: str, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self.session_id = session_id
+        self._command_registry = self._build_command_registry()
+
+    @staticmethod
+    def _build_command_registry() -> CommandRegistry:
+        """Create the slash-command registry for chat input."""
+        registry = CommandRegistry()
+        registry.register(
+            "models",
+            lambda: CommandResult(success=True, message="models"),
+            description="Open the model selector",
+        )
+        registry.register(
+            "help",
+            lambda: CommandResult(success=True, message="help"),
+            description="Show available commands",
+        )
+        return registry
 
     def compose(self):  # noqa: ANN201
         """Yield the full chat screen layout."""
@@ -84,7 +102,7 @@ class ChatScreen(Screen[None]):
                     yield TaskPanel()
                     yield ToolPanel()
             yield ApprovalPrompt()
-            yield MessageInput()
+            yield MessageInput(command_registry=self._command_registry)
             yield ControlBar()
 
     def on_mount(self) -> None:

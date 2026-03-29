@@ -34,7 +34,7 @@ from breqy.tui.screens.chat import ChatScreen
 from breqy.tui.screens.logs import LogEntry, LogsScreen
 from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
-from breqy.tui.widgets.message_input import MessageSubmitted
+from breqy.tui.widgets.message_input import CommandExecuted, MessageSubmitted
 
 logger = structlog.get_logger(__name__)
 
@@ -70,7 +70,7 @@ class BreqyApp(App):
         Binding("ctrl+q", "quit", "Quit", show=True),
         Binding("ctrl+l", "push_logs", "Logs", show=True),
         Binding("ctrl+a", "push_auth", "Auth", show=True),
-        Binding("ctrl+m", "push_model_select", "Models", show=True),
+        Binding("ctrl+shift+m", "push_model_select", "Models", show=True),
         Binding("escape", "pop_screen_safe", "Back", show=False),
     ]
 
@@ -477,6 +477,47 @@ class BreqyApp(App):
         # Local echo: show the user message in ChatView immediately
         self._route_to_chat("handle_message_sent", event)
         self.run_worker(self.send_event(event), exclusive=False)
+
+    def on_command_executed(self, message: CommandExecuted) -> None:
+        """Handle a slash command dispatched by ``MessageInput``.
+
+        Routes ``/models`` to the model-list request flow and
+        ``/help`` to a notification listing all available commands.
+        Unknown or failed commands show an error notification.
+        """
+        if not message.result.success:
+            self.notify(message.result.message, severity="error", timeout=5)
+            return
+
+        cmd = message.result.message
+        if cmd == "models":
+            self.action_push_model_select()
+        elif cmd == "help":
+            self._show_help()
+        else:
+            logger.debug("Unhandled command result", command=message.command, result=cmd)
+
+    def _show_help(self) -> None:
+        """Show a notification listing all registered slash commands."""
+        # Grab the registry from the active ChatScreen's MessageInput
+        from breqy.tui.widgets.message_input import MessageInput as MIWidget
+
+        chat_screen: ChatScreen | None = None
+        for screen in reversed(self.screen_stack):
+            if isinstance(screen, ChatScreen):
+                chat_screen = screen
+                break
+
+        lines = ["Available commands:"]
+        if chat_screen is not None:
+            try:
+                mi = chat_screen.query_one(MIWidget)
+                for name, desc in mi.command_registry.list_commands().items():
+                    lines.append(f"  /{name} — {desc}")
+            except Exception:
+                pass
+
+        self.notify("\n".join(lines), timeout=8)
 
     # ------------------------------------------------------------------ #
     # ModelSelectScreen message handlers

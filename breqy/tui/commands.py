@@ -1,11 +1,17 @@
 """Slash-command registry for the TUI input bar.
 
-Pure logic — no Textual dependency.
+Includes ``CommandRegistry`` (pure logic) and ``SlashCommandSuggester``
+(Textual ``Suggester`` subclass for autocomplete).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import TYPE_CHECKING, Callable, Iterable
+
+from textual.suggester import Suggester
+
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass
@@ -62,3 +68,45 @@ class CommandRegistry:
         name = parts[0].lstrip("/") if parts else ""
         args = parts[1:] if len(parts) > 1 else []
         return name, args
+
+
+# --------------------------------------------------------------------------- #
+# Autocomplete suggester
+# --------------------------------------------------------------------------- #
+
+
+class SlashCommandSuggester(Suggester):
+    """Suggests slash commands when the user types ``/``.
+
+    Only activates when the input value starts with ``/``.  Returns the
+    first matching command (sorted alphabetically) or ``None``.
+    """
+
+    def __init__(
+        self,
+        commands: Iterable[str],
+        *,
+        case_sensitive: bool = False,
+    ) -> None:
+        super().__init__(use_cache=True, case_sensitive=case_sensitive)
+        self._commands = sorted(commands)
+        self._for_comparison = (
+            self._commands
+            if case_sensitive
+            else [cmd.casefold() for cmd in self._commands]
+        )
+
+    @classmethod
+    def from_registry(cls, registry: CommandRegistry) -> SlashCommandSuggester:
+        """Create a suggester from a :class:`CommandRegistry`."""
+        commands = [f"/{name}" for name in registry.list_commands()]
+        return cls(commands)
+
+    async def get_suggestion(self, value: str) -> str | None:
+        """Return a completion suggestion for *value*, or ``None``."""
+        if not value.startswith("/"):
+            return None
+        for idx, candidate in enumerate(self._for_comparison):
+            if candidate.startswith(value if self.case_sensitive else value.casefold()):
+                return self._commands[idx]
+        return None

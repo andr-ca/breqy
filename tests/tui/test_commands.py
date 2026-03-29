@@ -93,6 +93,133 @@ class TestCommandRegistryParse:
         assert args == ["hello", "world"]
 
 
+# --------------------------------------------------------------------------- #
+# SlashCommandSuggester (autocomplete)
+# --------------------------------------------------------------------------- #
+
+
+class TestSlashCommandSuggester:
+    """Tests for SlashCommandSuggester — autocomplete for slash commands."""
+
+    @pytest.mark.asyncio
+    async def test_suggests_matching_command(self) -> None:
+        """Typing '/mo' should suggest '/models'."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/models", "/help"])
+        result = await suggester.get_suggestion("/mo")
+        assert result == "/models"
+
+    @pytest.mark.asyncio
+    async def test_suggests_nothing_for_non_slash_input(self) -> None:
+        """Normal text (no slash prefix) should not trigger suggestions."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/models", "/help"])
+        result = await suggester.get_suggestion("hello")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_suggests_nothing_for_empty_input(self) -> None:
+        """Empty input should not trigger suggestions."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/models", "/help"])
+        result = await suggester.get_suggestion("")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_suggests_first_match_for_slash_only(self) -> None:
+        """Typing just '/' should suggest the first command alphabetically."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/help", "/models"])
+        result = await suggester.get_suggestion("/")
+        assert result == "/help"
+
+    @pytest.mark.asyncio
+    async def test_suggests_help_for_slash_h(self) -> None:
+        """Typing '/h' should suggest '/help'."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/models", "/help"])
+        result = await suggester.get_suggestion("/h")
+        assert result == "/help"
+
+    @pytest.mark.asyncio
+    async def test_no_match_returns_none(self) -> None:
+        """Typing '/z' with no matching commands should return None."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/models", "/help"])
+        result = await suggester.get_suggestion("/z")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_matching(self) -> None:
+        """Matching should be case-insensitive by default."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/Models", "/Help"])
+        result = await suggester.get_suggestion("/mo")
+        assert result == "/Models"
+
+    @pytest.mark.asyncio
+    async def test_exact_match_returns_command(self) -> None:
+        """Typing the full command '/models' should still return it."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        suggester = SlashCommandSuggester(["/models", "/help"])
+        result = await suggester.get_suggestion("/models")
+        assert result == "/models"
+
+    def test_is_textual_suggester_subclass(self) -> None:
+        """SlashCommandSuggester should be a Textual Suggester subclass."""
+        from textual.suggester import Suggester
+
+        from breqy.tui.commands import SlashCommandSuggester
+
+        assert issubclass(SlashCommandSuggester, Suggester)
+
+    @pytest.mark.asyncio
+    async def test_from_registry_creates_suggester(self) -> None:
+        """from_registry class method creates a suggester from a CommandRegistry."""
+        from breqy.tui.commands import SlashCommandSuggester
+
+        registry = CommandRegistry()
+        registry.register("models", lambda: CommandResult(success=True), "Open model picker")
+        registry.register("help", lambda: CommandResult(success=True), "Show help")
+
+        suggester = SlashCommandSuggester.from_registry(registry)
+        result = await suggester.get_suggestion("/mo")
+        assert result == "/models"
+
+
+class TestMessageInputHasSuggester:
+    """Tests that MessageInput uses SlashCommandSuggester for autocomplete."""
+
+    @pytest.mark.asyncio
+    async def test_message_input_inner_input_has_suggester(self) -> None:
+        """The inner Input widget should have a SlashCommandSuggester set."""
+        from textual.app import App, ComposeResult
+
+        from breqy.tui.commands import SlashCommandSuggester
+        from breqy.tui.widgets.message_input import MessageInput
+
+        registry = CommandRegistry()
+        registry.register("models", lambda: CommandResult(success=True), "Model picker")
+
+        class TestApp(App[None]):
+            def compose(self) -> ComposeResult:
+                yield MessageInput(command_registry=registry)
+
+        app = TestApp()
+        async with app.run_test() as pilot:
+            mi = app.query_one(MessageInput)
+            inner_input = mi.query_one("#message-input")
+            assert isinstance(inner_input.suggester, SlashCommandSuggester)
+
+
 class TestCommandRegistryDispatch:
     """Test command dispatching."""
 

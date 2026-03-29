@@ -328,3 +328,70 @@ class TestLoadModels:
             # Verify the new current model is checked
             cell_value = str(table.get_cell_at((0, 0)))
             assert "✓" in cell_value
+
+
+# --------------------------------------------------------------------------- #
+# Duplicate model_id across providers (DuplicateKey fix)
+# --------------------------------------------------------------------------- #
+
+
+class TestDuplicateModelIds:
+    """Models with the same model_id from different providers must not crash."""
+
+    @pytest.mark.asyncio
+    async def test_duplicate_model_ids_no_crash(self) -> None:
+        """Two providers offering the same model_id should not raise DuplicateKey."""
+        models = [
+            _make_model(provider="copilot", model_id="gpt-4", display_name="GPT 4 (Copilot)"),
+            _make_model(provider="openai", model_id="gpt-4", display_name="GPT 4 (OpenAI)"),
+        ]
+        app = ModelSelectApp(models=models)
+        async with app.run_test() as pilot:
+            table = app.screen.query_one(DataTable)
+            assert table.row_count == 2
+
+    @pytest.mark.asyncio
+    async def test_duplicate_model_ids_both_selectable(self) -> None:
+        """Both rows with duplicate model_ids should be present and selectable."""
+        models = [
+            _make_model(provider="copilot", model_id="gpt-4", display_name="GPT 4 (Copilot)"),
+            _make_model(provider="openai", model_id="gpt-4", display_name="GPT 4 (OpenAI)"),
+        ]
+        messages_received: list[ModelSelectScreen.ModelSelected] = []
+
+        class CaptureApp(App[None]):
+            def on_mount(self_app) -> None:
+                self_app.push_screen(ModelSelectScreen(models=models, current_model=""))
+
+            def on_model_select_screen_model_selected(
+                self_app, message: ModelSelectScreen.ModelSelected
+            ) -> None:
+                messages_received.append(message)
+
+        app = CaptureApp()
+        async with app.run_test() as pilot:
+            table = app.screen.query_one(DataTable)
+            # Select second row (openai/gpt-4)
+            table.move_cursor(row=1)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert len(messages_received) == 1
+            assert messages_received[0].provider == "openai"
+            assert messages_received[0].model_id == "gpt-4"
+
+    @pytest.mark.asyncio
+    async def test_load_models_with_duplicates_no_crash(self) -> None:
+        """load_models with duplicate model_ids should not crash on reload."""
+        models = [
+            _make_model(provider="copilot", model_id="gpt-4", display_name="GPT 4 (Copilot)"),
+            _make_model(provider="openai", model_id="gpt-4", display_name="GPT 4 (OpenAI)"),
+        ]
+        app = ModelSelectApp(models=[])
+        async with app.run_test() as pilot:
+            screen = app.screen
+            assert isinstance(screen, ModelSelectScreen)
+            screen.load_models(models, current_model="gpt-4")
+            await pilot.pause()
+            table = screen.query_one(DataTable)
+            assert table.row_count == 2

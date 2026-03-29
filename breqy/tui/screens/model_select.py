@@ -130,7 +130,7 @@ class ModelSelectScreen(Screen):
                 model.provider,
                 model.model_id,
                 model.display_name,
-                key=model.model_id,
+                key=f"{model.provider}:{model.model_id}",
             )
 
     # ------------------------------------------------------------------ #
@@ -149,12 +149,8 @@ class ModelSelectScreen(Screen):
     def _on_row_selected(self, event: DataTable.RowSelected) -> None:
         """When a row is selected, post ModelSelected and pop screen."""
         if event.row_key.value is not None:
-            model_id = str(event.row_key.value)
-            # Look up the provider from our model list
-            provider = ""
-            for model in self._models:
-                if model.model_id == model_id:
-                    provider = model.provider
-                    break
+            key = str(event.row_key.value)
+            # Key format is "provider:model_id"
+            provider, _, model_id = key.partition(":")
             self.post_message(self.ModelSelected(provider=provider, model_id=model_id))
             self.app.pop_screen()

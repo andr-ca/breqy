@@ -74,7 +74,7 @@ class TestBreqyAppBindings:
     def test_has_model_select_binding(self) -> None:
         app = BreqyApp()
         keys = [b.key for b in app.BINDINGS]
-        assert "ctrl+m" in keys
+        assert "ctrl+shift+m" in keys
 
     def test_has_escape_binding(self) -> None:
         app = BreqyApp()
@@ -1530,3 +1530,245 @@ class TestModelSelectionTriggersSwitching:
 
             # The status bar should be in switching state
             assert bar._switching is True
+
+
+# ============================================================================ #
+# Keybinding fix: ctrl+m -> ctrl+shift+m
+# ============================================================================ #
+
+
+class TestModelSelectKeyBinding:
+    """Tests that ctrl+shift+m replaced ctrl+m for model selection."""
+
+    def test_has_ctrl_shift_m_binding(self) -> None:
+        app = BreqyApp()
+        keys = [b.key for b in app.BINDINGS]
+        assert "ctrl+shift+m" in keys
+
+    def test_no_ctrl_m_binding(self) -> None:
+        """ctrl+m conflicts with Enter in terminals — must not be bound."""
+        app = BreqyApp()
+        keys = [b.key for b in app.BINDINGS]
+        assert "ctrl+m" not in keys
+
+
+# ============================================================================ #
+# Slash commands: /models and /help wiring
+# ============================================================================ #
+
+
+class TestSlashCommandRegistry:
+    """Tests that ChatScreen provides a CommandRegistry with /models and /help."""
+
+    @pytest.mark.asyncio
+    async def test_chat_screen_message_input_has_registry(self) -> None:
+        """MessageInput in ChatScreen should have a non-empty CommandRegistry."""
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.widgets.message_input import MessageInput
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            mi = chat.query_one(MessageInput)
+            commands = mi.command_registry.list_commands()
+            assert len(commands) > 0
+
+    @pytest.mark.asyncio
+    async def test_models_command_registered(self) -> None:
+        """A /models command should be registered in the ChatScreen's registry."""
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.widgets.message_input import MessageInput
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            mi = chat.query_one(MessageInput)
+            commands = mi.command_registry.list_commands()
+            assert "models" in commands
+
+    @pytest.mark.asyncio
+    async def test_help_command_registered(self) -> None:
+        """A /help command should be registered in the ChatScreen's registry."""
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.widgets.message_input import MessageInput
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            mi = chat.query_one(MessageInput)
+            commands = mi.command_registry.list_commands()
+            assert "help" in commands
+
+
+class TestSlashModelsCommand:
+    """Tests that /models triggers the model list request flow."""
+
+    @pytest.mark.asyncio
+    async def test_models_command_triggers_model_list_request(self) -> None:
+        """Typing /models should send ModelListRequestedEvent, same as ctrl+shift+m."""
+        from breqy.domain.events import ModelListRequestedEvent
+        from breqy.tui.screens.chat import ChatScreen
+        from textual.widgets import Input
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_cmd_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Type /models in the input
+            inp = chat.query_one("#message-input", Input)
+            inp.value = "/models"
+            await inp.action_submit()
+            await pilot.pause()
+
+            assert len(sent_events) == 1
+            assert isinstance(sent_events[0], ModelListRequestedEvent)
+            assert sent_events[0].session_id == "ses_cmd_test"
+
+    @pytest.mark.asyncio
+    async def test_models_command_respects_debounce(self) -> None:
+        """Typing /models while a request is pending should not send duplicate."""
+        from breqy.tui.screens.chat import ChatScreen
+        from textual.widgets import Input
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # First /models
+            inp = chat.query_one("#message-input", Input)
+            inp.value = "/models"
+            await inp.action_submit()
+            await pilot.pause()
+            assert len(sent_events) == 1
+
+            # Second /models while pending
+            inp.value = "/models"
+            await inp.action_submit()
+            await pilot.pause()
+            # Should still be 1 — debounced
+            assert len(sent_events) == 1
+
+
+class TestSlashHelpCommand:
+    """Tests that /help shows a notification with available commands."""
+
+    @pytest.mark.asyncio
+    async def test_help_command_shows_notification(self) -> None:
+        """Typing /help should show a notification listing available commands."""
+        from breqy.tui.screens.chat import ChatScreen
+        from textual.widgets import Input
+
+        app = BreqyApp()
+
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture_notify(message, **kwargs):
+            notifications.append(str(message))
+            original_notify(message, **kwargs)
+
+        app.notify = capture_notify  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            inp = chat.query_one("#message-input", Input)
+            inp.value = "/help"
+            await inp.action_submit()
+            await pilot.pause()
+
+            # Should have shown a notification containing command names
+            assert any("/models" in n for n in notifications)
+
+    @pytest.mark.asyncio
+    async def test_help_command_lists_help_itself(self) -> None:
+        """The /help output should mention /help."""
+        from breqy.tui.screens.chat import ChatScreen
+        from textual.widgets import Input
+
+        app = BreqyApp()
+
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture_notify(message, **kwargs):
+            notifications.append(str(message))
+            original_notify(message, **kwargs)
+
+        app.notify = capture_notify  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            inp = chat.query_one("#message-input", Input)
+            inp.value = "/help"
+            await inp.action_submit()
+            await pilot.pause()
+
+            assert any("/help" in n for n in notifications)
+
+
+class TestUnknownSlashCommand:
+    """Tests that unknown slash commands show an error."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_command_shows_error_notification(self) -> None:
+        """Typing an unregistered command should show an error notification."""
+        from breqy.tui.screens.chat import ChatScreen
+        from textual.widgets import Input
+
+        app = BreqyApp()
+
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture_notify(message, **kwargs):
+            notifications.append(str(message))
+            original_notify(message, **kwargs)
+
+        app.notify = capture_notify  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            inp = chat.query_one("#message-input", Input)
+            inp.value = "/nonexistent"
+            await inp.action_submit()
+            await pilot.pause()
+
+            assert any("unknown" in n.lower() or "nknown" in n.lower() for n in notifications)
