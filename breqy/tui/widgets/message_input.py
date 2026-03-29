@@ -7,6 +7,7 @@ Wraps a Textual ``Input`` widget. On submit:
 """
 from __future__ import annotations
 
+from textual.events import Key
 from textual.message import Message as TextualMessage
 from textual.widget import Widget
 from textual.widgets import Input
@@ -52,6 +53,17 @@ class MessageInput(Widget):
             id="message-input",
             suggester=suggester,
         )
+
+    def _on_key(self, event: Key) -> None:
+        """Intercept Tab to accept an active slash-command suggestion."""
+        if event.key == "tab":
+            inp = self.query_one("#message-input", Input)
+            suggestion: str | None = inp._suggestion  # noqa: SLF001 — private but stable
+            if suggestion and inp.cursor_at_end:
+                inp.value = suggestion
+                inp.cursor_position = len(suggestion)
+                event.prevent_default()
+                event.stop()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle the inner Input's Submitted event."""

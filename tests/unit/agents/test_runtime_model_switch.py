@@ -264,6 +264,36 @@ class TestModelSwitchHandler:
         assert last_info.provider_id == "claude"
         assert last_info.model_id == "sonnet"
 
+    @pytest.mark.asyncio
+    async def test_switch_passes_credential_store_to_build_provider(self):
+        """_handle_model_switch must pass self._credential_store to _build_provider."""
+        from breqy.a2a.envelope import Envelope
+
+        mock_store = MagicMock()
+        old_provider = FakeProvider(provider_id="copilot", model_id="gpt-4o")
+        new_provider = FakeProvider(provider_id="claude", model_id="sonnet")
+        runtime, client = _make_runtime(
+            provider=old_provider,
+            credential_store=mock_store,
+        )
+
+        with patch(
+            "breqy.agents.runtime._build_provider", return_value=new_provider
+        ) as mock_build:
+            switch_req = ModelSwitchRequestedEvent(
+                session_id="ses_test",
+                provider_id="claude",
+                model_id="sonnet",
+            )
+            client.set_listen_envelopes([Envelope.from_event(switch_req)])
+            await runtime.run()
+
+            # _build_provider MUST have been called with credential_store
+            mock_build.assert_called_once()
+            _, kwargs = mock_build.call_args
+            assert "credential_store" in kwargs
+            assert kwargs["credential_store"] is mock_store
+
 
 # --------------------------------------------------------------------------- #
 # SC-5: Same-model guard

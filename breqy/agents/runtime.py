@@ -187,7 +187,7 @@ class AgentRuntime:
             new_config = self._config.model_copy(
                 update={"provider": event.provider_id, "model": event.model_id}
             )
-            new_provider = _build_provider(new_config)
+            new_provider = _build_provider(new_config, credential_store=self._credential_store)
         except Exception:
             logger.warning(
                 "Provider build failed during switch",

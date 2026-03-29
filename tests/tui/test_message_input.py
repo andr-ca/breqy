@@ -222,3 +222,57 @@ class TestMessageInputSlashCommand:
             await inp.action_submit()
             await pilot.pause()
             assert executed[0].command == "/greet"
+
+
+# --------------------------------------------------------------------------- #
+# Tab accepts autocomplete suggestion
+# --------------------------------------------------------------------------- #
+
+
+class TestTabAcceptsSuggestion:
+    """Pressing Tab should accept the autocomplete suggestion."""
+
+    @pytest.mark.asyncio
+    async def test_tab_accepts_suggestion_into_value(self) -> None:
+        """When a suggestion is showing, Tab fills the input with it."""
+        from textual.widgets import Input
+
+        registry = CommandRegistry()
+        registry.register(
+            "models", lambda: CommandResult(success=True), "Open model picker"
+        )
+        registry.register(
+            "help", lambda: CommandResult(success=True), "Show help"
+        )
+
+        app = MessageInputApp(registry=registry)
+        async with app.run_test() as pilot:
+            inp = app.query_one("#message-input", Input)
+            # Type "/mo" — should trigger suggestion "/models"
+            inp.value = "/mo"
+            inp.cursor_position = len(inp.value)
+            await pilot.pause()
+            # Wait for the suggester to produce a suggestion
+            await pilot.pause()
+
+            # Press Tab to accept the suggestion
+            await pilot.press("tab")
+            await pilot.pause()
+            assert inp.value == "/models"
+
+    @pytest.mark.asyncio
+    async def test_tab_without_suggestion_does_not_alter_value(self) -> None:
+        """When no suggestion is showing, Tab does not change the value."""
+        from textual.widgets import Input
+
+        app = MessageInputApp()
+        async with app.run_test() as pilot:
+            inp = app.query_one("#message-input", Input)
+            inp.value = "hello"
+            inp.cursor_position = len(inp.value)
+            await pilot.pause()
+
+            await pilot.press("tab")
+            await pilot.pause()
+            # Value should remain unchanged
+            assert inp.value == "hello"
