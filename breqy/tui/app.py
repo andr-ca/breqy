@@ -20,6 +20,10 @@ from breqy.domain.enums import EventType, MessageRole
 from breqy.domain.events import (
     Event,
     MessageSentEvent,
+    ModelInfoEvent,
+    ModelListRequestedEvent,
+    ModelListResponseEvent,
+    ModelSwitchRequestedEvent,
     SessionCreateRequestedEvent,
     SessionCreatedEvent,
 )
@@ -28,7 +32,7 @@ from breqy.tui.events import EventDispatcher
 from breqy.tui.screens.auth import AuthScreen
 from breqy.tui.screens.chat import ChatScreen
 from breqy.tui.screens.logs import LogEntry, LogsScreen
-from breqy.tui.screens.model_select import ModelSelectScreen
+from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
 from breqy.tui.widgets.message_input import MessageSubmitted
 
@@ -88,6 +92,9 @@ class BreqyApp(App):
 
         # Background log buffer — stores recent events for LogsScreen pre-population
         self._log_buffer: collections.deque[LogEntry] = collections.deque(maxlen=1000)
+
+        # Debounce flag for model list requests (ctrl+m)
+        self._model_list_pending: bool = False
 
         # Event dispatcher — routes domain events to screen handlers
         self._dispatcher = EventDispatcher()
@@ -157,6 +164,16 @@ class BreqyApp(App):
             self._handle_session_created,
         )
 
+        # Model events
+        self._dispatcher.register(
+            EventType.MODEL_INFO,
+            lambda e: self._route_to_chat("handle_model_info", e),
+        )
+        self._dispatcher.register(
+            EventType.MODEL_LIST_RESPONSE,
+            self._handle_model_list_response,
+        )
+
         # Route ALL events to LogsScreen if one is on the stack
         for et in EventType:
             self._dispatcher.register(et, self._route_to_logs)
@@ -203,6 +220,34 @@ class BreqyApp(App):
         """Handle a SessionCreatedEvent by pushing a ChatScreen."""
         if isinstance(event, SessionCreatedEvent):
             self.push_screen(ChatScreen(session_id=event.session_id))
+
+    def _handle_model_list_response(self, event: Event) -> None:
+        """Handle a ModelListResponseEvent by pushing ModelSelectScreen.
+
+        Converts ``ModelEntry`` domain objects to ``ModelOption`` dataclasses
+        used by the TUI screen.  Only pushes if a ``ChatScreen`` is active.
+        """
+        self._model_list_pending = False
+
+        if not isinstance(event, ModelListResponseEvent):
+            return
+
+        # Only push ModelSelectScreen if a ChatScreen is on the stack
+        has_chat = any(isinstance(s, ChatScreen) for s in self.screen_stack)
+        if not has_chat:
+            return
+
+        options = [
+            ModelOption(
+                provider=entry.provider,
+                model_id=entry.model_id,
+                display_name=entry.display_name,
+            )
+            for entry in event.models
+        ]
+        self.push_screen(
+            ModelSelectScreen(models=options, current_model=event.current_model)
+        )
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -313,8 +358,29 @@ class BreqyApp(App):
         self.push_screen(AuthScreen())
 
     def action_push_model_select(self) -> None:
-        """Push model selection overlay."""
-        self.push_screen(ModelSelectScreen())
+        """Request model list from engine (ctrl+m).
+
+        Instead of pushing ``ModelSelectScreen`` directly, sends a
+        ``ModelListRequestedEvent`` to the engine.  The screen is
+        pushed when the ``MODEL_LIST_RESPONSE`` arrives.  A debounce
+        flag prevents duplicate requests.
+        """
+        # Only works when a ChatScreen is on the stack
+        chat_screen: ChatScreen | None = None
+        for screen in reversed(self.screen_stack):
+            if isinstance(screen, ChatScreen):
+                chat_screen = screen
+                break
+        if chat_screen is None:
+            return
+
+        if self._model_list_pending:
+            return
+
+        self._model_list_pending = True
+
+        event = ModelListRequestedEvent(session_id=chat_screen.session_id)
+        self.run_worker(self.send_event(event), exclusive=False)
 
     def action_pop_screen_safe(self) -> None:
         """Pop screen if not on the base screen."""
@@ -370,4 +436,28 @@ class BreqyApp(App):
         )
         # Local echo: show the user message in ChatView immediately
         self._route_to_chat("handle_message_sent", event)
+        self.run_worker(self.send_event(event), exclusive=False)
+
+    # ------------------------------------------------------------------ #
+    # ModelSelectScreen message handlers
+    # ------------------------------------------------------------------ #
+
+    def on_model_select_screen_model_selected(
+        self, message: ModelSelectScreen.ModelSelected,
+    ) -> None:
+        """Convert a model selection into a ModelSwitchRequestedEvent and send to engine."""
+        # Find the active ChatScreen to get the session_id
+        chat_screen: ChatScreen | None = None
+        for screen in reversed(self.screen_stack):
+            if isinstance(screen, ChatScreen):
+                chat_screen = screen
+                break
+        if chat_screen is None:
+            return
+
+        event = ModelSwitchRequestedEvent(
+            session_id=chat_screen.session_id,
+            provider_id=message.provider,
+            model_id=message.model_id,
+        )
         self.run_worker(self.send_event(event), exclusive=False)

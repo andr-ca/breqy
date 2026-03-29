@@ -405,14 +405,30 @@ class TestScreenNavigation:
             assert isinstance(app.screen, AuthScreen)
 
     @pytest.mark.asyncio
-    async def test_action_push_model_select_pushes_model_screen(self) -> None:
-        from breqy.tui.screens.model_select import ModelSelectScreen
+    async def test_action_push_model_select_sends_request_when_chat_active(self) -> None:
+        """ctrl+m now sends ModelListRequestedEvent instead of directly pushing screen."""
+        from breqy.domain.events import ModelListRequestedEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        sent_events: list = []
 
         app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
         async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_nav_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
             app.action_push_model_select()
             await pilot.pause()
-            assert isinstance(app.screen, ModelSelectScreen)
+
+            assert len(sent_events) == 1
+            assert isinstance(sent_events[0], ModelListRequestedEvent)
 
     @pytest.mark.asyncio
     async def test_session_list_to_chat_navigation(self) -> None:
@@ -779,3 +795,441 @@ class TestLogBuffer:
         app = BreqyApp()
         assert app._log_buffer.maxlen is not None
         assert app._log_buffer.maxlen > 0
+
+
+# ============================================================================ #
+# Phase 5c: MODEL_INFO dispatcher routing
+# ============================================================================ #
+
+
+class TestModelInfoDispatcher:
+    """Tests that MODEL_INFO events are dispatched to ChatScreen."""
+
+    def test_dispatcher_has_handler_for_model_info(self) -> None:
+        """Dispatcher should have a handler for MODEL_INFO events."""
+        from breqy.domain.enums import EventType
+
+        app = BreqyApp()
+        assert app._dispatcher.has_handler(EventType.MODEL_INFO)
+
+    @pytest.mark.asyncio
+    async def test_model_info_routes_to_chat_screen(self) -> None:
+        """MODEL_INFO event should be dispatched to ChatScreen.handle_model_info()."""
+        from breqy.domain.events import ModelInfoEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            chat.handle_model_info = MagicMock()  # type: ignore[assignment]
+
+            event = ModelInfoEvent(
+                session_id="ses_test",
+                provider_id="copilot",
+                model_id="gpt-4o",
+            )
+            app._dispatcher.dispatch(event)
+            chat.handle_model_info.assert_called_once_with(event)
+
+
+# ============================================================================ #
+# Phase 5c: MODEL_LIST_RESPONSE dispatcher routing
+# ============================================================================ #
+
+
+class TestModelListResponseDispatcher:
+    """Tests that MODEL_LIST_RESPONSE events push ModelSelectScreen."""
+
+    def test_dispatcher_has_handler_for_model_list_response(self) -> None:
+        """Dispatcher should have a handler for MODEL_LIST_RESPONSE events."""
+        from breqy.domain.enums import EventType
+
+        app = BreqyApp()
+        assert app._dispatcher.has_handler(EventType.MODEL_LIST_RESPONSE)
+
+    @pytest.mark.asyncio
+    async def test_model_list_response_pushes_model_select_screen(self) -> None:
+        """MODEL_LIST_RESPONSE event should push ModelSelectScreen with converted models."""
+        from breqy.domain.events import ModelListResponseEvent
+        from breqy.domain.models import ModelEntry
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.model_select import ModelSelectScreen
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            event = ModelListResponseEvent(
+                session_id="ses_test",
+                models=[
+                    ModelEntry(
+                        provider="copilot",
+                        model_id="gpt-4o",
+                        display_name="GPT-4o",
+                        is_authenticated=True,
+                    ),
+                    ModelEntry(
+                        provider="copilot",
+                        model_id="gpt-4o-mini",
+                        display_name="GPT-4o Mini",
+                        is_authenticated=True,
+                    ),
+                ],
+                current_provider="copilot",
+                current_model="gpt-4o",
+            )
+            app._dispatcher.dispatch(event)
+            await pilot.pause()
+
+            # ModelSelectScreen should be pushed on top
+            assert isinstance(app.screen, ModelSelectScreen)
+
+    @pytest.mark.asyncio
+    async def test_model_list_response_converts_model_entry_to_model_option(self) -> None:
+        """ModelEntry objects should be converted to ModelOption for ModelSelectScreen."""
+        from breqy.domain.events import ModelListResponseEvent
+        from breqy.domain.models import ModelEntry
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.model_select import ModelSelectScreen
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            event = ModelListResponseEvent(
+                session_id="ses_test",
+                models=[
+                    ModelEntry(
+                        provider="copilot",
+                        model_id="gpt-4o",
+                        display_name="GPT-4o",
+                        is_authenticated=True,
+                    ),
+                ],
+                current_provider="copilot",
+                current_model="gpt-4o",
+            )
+            app._dispatcher.dispatch(event)
+            await pilot.pause()
+
+            screen = app.screen
+            assert isinstance(screen, ModelSelectScreen)
+            assert len(screen._models) == 1
+            assert screen._models[0].provider == "copilot"
+            assert screen._models[0].model_id == "gpt-4o"
+            assert screen._models[0].display_name == "GPT-4o"
+            assert screen._current_model == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_model_list_response_clears_pending_flag(self) -> None:
+        """MODEL_LIST_RESPONSE should clear the _model_list_pending flag."""
+        from breqy.domain.events import ModelListResponseEvent
+        from breqy.domain.models import ModelEntry
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Simulate pending state
+            app._model_list_pending = True
+
+            event = ModelListResponseEvent(
+                session_id="ses_test",
+                models=[],
+                current_provider="copilot",
+                current_model="gpt-4o",
+            )
+            app._dispatcher.dispatch(event)
+            await pilot.pause()
+
+            assert app._model_list_pending is False
+
+    @pytest.mark.asyncio
+    async def test_model_list_response_noop_without_chat_screen(self) -> None:
+        """MODEL_LIST_RESPONSE should not push ModelSelectScreen if no ChatScreen is active."""
+        from breqy.domain.events import ModelListResponseEvent
+        from breqy.domain.models import ModelEntry
+        from breqy.tui.screens.model_select import ModelSelectScreen
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            # Only SessionListScreen on stack — no ChatScreen
+
+            event = ModelListResponseEvent(
+                session_id="ses_test",
+                models=[
+                    ModelEntry(
+                        provider="copilot",
+                        model_id="gpt-4o",
+                        display_name="GPT-4o",
+                        is_authenticated=True,
+                    ),
+                ],
+                current_provider="copilot",
+                current_model="gpt-4o",
+            )
+            # Should not raise
+            app._dispatcher.dispatch(event)
+            await pilot.pause()
+
+            # ModelSelectScreen should NOT be pushed
+            assert not isinstance(app.screen, ModelSelectScreen)
+
+
+# ============================================================================ #
+# Phase 5d: ctrl+m sends ModelListRequestedEvent + debounce
+# ============================================================================ #
+
+
+class TestCtrlMModelList:
+    """Tests for ctrl+m sending ModelListRequestedEvent to engine."""
+
+    @pytest.mark.asyncio
+    async def test_ctrl_m_sends_model_list_requested_event(self) -> None:
+        """Pressing ctrl+m with a ChatScreen active should send ModelListRequestedEvent."""
+        from breqy.domain.events import ModelListRequestedEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_model_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            app.action_push_model_select()
+            await pilot.pause()
+
+            assert len(sent_events) == 1
+            evt = sent_events[0]
+            assert isinstance(evt, ModelListRequestedEvent)
+            assert evt.session_id == "ses_model_test"
+
+    @pytest.mark.asyncio
+    async def test_ctrl_m_sets_pending_flag(self) -> None:
+        """ctrl+m should set _model_list_pending to True."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            assert app._model_list_pending is False
+            app.action_push_model_select()
+            assert app._model_list_pending is True
+
+    @pytest.mark.asyncio
+    async def test_ctrl_m_debounce_ignores_duplicate(self) -> None:
+        """When _model_list_pending is True, ctrl+m should not send another request."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # First press
+            app.action_push_model_select()
+            await pilot.pause()
+            assert len(sent_events) == 1
+
+            # Second press while pending — should be ignored
+            app.action_push_model_select()
+            await pilot.pause()
+            assert len(sent_events) == 1
+
+    @pytest.mark.asyncio
+    async def test_ctrl_m_noop_without_chat_screen(self) -> None:
+        """ctrl+m without a ChatScreen on stack should not send any event."""
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            # Only SessionListScreen — no ChatScreen
+            app.action_push_model_select()
+            await pilot.pause()
+            assert len(sent_events) == 0
+
+    @pytest.mark.asyncio
+    async def test_ctrl_m_does_not_push_model_select_directly(self) -> None:
+        """ctrl+m should NOT immediately push ModelSelectScreen (waits for response)."""
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.model_select import ModelSelectScreen
+
+        app = BreqyApp()
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            app.action_push_model_select()
+            await pilot.pause()
+
+            # Should still be on ChatScreen, NOT ModelSelectScreen
+            assert isinstance(app.screen, ChatScreen)
+
+
+# ============================================================================ #
+# Phase 5e: ModelSelected → ModelSwitchRequestedEvent
+# ============================================================================ #
+
+
+class TestModelSelectedHandler:
+    """Tests that selecting a model sends ModelSwitchRequestedEvent."""
+
+    @pytest.mark.asyncio
+    async def test_model_selected_sends_switch_event(self) -> None:
+        """When ModelSelectScreen posts ModelSelected, app should send ModelSwitchRequestedEvent."""
+        from breqy.domain.events import ModelSwitchRequestedEvent
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.model_select import ModelSelectScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_switch_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Push a ModelSelectScreen (simulating response handler)
+            from breqy.tui.screens.model_select import ModelOption
+
+            model_screen = ModelSelectScreen(
+                models=[
+                    ModelOption(provider="copilot", model_id="gpt-4o", display_name="GPT-4o"),
+                ],
+                current_model="gpt-4o",
+            )
+            app.push_screen(model_screen)
+            await pilot.pause()
+
+            # Post the ModelSelected message
+            model_screen.post_message(
+                ModelSelectScreen.ModelSelected(provider="copilot", model_id="gpt-4o-mini")
+            )
+            await pilot.pause()
+
+            assert len(sent_events) == 1
+            evt = sent_events[0]
+            assert isinstance(evt, ModelSwitchRequestedEvent)
+            assert evt.provider_id == "copilot"
+            assert evt.model_id == "gpt-4o-mini"
+            assert evt.session_id == "ses_switch_test"
+
+    @pytest.mark.asyncio
+    async def test_model_selected_uses_correct_session_id(self) -> None:
+        """ModelSwitchRequestedEvent should use the ChatScreen's session_id."""
+        from breqy.domain.events import ModelSwitchRequestedEvent
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_unique_42")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            model_screen = ModelSelectScreen(
+                models=[ModelOption(provider="claude", model_id="sonnet", display_name="Sonnet")],
+                current_model="sonnet",
+            )
+            app.push_screen(model_screen)
+            await pilot.pause()
+
+            model_screen.post_message(
+                ModelSelectScreen.ModelSelected(provider="claude", model_id="opus")
+            )
+            await pilot.pause()
+
+            assert len(sent_events) == 1
+            assert sent_events[0].session_id == "ses_unique_42"
+
+    @pytest.mark.asyncio
+    async def test_model_selected_noop_without_chat_screen(self) -> None:
+        """ModelSelected without a ChatScreen on stack should not send any event."""
+        from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            # Push ModelSelectScreen directly (no ChatScreen underneath)
+            model_screen = ModelSelectScreen(
+                models=[ModelOption(provider="copilot", model_id="gpt-4o", display_name="GPT-4o")],
+            )
+            app.push_screen(model_screen)
+            await pilot.pause()
+
+            model_screen.post_message(
+                ModelSelectScreen.ModelSelected(provider="copilot", model_id="gpt-4o")
+            )
+            await pilot.pause()
+
+            assert len(sent_events) == 0

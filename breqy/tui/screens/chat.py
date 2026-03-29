@@ -22,6 +22,7 @@ from breqy.domain.events import (
     ApprovalRequestedEvent,
     MessageChunkEvent,
     MessageSentEvent,
+    ModelInfoEvent,
     TaskUpdatedEvent,
     ToolInvocationCompletedEvent,
     ToolInvocationFailedEvent,
@@ -186,7 +187,21 @@ class ChatScreen(Screen[None]):
         prompt.add_request(request)
 
     def handle_agent_lifecycle(self, event: AgentLifecycleEvent) -> None:
-        """Route an ``AgentLifecycleEvent`` to the ``AgentStatusBar``."""
+        """Route an ``AgentLifecycleEvent`` to the ``AgentStatusBar``.
+
+        On disconnect, also clears the model info display since the agent
+        is no longer running.
+        """
         status_bar = self.query_one(AgentStatusBar)
         connected = event.event_type == EventType.AGENT_CONNECTED
         status_bar.update_agent(agent_id=event.agent_id, connected=connected)
+        if not connected:
+            status_bar.clear_model_info()
+
+    def handle_model_info(self, event: ModelInfoEvent) -> None:
+        """Route a ``ModelInfoEvent`` to the ``AgentStatusBar``."""
+        status_bar = self.query_one(AgentStatusBar)
+        status_bar.update_model_info(
+            provider_id=event.provider_id,
+            model_id=event.model_id,
+        )

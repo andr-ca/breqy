@@ -19,6 +19,7 @@ from breqy.domain.events import (
     ApprovalRequestedEvent,
     MessageChunkEvent,
     MessageSentEvent,
+    ModelInfoEvent,
     TaskUpdatedEvent,
     ToolInvocationCompletedEvent,
     ToolInvocationFailedEvent,
@@ -461,6 +462,101 @@ class TestChatScreenAgentLifecycle:
             await pilot.pause()
             status_bar = screen.query_one(AgentStatusBar)
             assert status_bar._agents["agt_breqy"] is False
+
+    @pytest.mark.asyncio
+    async def test_handle_agent_disconnected_clears_model_info(self) -> None:
+        """When an agent disconnects, model info should be cleared from the status bar."""
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            status_bar = screen.query_one(AgentStatusBar)
+
+            # Set up: agent connected with model info
+            connect_event = AgentLifecycleEvent(
+                session_id=SESSION_ID,
+                agent_id="agt_breqy",
+                event_type=EventType.AGENT_CONNECTED,
+            )
+            screen.handle_agent_lifecycle(connect_event)
+            status_bar.update_model_info("copilot", "gpt-4o")
+            assert status_bar._model_info is not None
+
+            # Disconnect should clear model info
+            disconnect_event = AgentLifecycleEvent(
+                session_id=SESSION_ID,
+                agent_id="agt_breqy",
+                event_type=EventType.AGENT_DISCONNECTED,
+            )
+            screen.handle_agent_lifecycle(disconnect_event)
+            await pilot.pause()
+            assert status_bar._model_info is None
+
+
+# --------------------------------------------------------------------------- #
+# Event routing tests — ModelInfoEvent
+# --------------------------------------------------------------------------- #
+
+
+class TestChatScreenModelInfo:
+    """Test that ModelInfoEvent is routed to AgentStatusBar model display."""
+
+    @pytest.mark.asyncio
+    async def test_handle_model_info_updates_status_bar(self) -> None:
+        """handle_model_info should call AgentStatusBar.update_model_info()."""
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            event = ModelInfoEvent(
+                session_id=SESSION_ID,
+                provider_id="copilot",
+                model_id="gpt-4o",
+            )
+            screen.handle_model_info(event)
+            await pilot.pause()
+            status_bar = screen.query_one(AgentStatusBar)
+            assert status_bar._model_info == ("copilot", "gpt-4o")
+
+    @pytest.mark.asyncio
+    async def test_handle_model_info_updates_display_content(self) -> None:
+        """After handle_model_info, the status bar should show provider/model text."""
+        app = ChatScreenApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            screen = _get_screen(app)
+            # Connect an agent first so status bar has content
+            connect = AgentLifecycleEvent(
+                session_id=SESSION_ID,
+                agent_id="agt_breqy",
+                event_type=EventType.AGENT_CONNECTED,
+            )
+            screen.handle_agent_lifecycle(connect)
+
+            event = ModelInfoEvent(
+                session_id=SESSION_ID,
+                provider_id="copilot",
+                model_id="gpt-4o",
+            )
+            screen.handle_model_info(event)
+            await pilot.pause()
+            status_bar = screen.query_one(AgentStatusBar)
+            rendered = str(status_bar.status_widget.content)
+            assert "copilot" in rendered
+            assert "gpt-4o" in rendered
+
+    @pytest.mark.asyncio
+    async def test_handle_model_info_null_provider(self) -> None:
+        """When provider is 'null', status bar should still update state."""
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            event = ModelInfoEvent(
+                session_id=SESSION_ID,
+                provider_id="null",
+                model_id="null",
+            )
+            screen.handle_model_info(event)
+            await pilot.pause()
+            status_bar = screen.query_one(AgentStatusBar)
+            assert status_bar._model_info == ("null", "null")
 
 
 # --------------------------------------------------------------------------- #

@@ -218,3 +218,88 @@ class TestAgentStatusBarStatusTransition:
             assert AGENT_DISCONNECTED_ICON in rendered
             # Should not duplicate the agent
             assert rendered.count("breqy") == 1
+
+
+# --------------------------------------------------------------------------- #
+# Phase 5 (M2): Model info display
+# --------------------------------------------------------------------------- #
+
+
+class TestAgentStatusBarModelInfo:
+    """Test model info display alongside agent status."""
+
+    @pytest.mark.asyncio
+    async def test_update_model_info_displays_provider_and_model(self) -> None:
+        """After update_model_info, status shows provider / model in cyan."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_agent("agt_breqy", connected=True)
+            bar.update_model_info("copilot", "gpt-4o")
+            await pilot.pause()
+            rendered = str(bar.status_widget.content)
+            assert "copilot" in rendered
+            assert "gpt-4o" in rendered
+
+    @pytest.mark.asyncio
+    async def test_model_info_not_shown_without_update(self) -> None:
+        """Model info is not shown if update_model_info was never called."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_agent("agt_breqy", connected=True)
+            await pilot.pause()
+            rendered = str(bar.status_widget.content)
+            assert "copilot" not in rendered
+            assert "gpt-4o" not in rendered
+
+    @pytest.mark.asyncio
+    async def test_clear_model_info_removes_display(self) -> None:
+        """After clear_model_info, the model info is no longer shown."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_agent("agt_breqy", connected=True)
+            bar.update_model_info("copilot", "gpt-4o")
+            await pilot.pause()
+            rendered = str(bar.status_widget.content)
+            assert "copilot" in rendered
+
+            bar.clear_model_info()
+            await pilot.pause()
+            rendered = str(bar.status_widget.content)
+            assert "copilot" not in rendered
+            assert "gpt-4o" not in rendered
+
+    @pytest.mark.asyncio
+    async def test_null_provider_shows_warning_style(self) -> None:
+        """When provider is 'null', display uses dim/warning style."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_agent("agt_breqy", connected=True)
+            bar.update_model_info("null", "null")
+            await pilot.pause()
+            rendered = str(bar.status_widget.content)
+            # Should display in dim style (not cyan) for null provider
+            assert "null" in rendered
+            assert "[dim]" in rendered or "dim" in rendered
+
+    @pytest.mark.asyncio
+    async def test_model_info_state_stored(self) -> None:
+        """update_model_info stores the info as a tuple in _model_info."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_model_info("copilot", "gpt-4o")
+            assert bar._model_info == ("copilot", "gpt-4o")
+
+    @pytest.mark.asyncio
+    async def test_clear_model_info_resets_state(self) -> None:
+        """clear_model_info sets _model_info back to None."""
+        app = AgentStatusApp()
+        async with app.run_test() as pilot:
+            bar = app.query_one(AgentStatusBar)
+            bar.update_model_info("copilot", "gpt-4o")
+            bar.clear_model_info()
+            assert bar._model_info is None

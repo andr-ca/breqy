@@ -25,6 +25,7 @@ class AgentStatusBar(Widget):
     def __init__(self, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._agents: dict[str, bool] = {}
+        self._model_info: tuple[str, str] | None = None
 
     def compose(self):  # noqa: ANN201
         yield Static("", id="agent-status")
@@ -45,6 +46,16 @@ class AgentStatusBar(Widget):
     def update_agent(self, agent_id: str, connected: bool) -> None:
         """Add or update an agent's connection status and re-render."""
         self._agents[agent_id] = connected
+        self._refresh_display()
+
+    def update_model_info(self, provider_id: str, model_id: str) -> None:
+        """Store the active provider/model and re-render."""
+        self._model_info = (provider_id, model_id)
+        self._refresh_display()
+
+    def clear_model_info(self) -> None:
+        """Clear the model info and re-render."""
+        self._model_info = None
         self._refresh_display()
 
     def remove_agent(self, agent_id: str) -> None:
@@ -84,4 +95,13 @@ class AgentStatusBar(Widget):
                 icon = AGENT_DISCONNECTED_ICON
                 parts.append(f"[dim]{icon} {name}[/dim]")
 
-        self.status_widget.update(" | ".join(parts))
+        line = " | ".join(parts)
+
+        if self._model_info is not None:
+            provider_id, model_id = self._model_info
+            if provider_id == "null":
+                line += f"  [dim]{provider_id} / {model_id}[/dim]"
+            else:
+                line += f"  [cyan]{provider_id} / {model_id}[/cyan]"
+
+        self.status_widget.update(line)
