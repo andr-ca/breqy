@@ -38,7 +38,7 @@ class CompletionMetadata(BaseModel):
 
 
 class ProviderEvent(BaseModel):
-    kind: Literal["text", "tool_call", "complete"]
+    kind: Literal["text", "tool_call", "complete", "notice"]
     text: str | None = None
     tool_call: ToolCallDelta | None = None
     metadata: CompletionMetadata | None = None

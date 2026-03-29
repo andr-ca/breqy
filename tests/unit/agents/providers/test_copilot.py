@@ -256,9 +256,10 @@ class TestAuthRetry:
         mock_auth.poll_for_token.assert_called_once_with("dc_123", interval=5)
         assert any(e.kind == "text" for e in events)
 
-    def test_device_flow_yields_auth_instructions_as_text(self) -> None:
+    def test_device_flow_yields_auth_instructions_as_notice(self) -> None:
         """When device flow is triggered, the user code and URL should be
-        yielded as a text ProviderEvent so the TUI can display them."""
+        yielded as a notice ProviderEvent so the TUI can display them
+        immediately as a complete message."""
         from breqy.agents.providers.copilot import CopilotProvider
         from breqy.agents.providers.copilot_auth import DeviceFlowInfo
 
@@ -282,10 +283,69 @@ class TestAuthRetry:
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         events = list(provider.stream(_make_request("hi")))
 
-        text_events = [e for e in events if e.kind == "text"]
-        # The first text event(s) should contain the auth instructions
-        auth_texts = [e.text for e in text_events if e.text and "ABCD-1234" in e.text]
-        assert len(auth_texts) >= 1, "Device flow user code should appear in text events"
-        auth_text = auth_texts[0]
+        notice_events = [e for e in events if e.kind == "notice"]
+        assert len(notice_events) >= 1, "Device flow should yield a notice event"
+        auth_text = notice_events[0].text
+        assert auth_text is not None
         assert "https://github.com/login/device" in auth_text
         assert "ABCD-1234" in auth_text
+
+    def test_auth_event_yielded_before_poll_blocks(self) -> None:
+        """The auth instructions event MUST be yielded to the caller
+        BEFORE poll_for_token() is called.  This ensures the TUI can
+        display the device-code while the provider polls for authorization.
+
+        Bug: Previously, _ensure_token() called poll_for_token() (which
+        blocks with time.sleep) before returning the auth event, so the
+        event only reached the TUI after the user had already authorized
+        — defeating its purpose.
+        """
+        from breqy.agents.providers.copilot import CopilotProvider
+        from breqy.agents.providers.copilot_auth import DeviceFlowInfo
+
+        call_order: list[str] = []
+
+        mock_auth = MagicMock()
+        mock_auth.get_token.return_value = None
+        mock_auth.start_device_flow.return_value = DeviceFlowInfo(
+            user_code="TEST-CODE",
+            verification_uri="https://github.com/login/device",
+            device_code="dc_order_test",
+            interval=5,
+            expires_in=900,
+        )
+
+        def poll_side_effect(device_code, interval):
+            call_order.append("poll_for_token")
+            return "gho_poll_result"
+
+        mock_auth.poll_for_token.side_effect = poll_side_effect
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter([
+            {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+        ])
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+
+        # Iterate one event at a time to observe ordering
+        stream_iter = provider.stream(_make_request("hi"))
+        first_event = next(stream_iter)
+
+        # Auth instructions must be the FIRST event yielded …
+        assert first_event.kind == "notice"
+        assert first_event.text is not None
+        assert "TEST-CODE" in first_event.text
+
+        # … and poll_for_token must NOT have been called yet
+        assert "poll_for_token" not in call_order, (
+            "poll_for_token was called before auth event was yielded — "
+            "this blocks the event loop and prevents the TUI from "
+            "showing the device code"
+        )
+
+        # Consume the rest — poll should happen now
+        remaining = list(stream_iter)
+        assert "poll_for_token" in call_order
+        assert any(e.kind == "complete" for e in remaining)

@@ -177,6 +177,26 @@ class AgentRuntime:
             if self._cancel_requested.is_set():
                 break
 
+            if provider_event.kind == "notice" and provider_event.text is not None:
+                # Notice events are sent as complete standalone messages
+                # so the TUI renders them immediately (e.g. auth instructions).
+                notice_message_id = generate_prefixed_id("msg")
+                await self._client.send_event(
+                    MessageSentEvent(
+                        session_id=event.session_id,
+                        agent_id=event.agent_id,
+                        correlation_id=event.correlation_id,
+                        message_id=notice_message_id,
+                        role=MessageRole.SYSTEM,
+                        content=provider_event.text,
+                    )
+                )
+                # Reset for the next (real) streaming message
+                assistant_message_id = generate_prefixed_id("msg")
+                content_parts = []
+                chunk_index = 0
+                continue
+
             if provider_event.kind == "text" and provider_event.text is not None:
                 content_parts.append(provider_event.text)
                 await self._client.send_event(

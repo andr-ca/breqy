@@ -895,3 +895,69 @@ def test_runtime_imports_default_log_file():
     """Agent runtime should import default_log_file helper."""
     from breqy.agents import runtime
     assert hasattr(runtime, "default_log_file")
+
+
+# ============================================================================ #
+# notice event kind
+# ============================================================================ #
+
+
+def test_provider_event_accepts_notice_kind():
+    """ProviderEvent should accept kind='notice' for immediate display messages."""
+    event = ProviderEvent(kind="notice", text="auth instructions")
+    assert event.kind == "notice"
+    assert event.text == "auth instructions"
+
+
+@pytest.mark.asyncio
+async def test_handle_work_sends_notice_as_complete_message():
+    """When the provider yields a notice event, handle_work should send it
+    as a complete MessageSentEvent immediately (not just a chunk), so the
+    TUI renders it without waiting for stream completion.
+
+    Subsequent text events should use a NEW message_id.
+    """
+    from breqy.domain.events import MessageChunkEvent
+
+    events = [
+        ProviderEvent(kind="notice", text="Please authenticate at https://example.com"),
+        ProviderEvent(kind="text", text="Hello"),
+        ProviderEvent(kind="text", text=" world"),
+    ]
+    runtime, client = _build_runtime(provider=FakeProvider(events=events))
+
+    await runtime.handle_work(_work_event())
+
+    # Collect MessageSentEvents (complete messages)
+    sent_messages = [
+        cast(MessageSentEvent, e)
+        for e in client.sent_events
+        if getattr(e, "event_type", None) == EventType.MESSAGE_SENT
+    ]
+    # Should have TWO complete messages: the notice AND the final streamed message
+    assert len(sent_messages) == 2
+
+    notice_msg = sent_messages[0]
+    final_msg = sent_messages[1]
+
+    # Notice should contain the auth text
+    assert "authenticate" in notice_msg.content
+    assert notice_msg.role == MessageRole.SYSTEM
+
+    # Final message should contain the streamed text
+    assert final_msg.content == "Hello world"
+    assert final_msg.role == MessageRole.ASSISTANT
+
+    # They should have DIFFERENT message IDs
+    assert notice_msg.message_id != final_msg.message_id
+
+    # Chunks should only be for the streamed text, not the notice
+    chunks = [
+        cast(Any, e)
+        for e in client.sent_events
+        if getattr(e, "event_type", None) == EventType.MESSAGE_CHUNK
+    ]
+    chunk_texts = [c.chunk for c in chunks]
+    assert "Please authenticate at https://example.com" not in chunk_texts
+    assert "Hello" in chunk_texts
+    assert " world" in chunk_texts

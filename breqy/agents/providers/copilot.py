@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -18,6 +19,15 @@ from breqy.agents.providers.copilot_auth import CopilotAuthenticator
 from breqy.agents.providers.copilot_client import CopilotApiClient, CopilotApiError
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _PendingDeviceFlow:
+    """Carries device flow state between yield and poll."""
+
+    device_code: str
+    interval: int
+    auth_event: ProviderEvent
 
 
 class CopilotProvider(ModelProvider):
@@ -47,9 +57,16 @@ class CopilotProvider(ModelProvider):
         return True
 
     def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]:
-        token, auth_event = self._ensure_token()
-        if auth_event is not None:
-            yield auth_event
+        token = self._authenticator.get_token()
+        pending_flow = None
+
+        if token is None:
+            pending_flow = self._start_device_flow()
+            yield pending_flow.auth_event  # Yield auth instructions BEFORE blocking poll
+            token = self._authenticator.poll_for_token(
+                pending_flow.device_code, interval=pending_flow.interval
+            )
+
         messages = self._build_messages(request)
         tools = self._convert_tools(request.tools) if request.tools else None
 
@@ -59,9 +76,13 @@ class CopilotProvider(ModelProvider):
             if exc.status_code == 401:
                 logger.info("copilot_token_expired_retrying")
                 self._authenticator.clear_token()
-                token, auth_event = self._ensure_token()
-                if auth_event is not None:
-                    yield auth_event
+                token = self._authenticator.get_token()
+                if token is None:
+                    pending_flow = self._start_device_flow()
+                    yield pending_flow.auth_event
+                    token = self._authenticator.poll_for_token(
+                        pending_flow.device_code, interval=pending_flow.interval
+                    )
                 yield from self._do_stream(token, messages, tools)
             else:
                 yield ProviderEvent(
@@ -74,17 +95,15 @@ class CopilotProvider(ModelProvider):
                 )
                 raise
 
-    def _ensure_token(self) -> tuple[str, ProviderEvent | None]:
-        """Get existing token or run device flow.
+    def _start_device_flow(self) -> _PendingDeviceFlow:
+        """Initiate device flow and build the auth instructions event.
 
-        Returns (token, optional_auth_text_event). The auth text event
-        contains instructions for the user to complete the device flow
-        and should be yielded to the TUI so the user can see them.
+        Returns a lightweight object carrying the device code, interval,
+        and a ``ProviderEvent`` with user-facing auth instructions.
+        The caller is responsible for yielding the event to the TUI
+        **before** calling ``poll_for_token`` so the user can see the
+        code while the provider blocks on the poll loop.
         """
-        token = self._authenticator.get_token()
-        if token is not None:
-            return token, None
-
         logger.info("copilot_no_token_starting_device_flow")
         flow_info = self._authenticator.start_device_flow()
         auth_message = (
@@ -98,11 +117,11 @@ class CopilotProvider(ModelProvider):
             url=flow_info.verification_uri,
             code=flow_info.user_code,
         )
-        auth_event = ProviderEvent(kind="text", text=auth_message)
-        token = self._authenticator.poll_for_token(
-            flow_info.device_code, interval=flow_info.interval
+        return _PendingDeviceFlow(
+            device_code=flow_info.device_code,
+            interval=flow_info.interval,
+            auth_event=ProviderEvent(kind="notice", text=auth_message),
         )
-        return token, auth_event
 
     def _do_stream(
         self,
