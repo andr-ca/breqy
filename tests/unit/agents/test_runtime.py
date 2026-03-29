@@ -149,7 +149,7 @@ async def test_agent_runtime_uses_session_id_in_lifecycle_events() -> None:
 
     await runtime.stop()
 
-    disconnected_event = cast(AgentLifecycleEvent, client.sent_events[1])
+    disconnected_event = cast(AgentLifecycleEvent, client.sent_events[2])
     assert disconnected_event.event_type == EventType.AGENT_DISCONNECTED
     assert disconnected_event.session_id == "ses_real_session"
 
