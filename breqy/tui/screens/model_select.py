@@ -123,14 +123,14 @@ class ModelSelectScreen(Screen):
             return
 
         empty_label.display = False
-        for model in models:
+        for idx, model in enumerate(models):
             selected = "✓" if model.model_id == current_model else " "
             table.add_row(
                 selected,
                 model.provider,
                 model.model_id,
                 model.display_name,
-                key=f"{model.provider}:{model.model_id}",
+                key=str(idx),
             )
 
     # ------------------------------------------------------------------ #
@@ -149,8 +149,10 @@ class ModelSelectScreen(Screen):
     def _on_row_selected(self, event: DataTable.RowSelected) -> None:
         """When a row is selected, post ModelSelected and pop screen."""
         if event.row_key.value is not None:
-            key = str(event.row_key.value)
-            # Key format is "provider:model_id"
-            provider, _, model_id = key.partition(":")
-            self.post_message(self.ModelSelected(provider=provider, model_id=model_id))
-            self.app.pop_screen()
+            idx = int(event.row_key.value)
+            if 0 <= idx < len(self._models):
+                model = self._models[idx]
+                self.post_message(
+                    self.ModelSelected(provider=model.provider, model_id=model.model_id),
+                )
+                self.app.pop_screen()

@@ -336,7 +336,7 @@ class TestLoadModels:
 
 
 class TestDuplicateModelIds:
-    """Models with the same model_id from different providers must not crash."""
+    """Models with the same model_id must not crash — even from same provider."""
 
     @pytest.mark.asyncio
     async def test_duplicate_model_ids_no_crash(self) -> None:
@@ -395,3 +395,44 @@ class TestDuplicateModelIds:
             await pilot.pause()
             table = screen.query_one(DataTable)
             assert table.row_count == 2
+
+    @pytest.mark.asyncio
+    async def test_exact_duplicate_same_provider_no_crash(self) -> None:
+        """Same provider listing the same model_id twice should not crash."""
+        models = [
+            _make_model(provider="copilot", model_id="gpt-4", display_name="GPT 4"),
+            _make_model(provider="copilot", model_id="gpt-4", display_name="GPT 4"),
+        ]
+        app = ModelSelectApp(models=models)
+        async with app.run_test() as pilot:
+            table = app.screen.query_one(DataTable)
+            assert table.row_count == 2
+
+    @pytest.mark.asyncio
+    async def test_exact_duplicate_selectable(self) -> None:
+        """Selecting the second of two exact-duplicate rows returns correct data."""
+        models = [
+            _make_model(provider="copilot", model_id="gpt-4", display_name="GPT 4 (first)"),
+            _make_model(provider="copilot", model_id="gpt-4", display_name="GPT 4 (second)"),
+        ]
+        messages_received: list[ModelSelectScreen.ModelSelected] = []
+
+        class CaptureApp(App[None]):
+            def on_mount(self_app) -> None:
+                self_app.push_screen(ModelSelectScreen(models=models, current_model=""))
+
+            def on_model_select_screen_model_selected(
+                self_app, message: ModelSelectScreen.ModelSelected
+            ) -> None:
+                messages_received.append(message)
+
+        app = CaptureApp()
+        async with app.run_test() as pilot:
+            table = app.screen.query_one(DataTable)
+            table.move_cursor(row=1)
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert len(messages_received) == 1
+            assert messages_received[0].provider == "copilot"
+            assert messages_received[0].model_id == "gpt-4"
