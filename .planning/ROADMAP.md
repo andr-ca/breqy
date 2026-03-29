@@ -330,7 +330,7 @@
 
 ---
 *Roadmap created: 2026-03-22*
-*Last updated: 2026-03-29 — added M2 v1.1 roadmap*
+*Last updated: 2026-03-29 — M2 complete, all 6 phases done*
 
 ---
 
@@ -351,7 +351,7 @@
 - [x] **Phase 3: Agent Runtime** — CredentialStore extraction, ModelInfoEvent on connect, list/switch handlers, _discover_models() (`6be63fb`)
 - [x] **Phase 4: Engine Routing** — Forward model events to primary agent via targeted send (`5bf6ba1`)
 - [x] **Phase 5: TUI Wiring** — AgentStatusBar enhancement, EventDispatcher handlers, ctrl+m flow, ModelSelected handler, debounce (`f06e6cc`)
-- [ ] **Phase 6: Integration Polish** — Loading states, error handling, edge cases, E2E verification
+- [x] **Phase 6: Integration Polish** — Loading states, error handling, edge cases, E2E verification (`6c18aa2`)
 
 ---
 
@@ -465,12 +465,12 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Domain Events & Models | — | Pending | — |
-| 2. Provider list_models() | — | Pending | — |
-| 3. Agent Runtime | — | Pending | — |
-| 4. Engine Routing | — | Pending | — |
-| 5. TUI Wiring | — | Pending | — |
-| 6. Integration Polish | — | Pending | — |
+| 1. Domain Events & Models | — | Complete | 2026-03-29 |
+| 2. Provider list_models() | — | Complete | 2026-03-29 |
+| 3. Agent Runtime | — | Complete | 2026-03-29 |
+| 4. Engine Routing | — | Complete | 2026-03-29 |
+| 5. TUI Wiring | — | Complete | 2026-03-29 |
+| 6. Integration Polish | — | Complete | 2026-03-29 |
 
 ---
 
