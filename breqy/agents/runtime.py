@@ -268,9 +268,19 @@ def _build_provider(config: AgentConfig) -> ModelProvider | _NullProvider:
     try:
         from breqy.agents.credentials import CredentialStore
         from breqy.agents.providers.adapters import build_model_providers
-        from breqy.secrets.provider import KeyringSecretProvider
+        from breqy.secrets.provider import FileSecretProvider, KeyringSecretProvider
 
-        secret_provider = KeyringSecretProvider()
+        try:
+            secret_provider = KeyringSecretProvider()
+            # Probe: verify keyring is functional
+            secret_provider.get("__probe__")
+        except Exception:
+            structlog.get_logger().info(
+                "keyring_unavailable_using_file_store",
+                provider=config.provider,
+            )
+            secret_provider = FileSecretProvider()
+
         credential_store = CredentialStore(secret_provider)
         providers = build_model_providers(
             credential_store=credential_store,
@@ -279,8 +289,15 @@ def _build_provider(config: AgentConfig) -> ModelProvider | _NullProvider:
         provider = providers.get(config.provider)
         if provider is not None:
             return provider
-    except Exception:
-        pass
+    except Exception as exc:
+        structlog.get_logger().error(
+            "provider_build_failed",
+            provider=config.provider,
+            model=config.model,
+            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=True,
+        )
     return _NullProvider()
 
 

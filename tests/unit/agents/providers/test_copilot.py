@@ -255,3 +255,37 @@ class TestAuthRetry:
         mock_auth.start_device_flow.assert_called_once()
         mock_auth.poll_for_token.assert_called_once_with("dc_123", interval=5)
         assert any(e.kind == "text" for e in events)
+
+    def test_device_flow_yields_auth_instructions_as_text(self) -> None:
+        """When device flow is triggered, the user code and URL should be
+        yielded as a text ProviderEvent so the TUI can display them."""
+        from breqy.agents.providers.copilot import CopilotProvider
+        from breqy.agents.providers.copilot_auth import DeviceFlowInfo
+
+        mock_auth = MagicMock()
+        mock_auth.get_token.return_value = None
+        mock_auth.start_device_flow.return_value = DeviceFlowInfo(
+            user_code="ABCD-1234",
+            verification_uri="https://github.com/login/device",
+            device_code="dc_test",
+            interval=5,
+            expires_in=900,
+        )
+        mock_auth.poll_for_token.return_value = "gho_new"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter([
+            {"choices": [{"delta": {"content": "hello"}, "index": 0}]},
+            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+        ])
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        events = list(provider.stream(_make_request("hi")))
+
+        text_events = [e for e in events if e.kind == "text"]
+        # The first text event(s) should contain the auth instructions
+        auth_texts = [e.text for e in text_events if e.text and "ABCD-1234" in e.text]
+        assert len(auth_texts) >= 1, "Device flow user code should appear in text events"
+        auth_text = auth_texts[0]
+        assert "https://github.com/login/device" in auth_text
+        assert "ABCD-1234" in auth_text

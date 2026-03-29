@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import stat
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 
 class SecretProvider(ABC):
@@ -53,4 +55,41 @@ class KeyringSecretProvider(SecretProvider):
         try:
             keyring.delete_password(self.SERVICE_NAME, key)
         except keyring.errors.PasswordDeleteError:
+            pass
+
+
+class FileSecretProvider(SecretProvider):
+    """File-based secret storage. Fallback when keyring is unavailable.
+
+    Each secret is stored as a separate file under ``base_dir``
+    (default ``~/.breqy/secrets``). Files are created with owner-only
+    permissions (0600).
+    """
+
+    _DEFAULT_DIR_NAME = ".breqy/secrets"
+
+    def __init__(self, base_dir: Path | None = None) -> None:
+        if base_dir is None:
+            base_dir = Path.home() / self._DEFAULT_DIR_NAME
+        self._base_dir = base_dir
+
+    def get(self, key: str) -> str | None:
+        path = self._base_dir / key
+        try:
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+
+    def set(self, key: str, value: str) -> None:
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+        path = self._base_dir / key
+        path.write_text(value, encoding="utf-8")
+        # Restrict to owner-only read/write
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    def delete(self, key: str) -> None:
+        path = self._base_dir / key
+        try:
+            path.unlink()
+        except FileNotFoundError:
             pass

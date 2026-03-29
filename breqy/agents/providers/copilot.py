@@ -47,7 +47,9 @@ class CopilotProvider(ModelProvider):
         return True
 
     def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]:
-        token = self._ensure_token()
+        token, auth_event = self._ensure_token()
+        if auth_event is not None:
+            yield auth_event
         messages = self._build_messages(request)
         tools = self._convert_tools(request.tools) if request.tools else None
 
@@ -57,7 +59,9 @@ class CopilotProvider(ModelProvider):
             if exc.status_code == 401:
                 logger.info("copilot_token_expired_retrying")
                 self._authenticator.clear_token()
-                token = self._ensure_token()
+                token, auth_event = self._ensure_token()
+                if auth_event is not None:
+                    yield auth_event
                 yield from self._do_stream(token, messages, tools)
             else:
                 yield ProviderEvent(
@@ -70,22 +74,35 @@ class CopilotProvider(ModelProvider):
                 )
                 raise
 
-    def _ensure_token(self) -> str:
-        """Get existing token or run device flow."""
+    def _ensure_token(self) -> tuple[str, ProviderEvent | None]:
+        """Get existing token or run device flow.
+
+        Returns (token, optional_auth_text_event). The auth text event
+        contains instructions for the user to complete the device flow
+        and should be yielded to the TUI so the user can see them.
+        """
         token = self._authenticator.get_token()
         if token is not None:
-            return token
+            return token, None
 
         logger.info("copilot_no_token_starting_device_flow")
         flow_info = self._authenticator.start_device_flow()
+        auth_message = (
+            f"\n**GitHub Copilot Authentication Required**\n\n"
+            f"1. Open {flow_info.verification_uri}\n"
+            f"2. Enter code: **{flow_info.user_code}**\n\n"
+            f"Waiting for authorization...\n"
+        )
         logger.info(
             "copilot_device_flow_instructions",
             url=flow_info.verification_uri,
             code=flow_info.user_code,
         )
-        return self._authenticator.poll_for_token(
+        auth_event = ProviderEvent(kind="text", text=auth_message)
+        token = self._authenticator.poll_for_token(
             flow_info.device_code, interval=flow_info.interval
         )
+        return token, auth_event
 
     def _do_stream(
         self,

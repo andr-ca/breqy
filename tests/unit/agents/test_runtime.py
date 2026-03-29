@@ -547,6 +547,41 @@ def test_build_provider_falls_back_to_null_on_error(monkeypatch) -> None:
     assert isinstance(result, _NullProvider)
 
 
+def test_build_provider_falls_back_to_file_secret_when_keyring_fails(monkeypatch) -> None:
+    """_build_provider() tries FileSecretProvider when KeyringSecretProvider fails."""
+    from breqy.agents.runtime import _build_provider, _NullProvider
+    from breqy.config.models import AgentConfig
+    from breqy.secrets.provider import FileSecretProvider
+
+    config = AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o")
+
+    fake_provider = FakeProvider(events=[])
+    captured_stores = []
+
+    def mock_build_model_providers(*, credential_store, model_by_provider):
+        captured_stores.append(credential_store)
+        return {"copilot": fake_provider}
+
+    # Make KeyringSecretProvider raise on construction
+    def keyring_raises():
+        raise RuntimeError("keyring not available")
+
+    monkeypatch.setattr(
+        "breqy.secrets.provider.KeyringSecretProvider",
+        keyring_raises,
+    )
+    monkeypatch.setattr(
+        "breqy.agents.providers.adapters.build_model_providers",
+        mock_build_model_providers,
+    )
+
+    result = _build_provider(config)
+    assert result is fake_provider
+    assert not isinstance(result, _NullProvider)
+    # The credential store should be backed by the file-based provider
+    assert len(captured_stores) == 1
+
+
 def test_runtime_module_entrypoint_invokes_main(monkeypatch) -> None:
     import asyncio
     import sys
