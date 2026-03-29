@@ -1,8 +1,8 @@
 # State: Breqy
 
-**Milestone:** M1 — Slice 1 Full Build
-**Created:** 2026-03-22
-**Last updated:** 2026-03-27 (Phase 10 complete — all 10 phases done)
+**Milestone:** M2 — v1.1 Provider/Model Runtime Switching
+**Created:** 2026-03-29
+**Last updated:** 2026-03-29 (M2 initialized)
 
 ---
 
@@ -10,22 +10,22 @@
 
 **Core Value:** A reliable, always-on engine that accepts connections from a TUI, maintains persistent sessions across restarts, and lets the default agent perform approved Linux admin and filesystem tasks with full user visibility and control.
 
-**Current Focus:** Milestone M1 complete — all 10 phases delivered
+**Current Focus:** M2 Phase 1 — Domain Events & Models
 
 ---
 
 ## Current Position
 
-**Current Phase:** 10 (TUI Client)
-**Current Plan:** All 17 tasks complete
-**Status:** Phase 10 complete and verified; all 10 phases delivered
+**Current Phase:** 1 (Domain Events & Models)
+**Current Plan:** Not yet planned
+**Status:** Starting
 
 ### Progress Bar
 
 ```
-Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
-         ●    ●    ●    ●    ●    ●    ●    ●    ●    ●
-         Domain Storage A2A  Pol  Eng  Tool Mem  Agt  Ses  TUI
+Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ]
+         ○    ○    ○    ○    ○    ○
+         DOM  Prov  Agt  Eng  TUI  Int
 ```
 
 **Legend:** ○ Not started · ◑ In progress · ● Complete
@@ -36,16 +36,12 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 
 | Phase | Name | Requirements | Status |
 |-------|------|--------------|--------|
-| 1 | Domain Foundation | DOM-01–05 (5) | **Complete** |
-| 2 | Storage Layer | STR-01–05 (5) | **Complete** |
-| 3 | Config, Secrets & A2A Protocol | CFG-01–04, A2A-01–05 (9) | **Complete** |
-| 4 | Policy & Approvals | POL-01–06 (6) | **Complete** |
-| 5 | Engine Runtime | ENG-01–06 (6) | **Complete** |
-| 6 | Tools | TOOL-01–06 (6) | **Complete** |
-| 7 | Memory | MEM-01–05 (5) | **Complete** |
-| 8 | Agent Runtime & Auth | AGT-01–11 (11) | **Complete** |
-| 9 | Sessions & Control | SES-01–08 (8) | **Complete** |
-| 10 | TUI Client | TUI-01–13 (13) | **Complete** |
+| 1 | Domain Events & Models | MAE-01 (1) | **Not started** |
+| 2 | Provider list_models() | MDL-03–05 (3) | **Not started** |
+| 3 | Agent Runtime | MDL-02, MSW-03–05, MAI-01–02 (6) | **Not started** |
+| 4 | Engine Routing | MAE-02–03 (2) | **Not started** |
+| 5 | TUI Wiring | MDL-01, MSW-01–02, MAI-03 (4) | **Not started** |
+| 6 | Integration Polish | Cross-cutting E2E | **Not started** |
 
 ---
 
@@ -53,13 +49,13 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 
 | Metric | Value |
 |--------|-------|
-| Requirements defined | 57 |
-| Requirements mapped | 57 |
-| Phases planned | 10 |
-| Plans written | 21 (Phase 1: 4, Phase 2: 4, Phase 3: 2, Phase 4: 2, Phase 5: 1, Phase 6: 4, Phase 7: 1, Phase 8: 1, Phase 9: 1, Phase 10: 1) |
-| Plans complete | 21 |
-| Tests written | 1185 total |
-| Tests passing | 1185 |
+| Requirements defined | 16 |
+| Requirements mapped | 16 |
+| Phases planned | 6 |
+| Plans written | 0 |
+| Plans complete | 0 |
+| Tests written | 0 (M2-specific) |
+| Tests passing | All existing (M1) |
 
 ---
 
@@ -69,55 +65,34 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ][ 7 ][ 8 ][ 9 ][10]
 
 | Decision | Context |
 |----------|---------|
-| Fine granularity (10 phases) | 57 requirements across 11 natural category groups; fine granularity preserves clean delivery boundaries per category cluster |
-| CFG + A2A combined into Phase 3 | Both are infrastructure/transport prerequisites for ENG; batching them avoids a one-req phase for CFG alone |
-| Memory after Tools (Phase 7 after Phase 6) | MEM depends on both STR (persistence) and the MCP memory tool (TOOL-06); must follow tools layer |
-| SES before TUI (Phase 9 before Phase 10) | TUI depends on all session/control capabilities being live; session layer is the final backend phase |
-| Session.workspace → workspace_paths: list[str] | DB schema uses TEXT column with JSON; aligned domain model in Phase 2 |
-| Task.agent_id: str \| None = None | DB schema has nullable agent_id column; added to domain model in Phase 2 |
-| Event.agent_id/correlation_id default "" | DB schema has NOT NULL DEFAULT ''; changed from Optional to required-defaulted str |
-| ToolInvocation.created_at → started_at | DB schema column name is started_at |
-| Participant.left_at: datetime \| None = None | DB schema has nullable left_at column; added to domain model |
-| ApprovalDecision fields aligned to DB | granted: bool, extend_to_session: bool, reason: str, decided_at: datetime |
-| MessageRole.ASSISTANT (not AGENT) | Phase 1 enum uses ASSISTANT; plan spec said AGENT — ASSISTANT is correct |
-| AgentConfig.engine_socket reads BREQY_ENGINE_SOCKET | Aligned with EngineConfig so both track the same socket path |
-| AgentConfig.log_path: str \| None = None | Optional is more explicit than empty-string sentinel |
-| A2A uses length-prefixed JSON frames | 4-byte big-endian uint32 prefix + UTF-8 JSON body; no other framing scheme |
-| Integration tests use asyncio.sleep(0.1) | Stability buffer for Unix socket connection establishment in test environments |
-| PolicyAction enum: ALLOW, DENY, REQUIRE_APPROVAL | NOT "APPROVE" — confirmed from domain enums |
-| FilesystemPolicyChecker sorts by path depth | Uses len(PurePosixPath(r.path_pattern).parts) not len(str) to be robust against trailing slashes |
-| ApprovalService prunes _pending in decide() | Prevents memory leak when decide() is called without a corresponding wait_for_decision() |
-| ApprovalService double-decide: raises ValueError | After _pending prune in decide(), second call raises "No pending approval" (semantically correct) |
-| structlog used throughout engine modules | structlog.get_logger(__name__) — consistent with policy modules |
-| AgentRegistry/ApprovalService scaffolded in EngineServer | Marked TODO(phase-6) — not yet wired into _handle_envelope; wiring happens in Phase 6/8 when agent connect/disconnect events are defined |
-| signal handler guards double-invocation in daemon.py | stop_task sentinel prevents double stop on multiple SIGTERM signals |
-| Phase 6 engine entrypoint is `EngineServer.execute_tool()` | Accepted as the engine-facing Phase 6 scope; transport-level A2A tool-request routing is deferred to a later phase |
-| EngineConfig now carries policy_rules and filesystem_policies | Daemon-composed ToolService uses config-backed policy defaults instead of silent constructor-only open defaults |
-| Phase 6 MCP naming remains deterministic and collision-safe | Local registry names keep server/tool identity while avoiding collisions across malformed or overlapping remote names |
-| Phase 8 dispatch trigger is `AgentWorkRequestedEvent` | Runtime execution starts only from explicit engine-targeted work dispatch, not generic chat broadcast inference |
-| Tool/private-memory request-result events stay transport-only | Durable audit history remains in canonical tool invocation and message lifecycle events, not the handoff envelopes |
-| Provider auth decisions for Phase 8 | Copilot device flow; Codex device flow plus token exchange; Claude PKCE; Gemini API key; Qwen API key |
-| Provider subprocess auth isolation is required | Injected credentials alone are insufficient; adapters must also isolate `HOME` and config directories to block ambient CLI/session reuse |
+| 4 new A2A event types | `model.info`, `model.list.requested`, `model.list.response`, `model.switch.requested` — extend existing typed event system |
+| No explicit busy guard | Serial `run()` listen loop naturally queues switch events until `handle_work()` completes |
+| `list_models()` is concrete, not abstract | Existing providers work without override; only CopilotProvider overrides with HTTP query |
+| Hardcoded fallback model lists | Subprocess providers (claude, codex, gemini, qwen) can't query models dynamically; fallback dicts provided |
+| `CredentialStore` extraction | Currently created inside `_build_provider()` — extract to `main()` and inject into both provider builder and AgentRuntime |
+| Ephemeral switching | Runtime switch is session-only; `agent.yaml` is not mutated |
+| `asyncio.to_thread()` for sync `list_models()` | Copilot HTTP calls are synchronous; wrap in thread from async runtime |
+| `ModelEntry` → `ModelOption` conversion in TUI | Domain uses `ModelEntry`; existing TUI `ModelSelectScreen` uses `ModelOption` dataclass |
+| Same-model guard | Skip provider rebuild when same provider/model selected |
+| Switch failure preserves old provider | Assignment only on success; error sent as system message + old model `ModelInfoEvent` |
+| Auth on demand | Provider object created immediately on switch; auth happens on first `stream()` via existing notice pattern |
 
-### Architectural Dependencies Encoded in Phases
+### Architectural Dependencies
 
 ```
-Phase 1 (DOM)
-  └─► Phase 2 (STR)
-  └─► Phase 3 (CFG + A2A)
-        └─► Phase 4 (POL)
-              └─► Phase 5 (ENG)
-                    └─► Phase 6 (TOOL)
-                          └─► Phase 7 (MEM)
-                    └─► Phase 8 (AGT)
-                          └─► Phase 9 (SES)
-                                └─► Phase 10 (TUI)
+Phase 1 (Domain Events & Models)
+  └─► Phase 2 (Provider list_models)
+  └─► Phase 4 (Engine Routing)
+        └─► Phase 5 (TUI Wiring)
+  Phase 2
+    └─► Phase 3 (Agent Runtime)
+          └─► Phase 5 (TUI Wiring)
+                └─► Phase 6 (Integration Polish)
 ```
 
 ### Active Todos
 
-- [x] Complete Phase 9 discuss -> plan -> execute
-- [x] Complete Phase 10 discuss -> plan -> execute
+- [ ] Plan and execute Phase 1: Domain Events & Models
 
 ### Active Blockers
 
@@ -129,18 +104,27 @@ None.
 
 ---
 
+## Prior Milestone
+
+**M1 — Slice 1 Full Build**: 10/10 phases complete, 1370+ tests, all passing.
+See `.planning/MILESTONES.md` for summary.
+
+---
+
 ## Session Continuity
 
 **To resume from this state:**
-1. Read `.planning/ROADMAP.md` to understand current phase and progress
-2. Read `.planning/REQUIREMENTS.md` for requirement traceability
-3. Check which phases are complete in the Progress Table
-4. If the next incomplete phase has no plans yet, run `/gsd-plan-phase N`; otherwise resume execution from its active plan and verification artifacts
+1. Read `.planning/ROADMAP.md` (M2 section) for phase structure and success criteria
+2. Read `.planning/REQUIREMENTS.md` (v1.1 section) for requirement traceability
+3. Read `docs/superpowers/specs/2026-03-29-provider-model-display-switching-design.md` for approved design
+4. Check which phases are complete in the M2 Progress Table
+5. If the next incomplete phase has no plans yet, plan it; otherwise resume execution
 
 **Files to check first:**
-- `.planning/ROADMAP.md` — phase structure and success criteria
-- `.planning/REQUIREMENTS.md` — requirement traceability
+- `.planning/ROADMAP.md` — M2 phase structure and success criteria
+- `.planning/REQUIREMENTS.md` — v1.1 requirement traceability
 - `.planning/STATE.md` — this file, project memory
+- `docs/superpowers/specs/2026-03-29-provider-model-display-switching-design.md` — approved design spec
 
 ---
-*State initialized: 2026-03-22 after roadmap creation*
+*State initialized: 2026-03-29 for M2*

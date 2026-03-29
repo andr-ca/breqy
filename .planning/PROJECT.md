@@ -8,31 +8,46 @@ Breqy is a Linux-first, always-running, multi-agent assistant platform with a da
 
 A reliable, always-on engine that accepts connections from a TUI, maintains persistent sessions across restarts, and lets the default agent perform approved Linux admin and filesystem tasks with full user visibility and control.
 
+## Current Milestone: v1.1 Provider/Model Runtime Switching
+
+**Goal:** Enable users to see the active LLM provider/model in the TUI and switch providers mid-conversation via dynamic model discovery and runtime provider hot-swap.
+
+**Target features:**
+- Display current provider/model in AgentStatusBar
+- Dynamic model discovery (API query for copilot, hardcoded fallback for others)
+- Runtime provider/model switching mid-conversation
+- Auth on demand when switching to unauthenticated provider
+
 ## Requirements
 
-### Validated
+### Validated (v1.0)
 
-(None yet — ship to validate)
+- [x] Engine runs as an always-on daemon owning sessions, events, and policy
+- [x] TUI connects to running engine and streams session events
+- [x] Persistent sessions survive restarts and disconnects
+- [x] Streaming chat with visible task list
+- [x] Shell and filesystem tool execution via policy gates
+- [x] Inline approvals for tool actions
+- [x] Stop, stop-and-steer, steer, and circuit-break control primitives
+- [x] Canonical typed A2A event schemas shared across engine, agents, and TUI
+- [x] SQLite persistence with WAL mode and centralized event writer
+- [x] Default `breqy` agent with persona, tool permissions, and autonomy policy
+- [x] Policy evaluator with layered rule resolution (global → agent → session, most restrictive wins)
+- [x] Filesystem path-based policy (read/write/delete/execute, whitelist/approve/blacklist)
+- [x] UNIX domain socket transport with OS-level peer credential checks
+- [x] Agent definitions as file-based source-of-truth folders
+- [x] Secrets abstracted behind SecretProvider interface (keyring-backed)
+- [x] All five orchestrator runner auth flows (Copilot device flow, Codex device flow, Claude PKCE, Gemini device flow, Qwen API key)
+- [x] Runner auth panel in TUI (status table, inline auth flow, OSC8 links, masked key input)
 
-### Active
+### Active (v1.1)
 
-- [ ] Engine runs as an always-on daemon owning sessions, events, and policy
-- [ ] TUI connects to running engine and streams session events
-- [ ] Persistent sessions survive restarts and disconnects
-- [ ] Streaming chat with visible task list
-- [ ] Shell and filesystem tool execution via policy gates
-- [ ] Inline approvals for tool actions
-- [ ] Stop, stop-and-steer, steer, and circuit-break control primitives
-- [ ] Canonical typed A2A event schemas shared across engine, agents, and TUI
-- [ ] SQLite persistence with WAL mode and centralized event writer
-- [ ] Default `breqy` agent with persona, tool permissions, and autonomy policy
-- [ ] Policy evaluator with layered rule resolution (global → agent → session, most restrictive wins)
-- [ ] Filesystem path-based policy (read/write/delete/execute, whitelist/approve/blacklist)
-- [ ] UNIX domain socket transport with OS-level peer credential checks
-- [ ] Agent definitions as file-based source-of-truth folders
-- [ ] Secrets abstracted behind SecretProvider interface (keyring-backed)
-- [ ] All five orchestrator runner auth flows (Copilot device flow, Codex device flow, Claude PKCE, Gemini device flow, Qwen API key)
-- [ ] Runner auth panel in TUI (status table, inline auth flow, OSC8 links, masked key input)
+- [ ] TUI displays current provider and model in AgentStatusBar
+- [ ] User can open model selector via ctrl+m with dynamically queried model lists
+- [ ] User can switch provider/model mid-conversation — new model continues same chat
+- [ ] Model discovery queries provider APIs where available (copilot /models endpoint)
+- [ ] All 5 providers shown in selector; unauthenticated providers trigger auth on demand
+- [ ] Runtime switch is ephemeral (session-only); agent.yaml is not mutated
 
 ### Out of Scope
 
@@ -99,4 +114,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-22 after initialization*
+*Last updated: 2026-03-29 — M2 v1.1 milestone created (Provider/Model Runtime Switching)*

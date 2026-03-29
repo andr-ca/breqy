@@ -231,5 +231,63 @@
 - Unmapped: 0 ✓
 
 ---
+
+## v1.1 Requirements — Provider/Model Runtime Switching
+
+### Model Display & Discovery
+
+- [ ] **MDL-01**: TUI displays current provider and model in `AgentStatusBar` immediately after agent connects
+- [ ] **MDL-02**: Agent sends `ModelInfoEvent` to engine/TUI on connect and after every provider switch
+- [ ] **MDL-03**: `ModelProvider` base class provides `list_models()` method returning `(model_id, display_name)` pairs, with default returning the configured model
+- [ ] **MDL-04**: `CopilotProvider` overrides `list_models()` to query the `/models` API endpoint dynamically
+- [ ] **MDL-05**: Hardcoded fallback model lists exist for all 5 providers for use when dynamic discovery is unavailable
+
+### Model Switching
+
+- [ ] **MSW-01**: User can open model selector via `ctrl+m`, which sends `ModelListRequestedEvent` to agent and populates `ModelSelectScreen` with response
+- [ ] **MSW-02**: User can select a provider/model in `ModelSelectScreen`, which sends `ModelSwitchRequestedEvent` to agent
+- [ ] **MSW-03**: Agent rebuilds provider on switch request; new model continues same chat session (ephemeral — `agent.yaml` not mutated)
+- [ ] **MSW-04**: Same-model guard: selecting the already-active model skips rebuild and sends confirming `ModelInfoEvent`
+- [ ] **MSW-05**: Switch failure preserves old provider; error sent as system message; `ModelInfoEvent` with old model re-sent
+
+### A2A Events & Routing
+
+- [ ] **MAE-01**: Four new event types: `model.info`, `model.list.requested`, `model.list.response`, `model.switch.requested`
+- [ ] **MAE-02**: `ModelListRequestedEvent` and `ModelSwitchRequestedEvent` routed by engine to session's primary agent (targeted send)
+- [ ] **MAE-03**: `ModelInfoEvent` and `ModelListResponseEvent` broadcast by engine to all session clients
+
+### Auth & Integration
+
+- [ ] **MAI-01**: `CredentialStore` extracted from `_build_provider()` to `main()` and injected into both provider builder and `AgentRuntime`
+- [ ] **MAI-02**: Unauthenticated provider triggers auth on demand via existing notice event pattern when first `stream()` is called after switch
+- [ ] **MAI-03**: TUI clears model info on `AGENT_DISCONNECTED`; `_model_list_pending` debounce flag prevents duplicate `ctrl+m` requests
+
+### v1.1 Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| MDL-01 | Phase 5: TUI Wiring | Pending |
+| MDL-02 | Phase 3: Agent Runtime | Pending |
+| MDL-03 | Phase 2: Provider list_models() | Pending |
+| MDL-04 | Phase 2: Provider list_models() | Pending |
+| MDL-05 | Phase 2: Provider list_models() | Pending |
+| MSW-01 | Phase 5: TUI Wiring | Pending |
+| MSW-02 | Phase 5: TUI Wiring | Pending |
+| MSW-03 | Phase 3: Agent Runtime | Pending |
+| MSW-04 | Phase 3: Agent Runtime | Pending |
+| MSW-05 | Phase 3: Agent Runtime | Pending |
+| MAE-01 | Phase 1: Domain Events & Models | Pending |
+| MAE-02 | Phase 4: Engine Routing | Pending |
+| MAE-03 | Phase 4: Engine Routing | Pending |
+| MAI-01 | Phase 3: Agent Runtime | Pending |
+| MAI-02 | Phase 3: Agent Runtime | Pending |
+| MAI-03 | Phase 5: TUI Wiring | Pending |
+
+**v1.1 Coverage:**
+- v1.1 requirements: 16 total
+- Mapped to phases: 16 ✓
+- Unmapped: 0 ✓
+
+---
 *Requirements defined: 2026-03-22*
-*Last updated: 2026-03-22 after initial definition*
+*Last updated: 2026-03-29 — added v1.1 Provider/Model Runtime Switching requirements*

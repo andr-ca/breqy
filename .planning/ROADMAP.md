@@ -330,4 +330,169 @@
 
 ---
 *Roadmap created: 2026-03-22*
-*Last updated: 2026-03-27 after Phase 10 completion — all phases complete*
+*Last updated: 2026-03-29 — added M2 v1.1 roadmap*
+
+---
+
+# Roadmap: M2 — Provider/Model Runtime Switching
+
+**Milestone:** M2 — v1.1 Provider/Model Runtime Switching
+**Granularity:** Fine (6 phases)
+**Coverage:** 16/16 requirements mapped ✓
+**Created:** 2026-03-29
+**Design Spec:** `docs/superpowers/specs/2026-03-29-provider-model-display-switching-design.md`
+
+---
+
+## Phases
+
+- [ ] **Phase 1: Domain Events & Models** — New EventType values, event classes, ModelEntry model
+- [ ] **Phase 2: Provider list_models()** — Base default method + CopilotProvider override + fallback models dict
+- [ ] **Phase 3: Agent Runtime** — CredentialStore extraction, ModelInfoEvent on connect, list/switch handlers, _discover_models()
+- [ ] **Phase 4: Engine Routing** — Forward model events to primary agent via targeted send
+- [ ] **Phase 5: TUI Wiring** — AgentStatusBar enhancement, EventDispatcher handlers, ctrl+m flow, ModelSelected handler, debounce
+- [ ] **Phase 6: Integration Polish** — Loading states, error handling, edge cases, E2E verification
+
+---
+
+## Phase Details
+
+### Phase 1: Domain Events & Models
+
+**Goal**: The 4 new model-related event types and the `ModelEntry` domain model exist as importable, serializable, round-trippable domain objects.
+
+**Depends on**: Nothing (extends existing domain layer)
+
+**Requirements**: MAE-01
+
+**Success Criteria** (what must be TRUE):
+1. `EventType` enum has 4 new values: `MODEL_INFO`, `MODEL_LIST_REQUESTED`, `MODEL_LIST_RESPONSE`, `MODEL_SWITCH_REQUESTED`
+2. `ModelInfoEvent`, `ModelListRequestedEvent`, `ModelListResponseEvent`, `ModelSwitchRequestedEvent` are instantiable event classes inheriting `FixedEventTypeEvent`
+3. All 4 event classes are registered in `EVENT_TYPE_MAP` and round-trip through envelope encode/decode
+4. `ModelEntry` Pydantic model has fields: `provider`, `model_id`, `display_name`, `is_authenticated`
+5. `ModelListResponseEvent.models` serializes and deserializes a list of `ModelEntry` correctly
+
+---
+
+### Phase 2: Provider list_models()
+
+**Goal**: Every `ModelProvider` supports model discovery — the base class provides a default single-model response, `CopilotProvider` queries the API dynamically, and a hardcoded fallback dict covers all 5 providers.
+
+**Depends on**: Phase 1 (ModelEntry model)
+
+**Requirements**: MDL-03, MDL-04, MDL-05
+
+**Success Criteria** (what must be TRUE):
+1. `ModelProvider.list_models()` is a concrete (non-abstract) method returning `[(self.model_id, self.model_id)]`
+2. `CopilotProvider.list_models()` calls `GET /models` with auth token and returns parsed `(id, name)` pairs
+3. `CopilotProvider.list_models()` falls back to `[(self.model_id, self.model_id)]` when not authenticated or on HTTP error
+4. `PROVIDER_FALLBACK_MODELS` dict in `adapters.py` contains entries for all 5 providers
+5. Existing tests still pass (no regressions from adding concrete method to ABC)
+
+---
+
+### Phase 3: Agent Runtime
+
+**Goal**: The agent runtime manages model state — it announces the active model on connect, discovers available models on request, and switches providers mid-conversation with proper error handling.
+
+**Depends on**: Phase 1 (event types), Phase 2 (list_models, fallback dict)
+
+**Requirements**: MDL-02, MSW-03, MSW-04, MSW-05, MAI-01, MAI-02
+
+**Success Criteria** (what must be TRUE):
+1. `CredentialStore` is created in `main()` and injected into both `_build_provider()` and `AgentRuntime.__init__()`
+2. Agent sends `ModelInfoEvent` immediately after `AgentLifecycleEvent(AGENT_CONNECTED)`
+3. Agent handles `ModelListRequestedEvent` by calling `_discover_models()` and sending `ModelListResponseEvent`
+4. Agent handles `ModelSwitchRequestedEvent` by rebuilding provider and sending new `ModelInfoEvent`
+5. Same-model guard: no rebuild when same provider/model selected; confirming `ModelInfoEvent` sent
+6. Switch failure: old provider preserved, error `MessageSentEvent(SYSTEM)` sent, `ModelInfoEvent` with old model sent
+
+---
+
+### Phase 4: Engine Routing
+
+**Goal**: The engine correctly routes model-related events — targeted send for requests (TUI→agent), broadcast for responses (agent→TUI).
+
+**Depends on**: Phase 1 (event types)
+
+**Requirements**: MAE-02, MAE-03
+
+**Success Criteria** (what must be TRUE):
+1. `ModelListRequestedEvent` is forwarded from TUI client to session's primary agent via `send_to()`
+2. `ModelSwitchRequestedEvent` is forwarded from TUI client to session's primary agent via `send_to()`
+3. `ModelInfoEvent` broadcasts to all session clients (default handler behavior)
+4. `ModelListResponseEvent` broadcasts to all session clients (default handler behavior)
+5. Missing primary agent for targeted sends does not crash the engine (graceful handling)
+
+---
+
+### Phase 5: TUI Wiring
+
+**Goal**: The TUI displays the active model, supports `ctrl+m` to open the model selector with dynamically discovered models, handles model selection, and maintains correct state across agent lifecycle events.
+
+**Depends on**: Phase 1 (event types), Phase 4 (engine routing)
+
+**Requirements**: MDL-01, MSW-01, MSW-02, MAI-03
+
+**Success Criteria** (what must be TRUE):
+1. `AgentStatusBar` displays `"provider / model"` after receiving `ModelInfoEvent`; clears on `AGENT_DISCONNECTED`
+2. `ctrl+m` sends `ModelListRequestedEvent` with correct `session_id` from active `ChatScreen`
+3. `_model_list_pending` debounce flag prevents duplicate `ctrl+m` requests
+4. `MODEL_LIST_RESPONSE` handler converts `ModelEntry` → `ModelOption` and pushes `ModelSelectScreen`
+5. `ModelSelected` message handler sends `ModelSwitchRequestedEvent` to engine
+6. `_NullProvider` model info (`"null"/"null"`) displays in warning style
+
+---
+
+### Phase 6: Integration Polish
+
+**Goal**: All edge cases are handled, loading states provide UX feedback, and the full flow works end-to-end.
+
+**Depends on**: Phase 3, Phase 4, Phase 5
+
+**Requirements**: (cross-cutting — validates all requirements E2E)
+
+**Success Criteria** (what must be TRUE):
+1. Full E2E flow: agent connect → model info displayed → ctrl+m → model list → select → switch → new model displayed
+2. Switch during idle: completes immediately
+3. Auth on demand: switching to unauthenticated provider triggers auth notice
+4. Error recovery: invalid provider selection shows error in chat, status bar unchanged
+5. Agent disconnect/reconnect: model info cleared then re-announced
+
+---
+
+## M2 Progress Table
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Domain Events & Models | — | Pending | — |
+| 2. Provider list_models() | — | Pending | — |
+| 3. Agent Runtime | — | Pending | — |
+| 4. Engine Routing | — | Pending | — |
+| 5. TUI Wiring | — | Pending | — |
+| 6. Integration Polish | — | Pending | — |
+
+---
+
+## M2 Coverage Map
+
+| Requirement | Phase |
+|-------------|-------|
+| MDL-01 | Phase 5 |
+| MDL-02 | Phase 3 |
+| MDL-03 | Phase 2 |
+| MDL-04 | Phase 2 |
+| MDL-05 | Phase 2 |
+| MSW-01 | Phase 5 |
+| MSW-02 | Phase 5 |
+| MSW-03 | Phase 3 |
+| MSW-04 | Phase 3 |
+| MSW-05 | Phase 3 |
+| MAE-01 | Phase 1 |
+| MAE-02 | Phase 4 |
+| MAE-03 | Phase 4 |
+| MAI-01 | Phase 3 |
+| MAI-02 | Phase 3 |
+| MAI-03 | Phase 5 |
+
+**Total mapped: 16/16 ✓**
