@@ -93,6 +93,9 @@ class BreqyApp(App):
         # Background log buffer — stores recent events for LogsScreen pre-population
         self._log_buffer: collections.deque[LogEntry] = collections.deque(maxlen=1000)
 
+        # Agent connectivity tracking
+        self._agent_connected: bool = False
+
         # Debounce flag for model list requests (ctrl+m)
         self._model_list_pending: bool = False
 
@@ -151,10 +154,10 @@ class BreqyApp(App):
             lambda e: self._route_to_chat("handle_approval_requested", e),
         )
 
-        # Agent lifecycle → ChatScreen + app-level cleanup
+        # Agent lifecycle → ChatScreen + app-level tracking
         self._dispatcher.register(
             EventType.AGENT_CONNECTED,
-            lambda e: self._route_to_chat("handle_agent_lifecycle", e),
+            self._handle_agent_connected,
         )
         self._dispatcher.register(
             EventType.AGENT_DISCONNECTED,
@@ -224,9 +227,15 @@ class BreqyApp(App):
         if isinstance(event, SessionCreatedEvent):
             self.push_screen(ChatScreen(session_id=event.session_id))
 
+    def _handle_agent_connected(self, event: Event) -> None:
+        """Handle agent connect: route to ChatScreen and track connectivity."""
+        self._route_to_chat("handle_agent_lifecycle", event)
+        self._agent_connected = True
+
     def _handle_agent_disconnected(self, event: Event) -> None:
         """Handle agent disconnect: route to ChatScreen and reset pending state."""
         self._route_to_chat("handle_agent_lifecycle", event)
+        self._agent_connected = False
         self._cancel_model_list_timer()
         self._model_list_pending = False
 
@@ -246,6 +255,7 @@ class BreqyApp(App):
 
         # Ignore late responses that arrive after timeout
         if not was_pending:
+            logger.debug("Model list response ignored (no pending request)")
             return
 
         # Only push ModelSelectScreen if a ChatScreen is on the stack
@@ -404,6 +414,16 @@ class BreqyApp(App):
                 chat_screen = screen
                 break
         if chat_screen is None:
+            return
+
+        # Block requests when agent is disconnected — the engine will
+        # silently drop the request and the TUI would hang until timeout.
+        if not self._agent_connected:
+            self.notify(
+                "Agent not connected — cannot discover models",
+                severity="warning",
+                timeout=3,
+            )
             return
 
         if self._model_list_pending:

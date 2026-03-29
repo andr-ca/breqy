@@ -424,6 +424,7 @@ class TestScreenNavigation:
             app.push_screen(chat)
             await pilot.pause()
 
+            app._agent_connected = True  # Agent must be connected
             app.action_push_model_select()
             await pilot.pause()
 
@@ -1020,6 +1021,7 @@ class TestCtrlMModelList:
             app.push_screen(chat)
             await pilot.pause()
 
+            app._agent_connected = True  # Agent must be connected
             app.action_push_model_select()
             await pilot.pause()
 
@@ -1046,6 +1048,7 @@ class TestCtrlMModelList:
             await pilot.pause()
 
             assert app._model_list_pending is False
+            app._agent_connected = True  # Agent must be connected
             app.action_push_model_select()
             assert app._model_list_pending is True
 
@@ -1068,6 +1071,7 @@ class TestCtrlMModelList:
             app.push_screen(chat)
             await pilot.pause()
 
+            app._agent_connected = True  # Agent must be connected
             # First press
             app.action_push_model_select()
             await pilot.pause()
@@ -1114,6 +1118,7 @@ class TestCtrlMModelList:
             app.push_screen(chat)
             await pilot.pause()
 
+            app._agent_connected = True  # Agent must be connected
             app.action_push_model_select()
             await pilot.pause()
 
@@ -1301,6 +1306,7 @@ class TestModelListPendingDeadlockPrevention:
             app.push_screen(chat)
             await pilot.pause()
 
+            app._agent_connected = True  # Agent must be connected
             app.action_push_model_select()
             await pilot.pause()
 
@@ -1325,6 +1331,7 @@ class TestModelListPendingDeadlockPrevention:
             await pilot.pause()
 
             # Trigger ctrl+m
+            app._agent_connected = True  # Agent must be connected
             app.action_push_model_select()
             await pilot.pause()
             assert app._model_list_pending is True
@@ -1386,6 +1393,7 @@ class TestModelListPendingDeadlockPrevention:
             await pilot.pause()
 
             # Simulate pending request with timer
+            app._agent_connected = True
             app.action_push_model_select()
             await pilot.pause()
             assert app._model_list_timer is not None
@@ -1633,6 +1641,7 @@ class TestSlashModelsCommand:
             app.push_screen(chat)
             await pilot.pause()
 
+            app._agent_connected = True
             # Type /models in the input
             inp = chat.query_one("#message-input", Input)
             inp.value = "/models"
@@ -1663,6 +1672,7 @@ class TestSlashModelsCommand:
             app.push_screen(chat)
             await pilot.pause()
 
+            app._agent_connected = True
             # First /models
             inp = chat.query_one("#message-input", Input)
             inp.value = "/models"
@@ -1772,3 +1782,177 @@ class TestUnknownSlashCommand:
             await pilot.pause()
 
             assert any("unknown" in n.lower() or "nknown" in n.lower() for n in notifications)
+
+
+# ============================================================================ #
+# Model list blocked when agent disconnected
+# ============================================================================ #
+
+
+class TestModelListBlockedWhenAgentDisconnected:
+    """Model list requests should not be sent when the agent is disconnected.
+
+    Root cause: after agent crash/disconnect, TUI sends model.list.requested
+    to the engine which silently drops it (agent not registered).  The TUI
+    then hangs for 15s waiting for a response that never comes.
+    """
+
+    @pytest.mark.asyncio
+    async def test_app_tracks_agent_connected_state(self) -> None:
+        """App should have _agent_connected attribute, initially False."""
+        app = BreqyApp()
+        assert app._agent_connected is False
+
+    @pytest.mark.asyncio
+    async def test_agent_connected_event_sets_flag_true(self) -> None:
+        """Receiving AGENT_CONNECTED should set _agent_connected = True."""
+        from breqy.domain.enums import EventType
+        from breqy.domain.events import AgentLifecycleEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            connect_event = AgentLifecycleEvent(
+                session_id="ses_test",
+                agent_id="breqy",
+                event_type=EventType.AGENT_CONNECTED,
+            )
+            app._dispatcher.dispatch(connect_event)
+            await pilot.pause()
+
+            assert app._agent_connected is True
+
+    @pytest.mark.asyncio
+    async def test_agent_disconnected_event_sets_flag_false(self) -> None:
+        """Receiving AGENT_DISCONNECTED should set _agent_connected = False."""
+        from breqy.domain.enums import EventType
+        from breqy.domain.events import AgentLifecycleEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # First connect
+            connect_event = AgentLifecycleEvent(
+                session_id="ses_test",
+                agent_id="breqy",
+                event_type=EventType.AGENT_CONNECTED,
+            )
+            app._dispatcher.dispatch(connect_event)
+            await pilot.pause()
+            assert app._agent_connected is True
+
+            # Then disconnect
+            disconnect_event = AgentLifecycleEvent(
+                session_id="ses_test",
+                agent_id="breqy",
+                event_type=EventType.AGENT_DISCONNECTED,
+            )
+            app._dispatcher.dispatch(disconnect_event)
+            await pilot.pause()
+
+            assert app._agent_connected is False
+
+    @pytest.mark.asyncio
+    async def test_model_list_blocked_when_agent_disconnected(self) -> None:
+        """action_push_model_select should NOT send events when agent is disconnected."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Agent is not connected (default state)
+            app.action_push_model_select()
+            await pilot.pause()
+
+            assert len(sent_events) == 0
+            assert app._model_list_pending is False
+
+    @pytest.mark.asyncio
+    async def test_model_list_shows_notification_when_agent_disconnected(self) -> None:
+        """action_push_model_select should notify user when agent is disconnected."""
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+
+        notifications: list[str] = []
+        original_notify = app.notify
+
+        def capture_notify(message, **kwargs):
+            notifications.append(str(message))
+            original_notify(message, **kwargs)
+
+        app.notify = capture_notify  # type: ignore[assignment]
+
+        async def noop_send(event):
+            pass
+
+        app.send_event = noop_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Agent is not connected
+            app.action_push_model_select()
+            await pilot.pause()
+
+            assert any("agent" in n.lower() or "connect" in n.lower() for n in notifications)
+
+    @pytest.mark.asyncio
+    async def test_model_list_works_after_agent_reconnects(self) -> None:
+        """After agent connects, model list requests should work again."""
+        from breqy.domain.enums import EventType
+        from breqy.domain.events import AgentLifecycleEvent, ModelListRequestedEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        sent_events: list = []
+
+        app = BreqyApp()
+
+        async def capture_send(event):
+            sent_events.append(event)
+
+        app.send_event = capture_send  # type: ignore[assignment]
+
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Connect the agent
+            connect_event = AgentLifecycleEvent(
+                session_id="ses_test",
+                agent_id="breqy",
+                event_type=EventType.AGENT_CONNECTED,
+            )
+            app._dispatcher.dispatch(connect_event)
+            await pilot.pause()
+
+            # Now model list should work
+            app.action_push_model_select()
+            await pilot.pause()
+
+            assert len(sent_events) == 1
+            assert isinstance(sent_events[0], ModelListRequestedEvent)
