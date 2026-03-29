@@ -39,7 +39,7 @@ Phase:  [ 1 ][ 2 ][ 3 ][ 4 ][ 5 ][ 6 ]
 | 2 | Provider list_models() | MDL-03–05 (3) | **Complete** | 16 | `d01b6d6` |
 | 3 | Agent Runtime | MDL-02, MSW-03–05, MAI-01–02 (6) | **Complete** | 12 | `6be63fb` |
 | 4 | Engine Routing | MAE-02–03 (2) | **Complete** | 8 | `5bf6ba1` |
-| 5 | TUI Wiring | MDL-01, MSW-01–02, MAI-03 (4) | **Complete** | 25 | Pending commit |
+| 5 | TUI Wiring | MDL-01, MSW-01–02, MAI-03 (4) | **Complete** | 25 | `f06e6cc` |
 | 6 | Integration Polish | Cross-cutting E2E | **Not started** | — | — |
 
 ---
@@ -119,7 +119,6 @@ Phase 1 (Domain Events & Models)
 ### Active Todos
 
 - [ ] Plan and execute Phase 6: Integration Polish (loading states, error handling, E2E)
-- [ ] Commit Phase 5
 
 ### Active Blockers
 
@@ -145,7 +144,7 @@ See `.planning/MILESTONES.md` for summary.
 2. Read `.planning/REQUIREMENTS.md` (v1.1 section) for requirement traceability
 3. Read `docs/superpowers/specs/2026-03-29-provider-model-display-switching-design.md` for approved design
 4. Check which phases are complete in the M2 Progress Table
-5. Phase 5 is complete but not yet committed — commit it, then proceed to Phase 6
+5. Phase 5 is committed at `f06e6cc` — proceed to Phase 6
 
 **Files to check first:**
 - `.planning/ROADMAP.md` — M2 phase structure and success criteria
@@ -154,4 +153,4 @@ See `.planning/MILESTONES.md` for summary.
 - `docs/superpowers/specs/2026-03-29-provider-model-display-switching-design.md` — approved design spec
 
 ---
-*State updated: 2026-03-29 — Phase 5 complete, 1463 tests passing*
+*State updated: 2026-03-29 — Phase 5 committed (`f06e6cc`), 1463 tests passing*

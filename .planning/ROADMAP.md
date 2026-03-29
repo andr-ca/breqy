@@ -346,11 +346,11 @@
 
 ## Phases
 
-- [ ] **Phase 1: Domain Events & Models** — New EventType values, event classes, ModelEntry model
-- [ ] **Phase 2: Provider list_models()** — Base default method + CopilotProvider override + fallback models dict
-- [ ] **Phase 3: Agent Runtime** — CredentialStore extraction, ModelInfoEvent on connect, list/switch handlers, _discover_models()
-- [ ] **Phase 4: Engine Routing** — Forward model events to primary agent via targeted send
-- [ ] **Phase 5: TUI Wiring** — AgentStatusBar enhancement, EventDispatcher handlers, ctrl+m flow, ModelSelected handler, debounce
+- [x] **Phase 1: Domain Events & Models** — New EventType values, event classes, ModelEntry model (`c3e18bd`)
+- [x] **Phase 2: Provider list_models()** — Base default method + CopilotProvider override + fallback models dict (`d01b6d6`)
+- [x] **Phase 3: Agent Runtime** — CredentialStore extraction, ModelInfoEvent on connect, list/switch handlers, _discover_models() (`6be63fb`)
+- [x] **Phase 4: Engine Routing** — Forward model events to primary agent via targeted send (`5bf6ba1`)
+- [x] **Phase 5: TUI Wiring** — AgentStatusBar enhancement, EventDispatcher handlers, ctrl+m flow, ModelSelected handler, debounce (`f06e6cc`)
 - [ ] **Phase 6: Integration Polish** — Loading states, error handling, edge cases, E2E verification
 
 ---
