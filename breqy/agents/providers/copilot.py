@@ -1,4 +1,5 @@
 """GitHub Copilot ModelProvider implementation."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -16,7 +17,7 @@ from breqy.agents.providers.base import (
     ToolCallDelta,
     ToolDefinition,
 )
-from breqy.agents.providers.copilot_auth import CopilotAuthenticator
+from breqy.agents.providers.copilot_auth import CopilotAuthError, CopilotAuthenticator
 from breqy.agents.providers.copilot_client import CopilotApiClient, CopilotApiError
 
 logger = structlog.get_logger(__name__)
@@ -75,17 +76,18 @@ class CopilotProvider(ModelProvider):
             if resp.status_code != 200:
                 return [(self.model_id, self.model_id)]
             data = resp.json()
-            return [
-                (m["id"], m.get("name", m["id"]))
-                for m in data.get("data", [])
-            ]
+            return [(m["id"], m.get("name", m["id"])) for m in data.get("data", [])]
         except Exception:
             logger.debug("copilot_list_models_failed", exc_info=True)
             return [(self.model_id, self.model_id)]
 
     def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]:
-        token = self._authenticator.get_copilot_token()
-        pending_flow = None
+        try:
+            token = self._authenticator.get_copilot_token()
+        except CopilotAuthError:
+            logger.info("copilot_auth_error_clearing_token")
+            self._authenticator.clear_token()
+            token = None
 
         if token is None:
             pending_flow = self._start_device_flow()
@@ -105,7 +107,11 @@ class CopilotProvider(ModelProvider):
             if exc.status_code == 401:
                 logger.info("copilot_token_expired_retrying")
                 self._authenticator.clear_token()
-                token = self._authenticator.get_copilot_token()
+                try:
+                    token = self._authenticator.get_copilot_token()
+                except CopilotAuthError:
+                    logger.info("copilot_auth_error_during_retry")
+                    token = None
                 if token is None:
                     pending_flow = self._start_device_flow()
                     yield pending_flow.auth_event
@@ -231,9 +237,7 @@ class CopilotProvider(ModelProvider):
         messages.append({"role": "user", "content": request.prompt})
         return messages
 
-    def _convert_tools(
-        self, tools: list[ToolDefinition]
-    ) -> list[dict[str, Any]]:
+    def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
         """Convert Breqy ToolDefinition to OpenAI tool format."""
         return [
             {
