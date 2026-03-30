@@ -7,6 +7,7 @@ summary/message.  Supports filtering and uses ring buffers to limit memory.
 Toggle between views with the ``Tab`` key.
 Push as an overlay from the app's ``ctrl+l`` binding.
 """
+
 from __future__ import annotations
 
 import collections
@@ -18,6 +19,8 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import Input, RichLog, Static
+
+from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
 
 
 @dataclass
@@ -78,7 +81,7 @@ class LogsScreen(Screen[None]):
         """Yield the logs screen layout."""
         yield Static("Event Logs", id="logs-header")
         yield Input(placeholder="Filter by event type...", id="filter-input")
-        yield RichLog(id="logs-display", wrap=True, markup=True)
+        yield SelectableRichLog(id="logs-display", wrap=True, markup=True)
         yield Static(
             "[b]Escape[/b] Back  [b]Tab[/b] Events/Logs  [b]C[/b] Clear filter",
             id="logs-footer",
@@ -259,9 +262,7 @@ class LogsScreen(Screen[None]):
             for entry in visible_logs:
                 ts_str = entry.timestamp.strftime("%H:%M:%S")
                 color = _level_colors.get(entry.level, "")
-                level_fmt = (
-                    f"[{color}]{entry.level}[/{color}]" if color else entry.level
-                )
+                level_fmt = f"[{color}]{entry.level}[/{color}]" if color else entry.level
                 log.write(
                     f"[dim]{ts_str}[/dim] {level_fmt} "
                     f"[bold]{entry.logger_name}[/bold] {entry.message}"

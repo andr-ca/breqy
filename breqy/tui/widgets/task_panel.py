@@ -1,9 +1,10 @@
 """TaskPanel widget — displays task list with status icons.
 
-Renders tasks in a ``RichLog`` with status-specific icons and optional
-indentation for nested (child) tasks.  The full log is rewritten on every
-update so that status changes are reflected immediately.
+Renders tasks in a ``SelectableRichLog`` with status-specific icons and
+optional indentation for nested (child) tasks.  The full log is rewritten
+on every update so that status changes are reflected immediately.
 """
+
 from __future__ import annotations
 
 from typing import TypedDict
@@ -13,6 +14,7 @@ from textual.widgets import RichLog
 
 from breqy.domain.enums import TaskStatus
 from breqy.tui.constants import TASK_STATUS_ICONS
+from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
 
 
 class _TaskEntry(TypedDict):
@@ -37,7 +39,7 @@ class TaskPanel(Widget):
         self._tasks: dict[str, _TaskEntry] = {}
 
     def compose(self):  # noqa: ANN201
-        yield RichLog(id="task-log", wrap=True, markup=True)
+        yield SelectableRichLog(id="task-log", wrap=True, markup=True)
 
     @property
     def log_widget(self) -> RichLog:

@@ -3,6 +3,7 @@
 Tracks active and recently completed tool invocations in a side panel,
 showing status icons, output chunks, summaries, and errors.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from textual.widgets import RichLog
 
 from breqy.domain.enums import ToolStatus
 from breqy.tui.constants import TOOL_STATUS_ICONS
+from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
 
 
 @dataclass
@@ -43,7 +45,7 @@ class ToolPanel(Widget):
         self._order: list[str] = []
 
     def compose(self):  # noqa: ANN201
-        yield RichLog(id="tool-log", wrap=True, markup=True)
+        yield SelectableRichLog(id="tool-log", wrap=True, markup=True)
 
     @property
     def log_widget(self) -> RichLog:

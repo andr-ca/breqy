@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `breqy/tui/widgets/selectable_rich_log.py`: `SelectableRichLog` subclass of `RichLog` that enables Textual's built-in text selection and clipboard support. Adds `Strip.apply_offsets` for mouse hit-testing and selection highlight rendering that `RichLog` does not implement. Includes `_apply_selection_highlight` helper for applying styles to character ranges within a `Strip`, and overrides `get_selection` to extract text from actual log content.
+- `tests/tui/test_selectable_rich_log.py`: 18 unit tests covering subclass contract, write/clear, selection offsets, get_selection (single-line, multi-line, empty), and `_apply_selection_highlight` edge cases.
 - `breqy/policy/` package: `PolicyDecision` model and `PolicyEvaluator` with most-restrictive-wins rule resolution across global, agent, and session scopes.
 - `tests/unit/policy/test_evaluator.py`: 9 unit tests covering all scope combinations, default-allow, DENY/REQUIRE_APPROVAL priority, prefix resource matching, and session isolation. 100% branch and statement coverage.
 - `GEMINI.md` instructions for Gemini CLI.
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/unit/agents/` and `tests/integration/agents/` coverage for credential storage, provider auth/execution adapters, skill loading, runtime streaming/tool dispatch, delegated private-memory flow, and end-to-end engine/runtime round trips.
 
 ### Changed
+- Replaced `RichLog` with `SelectableRichLog` in all four TUI widgets that display scrollable log content: `ChatView` (chat-log), `TaskPanel` (task-log), `ToolPanel` (tool-log), and `LogsScreen` (logs-display). Enables mouse-drag text selection and clipboard copy across all log panels.
 - Refined `GEMINI.md` with full technology stack, correct coverage thresholds, and fixed table formatting.
 - Narrowed `.geminiignore` to ensure `.env.sample` is unignored by removing the leading space in the negation pattern.
 - Wired engine-side tool composition so `EngineServer` can build a default native tool registry, expose a server-level tool execution entrypoint, and keep tool audit events on the existing centralized event bus and writer path.

@@ -1,14 +1,17 @@
 """ChatView widget — scrollable chat message display with streaming support.
 
-Uses Textual's ``RichLog`` to render chat messages with role-based prefixes
-and supports incremental streaming via ``StreamBuffer``.
+Uses ``SelectableRichLog`` (a ``RichLog`` subclass with text selection
+support) to render chat messages with role-based prefixes and supports
+incremental streaming via ``StreamBuffer``.
 """
+
 from __future__ import annotations
 
 from textual.widget import Widget
 from textual.widgets import RichLog
 
 from breqy.domain.enums import MessageRole
+from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
 from breqy.tui.widgets.stream_buffer import StreamBuffer
 
 
@@ -26,7 +29,7 @@ class ChatView(Widget):
         self._stream_buffer = StreamBuffer()
 
     def compose(self):  # noqa: ANN201
-        yield RichLog(id="chat-log", wrap=True, markup=True)
+        yield SelectableRichLog(id="chat-log", wrap=True, markup=True)
 
     @property
     def log_widget(self) -> RichLog:
