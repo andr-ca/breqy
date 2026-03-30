@@ -83,6 +83,16 @@ class SelectableRichLog(RichLog):
 
     ALLOW_SELECT = True
 
+    def selection_updated(self, selection: Selection | None) -> None:
+        """Clear the line cache when selection changes.
+
+        Without this override cached strips are served without the
+        selection highlight, causing stale rendering when the user
+        drags to change the selection or releases the mouse.
+        """
+        self._line_cache.clear()
+        self.refresh()
+
     def render_line(self, y: int) -> Strip:
         """Render a line with positional offsets for text selection.
 
