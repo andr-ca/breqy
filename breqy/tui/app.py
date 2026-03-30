@@ -29,6 +29,7 @@ from breqy.domain.events import (
     SessionCreatedEvent,
 )
 from breqy.domain.ids import generate_prefixed_id
+from breqy.tui.clipboard import copy_to_system_clipboard
 from breqy.tui.events import EventDispatcher
 from breqy.tui.screens.auth import AuthScreen
 from breqy.tui.screens.chat import ChatScreen
@@ -457,6 +458,7 @@ class BreqyApp(App):
         text = self.screen.get_selected_text()
         if text:
             self.copy_to_clipboard(text)
+            copy_to_system_clipboard(text)
 
     # ------------------------------------------------------------------ #
     # SessionListScreen message handlers
