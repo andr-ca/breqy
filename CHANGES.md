@@ -9,7 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `breqy/tui/widgets/selectable_rich_log.py`: `SelectableRichLog` subclass of `RichLog` that enables Textual's built-in text selection and clipboard support. Adds `Strip.apply_offsets` for mouse hit-testing and selection highlight rendering that `RichLog` does not implement. Includes `_apply_selection_highlight` helper for applying styles to character ranges within a `Strip`, and overrides `get_selection` to extract text from actual log content.
-- `tests/tui/test_selectable_rich_log.py`: 18 unit tests covering subclass contract, write/clear, selection offsets, get_selection (single-line, multi-line, empty), and `_apply_selection_highlight` edge cases.
+- `tests/tui/test_selectable_rich_log.py`: 20 unit tests covering subclass contract, write/clear, selection offsets, selection_updated cache invalidation, get_selection (single-line, multi-line, empty), and `_apply_selection_highlight` edge cases.
+- `breqy/tui/clipboard.py`: `copy_to_system_clipboard` helper that tries `xclip`, `xsel`, `wl-copy`, and `pbcopy` as subprocess fallbacks for environments where OSC 52 is unreliable (e.g. tmux without `set-clipboard on`).
+- `tests/tui/test_clipboard.py`: 5 tests for clipboard tool fallback chain, error handling, and empty-string no-op.
+- Auto-copy on mouse selection: `BreqyApp.on_text_selected` extracts selected text and pushes it to both OSC 52 and system clipboard immediately when the user finishes dragging.
 - `breqy/policy/` package: `PolicyDecision` model and `PolicyEvaluator` with most-restrictive-wins rule resolution across global, agent, and session scopes.
 - `tests/unit/policy/test_evaluator.py`: 9 unit tests covering all scope combinations, default-allow, DENY/REQUIRE_APPROVAL priority, prefix resource matching, and session isolation. 100% branch and statement coverage.
 - `GEMINI.md` instructions for Gemini CLI.
