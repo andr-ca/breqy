@@ -88,6 +88,45 @@ class TestSelectableRichLogWrite:
             assert len(widget.lines) == 0
 
 
+class TestSelectableRichLogSelectionUpdated:
+    """selection_updated must clear the line cache for re-rendering."""
+
+    @pytest.mark.asyncio
+    async def test_selection_updated_clears_line_cache(self) -> None:
+        """When selection changes, cached strips must be invalidated so
+        the highlight is re-rendered fresh."""
+        app = SelectableRichLogApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            widget = app.query_one(SelectableRichLog)
+            widget.write("Cached line content")
+            await pilot.pause()
+
+            # Prime the cache by rendering
+            widget.render_line(0)
+            assert len(widget._line_cache) > 0
+
+            # Simulate selection change
+            selection = Selection(start=Offset(0, 0), end=Offset(5, 0))
+            widget.selection_updated(selection)
+
+            assert len(widget._line_cache) == 0
+
+    @pytest.mark.asyncio
+    async def test_selection_updated_none_clears_cache(self) -> None:
+        """Clearing selection (None) must also invalidate the cache."""
+        app = SelectableRichLogApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            widget = app.query_one(SelectableRichLog)
+            widget.write("Another cached line")
+            await pilot.pause()
+
+            widget.render_line(0)
+            assert len(widget._line_cache) > 0
+
+            widget.selection_updated(None)
+            assert len(widget._line_cache) == 0
+
+
 class TestSelectableRichLogSelectionOffsets:
     """Rendered strips must include positional offsets for selection."""
 
