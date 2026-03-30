@@ -4,6 +4,7 @@ Provides the main App class with key bindings, real screen wiring,
 EventDispatcher-based event routing, and an A2A background worker
 that streams events from the engine.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -206,9 +207,7 @@ class BreqyApp(App):
             timestamp=event.timestamp,
             source=event.agent_id or "engine",
             event_type=event.event_type.value,
-            summary=str(getattr(event, "content", ""))
-            or str(getattr(event, "summary", ""))
-            or "",
+            summary=str(getattr(event, "content", "")) or str(getattr(event, "summary", "")) or "",
         )
         self._log_buffer.append(entry)
 
@@ -271,9 +270,7 @@ class BreqyApp(App):
             )
             for entry in event.models
         ]
-        self.push_screen(
-            ModelSelectScreen(models=options, current_model=event.current_model)
-        )
+        self.push_screen(ModelSelectScreen(models=options, current_model=event.current_model))
 
     def _on_model_list_timeout(self) -> None:
         """Called when the model list request times out."""
@@ -433,9 +430,7 @@ class BreqyApp(App):
 
         # Start timeout timer (15 seconds)
         self._cancel_model_list_timer()
-        self._model_list_timer = self.set_timer(
-            15.0, self._on_model_list_timeout
-        )
+        self._model_list_timer = self.set_timer(15.0, self._on_model_list_timeout)
 
         self.notify("Discovering models…", timeout=3)
 
@@ -448,17 +443,35 @@ class BreqyApp(App):
             self.pop_screen()
 
     # ------------------------------------------------------------------ #
+    # Auto-copy on text selection
+    # ------------------------------------------------------------------ #
+
+    def on_text_selected(self) -> None:
+        """Copy selected text to clipboard when mouse selection finishes.
+
+        Textual posts ``TextSelected`` on every mouse-up.  If the
+        active screen has a non-empty selection we extract the text
+        and push it to the clipboard immediately so the user does not
+        need to press ctrl+c.
+        """
+        text = self.screen.get_selected_text()
+        if text:
+            self.copy_to_clipboard(text)
+
+    # ------------------------------------------------------------------ #
     # SessionListScreen message handlers
     # ------------------------------------------------------------------ #
 
     def on_session_list_screen_session_selected(
-        self, message: SessionListScreen.SessionSelected,
+        self,
+        message: SessionListScreen.SessionSelected,
     ) -> None:
         """Push a ChatScreen for the selected session."""
         self.push_screen(ChatScreen(session_id=message.session_id))
 
     def on_session_list_screen_new_session_requested(
-        self, message: SessionListScreen.NewSessionRequested,
+        self,
+        message: SessionListScreen.NewSessionRequested,
     ) -> None:
         """Request a new session from the engine."""
         event = SessionCreateRequestedEvent(
@@ -544,7 +557,8 @@ class BreqyApp(App):
     # ------------------------------------------------------------------ #
 
     def on_model_select_screen_model_selected(
-        self, message: ModelSelectScreen.ModelSelected,
+        self,
+        message: ModelSelectScreen.ModelSelected,
     ) -> None:
         """Convert a model selection into a ModelSwitchRequestedEvent and send to engine."""
         # Find the active ChatScreen to get the session_id
