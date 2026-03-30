@@ -1,4 +1,5 @@
 """Tests for BreqyApp main application shell."""
+
 from __future__ import annotations
 
 import asyncio
@@ -444,9 +445,7 @@ class TestScreenNavigation:
 
             # Post a SessionSelected message
             session_list = app.screen
-            session_list.post_message(
-                SessionListScreen.SessionSelected(session_id="ses_abc")
-            )
+            session_list.post_message(SessionListScreen.SessionSelected(session_id="ses_abc"))
             await pilot.pause()
 
             assert isinstance(app.screen, ChatScreen)
@@ -462,9 +461,7 @@ class TestScreenNavigation:
         async with app.run_test() as pilot:
             # Push ChatScreen
             session_list = app.screen
-            session_list.post_message(
-                SessionListScreen.SessionSelected(session_id="ses_abc")
-            )
+            session_list.post_message(SessionListScreen.SessionSelected(session_id="ses_abc"))
             await pilot.pause()
             assert isinstance(app.screen, ChatScreen)
 
@@ -648,9 +645,7 @@ class TestUserMessageSend:
             # Post MessageSubmitted (simulates user typing + Enter)
             from breqy.tui.widgets.message_input import MessageSubmitted
 
-            app.screen.query_one("MessageInput").post_message(
-                MessageSubmitted(text="Hello agent!")
-            )
+            app.screen.query_one("MessageInput").post_message(MessageSubmitted(text="Hello agent!"))
             await pilot.pause()
 
             assert len(sent_events) == 1
@@ -723,10 +718,12 @@ class TestUserMessageSend:
 # structlog migration
 # ============================================================================ #
 
+
 def test_tui_app_uses_structlog():
     """tui.app module-level logger is structlog, not stdlib."""
     import logging as _logging
     from breqy.tui import app as app_module
+
     assert hasattr(app_module, "logger")
     assert not isinstance(app_module.logger, _logging.Logger)
 
@@ -742,24 +739,28 @@ class TestTuiDebugTracing:
     def test_on_message_submitted_has_debug_logging(self) -> None:
         """on_message_submitted should include debug logging."""
         import inspect
+
         source = inspect.getsource(BreqyApp.on_message_submitted)
         assert "logger.debug" in source
 
     def test_start_listener_has_debug_logging(self) -> None:
         """_start_listener should log when events are received."""
         import inspect
+
         source = inspect.getsource(BreqyApp._start_listener)
         assert "logger.debug" in source
 
     def test_route_to_chat_has_debug_logging(self) -> None:
         """_route_to_chat should log when dispatching to a screen."""
         import inspect
+
         source = inspect.getsource(BreqyApp._route_to_chat)
         assert "logger.debug" in source
 
     def test_send_event_has_debug_logging(self) -> None:
         """send_event should log when sending events to the engine."""
         import inspect
+
         source = inspect.getsource(BreqyApp.send_event)
         assert "logger.debug" in source
 
@@ -1956,3 +1957,80 @@ class TestModelListBlockedWhenAgentDisconnected:
 
             assert len(sent_events) == 1
             assert isinstance(sent_events[0], ModelListRequestedEvent)
+
+
+# ============================================================================ #
+# Auto-copy on text selection
+# ============================================================================ #
+
+
+class TestAutoCopyOnTextSelected:
+    """When the user finishes a mouse text selection, the selected text
+    should be automatically copied to the clipboard."""
+
+    @pytest.mark.asyncio
+    async def test_text_selected_copies_to_clipboard(self) -> None:
+        """on_text_selected should call copy_to_clipboard with the selected text."""
+        from unittest.mock import patch
+
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+        copied: list[str] = []
+
+        async with app.run_test(size=(80, 24)) as pilot:
+            chat = ChatScreen(session_id="ses_copy_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            # Write text to the chat log
+            chat_view = chat.query_one("ChatView")
+            chat_view.log_widget.write("Hello clipboard world")
+            await pilot.pause()
+
+            # Patch copy_to_clipboard to capture what gets copied
+            original_copy = app.copy_to_clipboard
+
+            def capture_copy(text: str) -> None:
+                copied.append(text)
+                original_copy(text)
+
+            with patch.object(app, "copy_to_clipboard", side_effect=capture_copy):
+                # Simulate: Screen sets a selection, then posts TextSelected
+                from textual.geometry import Offset
+                from textual.selection import Selection
+
+                widget = chat_view.log_widget
+                selection = Selection(start=Offset(0, 0), end=Offset(21, 0))
+                app.screen.selections = {widget: selection}
+                await pilot.pause()
+
+                # Fire TextSelected (what the Screen does on mouse-up)
+                from textual.events import TextSelected
+
+                app.screen.post_message(TextSelected())
+                await pilot.pause()
+
+            assert len(copied) == 1
+            assert "Hello clipboard world" in copied[0]
+
+    @pytest.mark.asyncio
+    async def test_text_selected_noop_when_no_selection(self) -> None:
+        """on_text_selected should not copy when there is no active selection."""
+        from unittest.mock import patch
+
+        app = BreqyApp()
+        copied: list[str] = []
+
+        async with app.run_test(size=(80, 24)) as pilot:
+            with patch.object(
+                app,
+                "copy_to_clipboard",
+                side_effect=lambda t: copied.append(t),
+            ):
+                from textual.events import TextSelected
+
+                app.screen.post_message(TextSelected())
+                await pilot.pause()
+
+            assert len(copied) == 0
