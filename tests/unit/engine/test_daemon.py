@@ -1,4 +1,5 @@
 """Tests for EngineDaemon lifecycle."""
+
 from __future__ import annotations
 
 import asyncio
@@ -126,7 +127,9 @@ async def test_daemon_wires_memory_service_into_engine_server(tmp_dir: Path):
 
 
 @pytest.mark.asyncio
-async def test_daemon_spawns_default_agent_runtime_from_agents_directory(tmp_dir: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_daemon_spawns_default_agent_runtime_from_agents_directory(
+    tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
     config = EngineConfig(
         socket_path=str(tmp_dir / "engine.sock"),
         db_path=str(tmp_dir / "test.db"),
@@ -153,7 +156,9 @@ async def test_daemon_spawns_default_agent_runtime_from_agents_directory(tmp_dir
 
 
 @pytest.mark.asyncio
-async def test_start_default_agent_creates_session_and_passes_session_id(tmp_dir: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_start_default_agent_creates_session_and_passes_session_id(
+    tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
     """start_default_agent creates a session before spawning so the agent has a valid session_id."""
     config = EngineConfig(
         socket_path=str(tmp_dir / "engine.sock"),
@@ -180,7 +185,9 @@ async def test_start_default_agent_creates_session_and_passes_session_id(tmp_dir
         agent_dir, session_id = spawned[0]
         assert agent_dir == "agents/breqy"
         assert session_id != "", "start_default_agent must create a session and pass its id"
-        assert session_id.startswith("ses_"), f"Expected session ID prefix 'ses_', got: {session_id}"
+        assert session_id.startswith("ses_"), (
+            f"Expected session ID prefix 'ses_', got: {session_id}"
+        )
     finally:
         await daemon.stop()
 
@@ -260,7 +267,9 @@ async def test_wait_until_stopped_returns_if_already_stopped(tmp_dir: Path):
     assert not daemon.is_running
 
 
-def test_main_loads_config_registers_signal_handlers_and_stops_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_loads_config_registers_signal_handlers_and_stops_daemon(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = EngineConfig(
         socket_path="/tmp/breqy-engine.sock",
         db_path="/tmp/breqy.db",
@@ -340,7 +349,9 @@ async def test_daemon_wires_participant_repo_into_engine_server(tmp_dir: Path):
 
 
 @pytest.mark.asyncio
-async def test_daemon_restores_active_sessions_and_respawns_agents_on_start(tmp_dir: Path, monkeypatch: pytest.MonkeyPatch):
+async def test_daemon_restores_active_sessions_and_respawns_agents_on_start(
+    tmp_dir: Path, monkeypatch: pytest.MonkeyPatch
+):
     """On start, daemon restores active sessions and respawns their primary agents."""
     config = EngineConfig(
         socket_path=str(tmp_dir / "engine.sock"),
@@ -436,7 +447,7 @@ def test_daemon_module_entrypoint_invokes_main(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(asyncio, "run", fake_run)
 
     runpy.run_path(
-        "/home/andrey/projects/breqy/.worktrees/exp-full-build/breqy/engine/daemon.py",
+        str(Path(__file__).resolve().parents[3] / "breqy" / "engine" / "daemon.py"),
         run_name="__main__",
     )
 
@@ -484,10 +495,12 @@ async def test_daemon_start_setup_logging_receives_log_file_kwarg(tmp_dir: Path)
         log_level="WARNING",
     )
 
-    with patch("breqy.engine.daemon.setup_logging") as mock_setup, \
-         patch("breqy.engine.daemon.create_connection", new_callable=AsyncMock) as mock_conn, \
-         patch("breqy.engine.daemon.run_migrations", new_callable=AsyncMock), \
-         patch("breqy.engine.daemon.EngineServer") as mock_server_cls:
+    with (
+        patch("breqy.engine.daemon.setup_logging") as mock_setup,
+        patch("breqy.engine.daemon.create_connection", new_callable=AsyncMock) as mock_conn,
+        patch("breqy.engine.daemon.run_migrations", new_callable=AsyncMock),
+        patch("breqy.engine.daemon.EngineServer") as mock_server_cls,
+    ):
         mock_conn.return_value = MagicMock()
         mock_server = MagicMock()
         mock_server.start = AsyncMock()
@@ -498,9 +511,5 @@ async def test_daemon_start_setup_logging_receives_log_file_kwarg(tmp_dir: Path)
 
         mock_setup.assert_called_once()
         call_kwargs = mock_setup.call_args[1] if mock_setup.call_args[1] else {}
-        assert "log_file" in call_kwargs, (
-            "setup_logging must be called with log_file kwarg"
-        )
-        assert "context" in call_kwargs, (
-            "setup_logging must be called with context kwarg"
-        )
+        assert "log_file" in call_kwargs, "setup_logging must be called with log_file kwarg"
+        assert "context" in call_kwargs, "setup_logging must be called with context kwarg"
