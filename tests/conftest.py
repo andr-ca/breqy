@@ -7,6 +7,7 @@ Provides:
   - db_connection — async aiosqlite.Connection to db_path with schema applied (auto-closed)
   - socket_path   — path reserved for a Unix domain socket inside tmp_dir
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -45,3 +46,24 @@ async def db_connection(db_path: Path) -> AsyncGenerator[aiosqlite.Connection, N
 def socket_path(tmp_dir: Path) -> Path:
     """Return a Path inside tmp_dir reserved for a Unix domain socket."""
     return tmp_dir / "engine.sock"
+
+
+@pytest.fixture()
+def fake_agent_dir(tmp_path: Path) -> Path:
+    """Create a minimal agent directory with agent.yaml and persona.md.
+
+    Returns the directory path, suitable for ``load_agent_config(str(path))``.
+    """
+    agent_dir = tmp_path / "agents" / "breqy"
+    agent_dir.mkdir(parents=True)
+    (agent_dir / "agent.yaml").write_text(
+        "id: breqy\n"
+        "name: Breqy\n"
+        "display_name: Breqy\n"
+        "provider: copilot\n"
+        "model: gpt-4o\n"
+        "persona_file: persona.md\n"
+        "autonomy_level: supervised\n"
+    )
+    (agent_dir / "persona.md").write_text("You are Breqy.\n")
+    return agent_dir

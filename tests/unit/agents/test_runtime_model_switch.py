@@ -8,6 +8,7 @@ Covers MDL-02, MSW-03, MSW-04, MSW-05, MAI-01, MAI-02 success criteria:
 5. Same-model guard: no rebuild, confirming ModelInfoEvent sent
 6. Switch failure: old provider preserved, error + old ModelInfoEvent sent
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -65,7 +66,9 @@ class FakeProvider:
     supports_tool_calls: bool = True
     provider_id: str = "copilot"
     model_id: str = "gpt-4o"
-    _list_models_result: list[tuple[str, str]] = field(default_factory=lambda: [("gpt-4o", "GPT-4o")])
+    _list_models_result: list[tuple[str, str]] = field(
+        default_factory=lambda: [("gpt-4o", "GPT-4o")]
+    )
 
     def stream(self, request: ProviderRequest):
         for event in self.events:
@@ -75,9 +78,6 @@ class FakeProvider:
         return self._list_models_result
 
 
-AGENT_DIR = Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy")
-
-
 def _make_runtime(
     *,
     provider: Any = None,
@@ -85,13 +85,19 @@ def _make_runtime(
     session_id: str = "ses_test",
 ):
     from breqy.agents.runtime import AgentRuntime
-    from breqy.config.loader import load_agent_config
+    from breqy.config.models import AgentConfig
 
-    config = load_agent_config(str(AGENT_DIR))
+    config = AgentConfig(
+        id="breqy",
+        name="Breqy",
+        display_name="Breqy",
+        provider="copilot",
+        model="gpt-4o",
+    )
     client = FakeA2AClient()
     runtime = AgentRuntime(
         config=config,
-        agent_dir=AGENT_DIR,
+        agent_dir=Path("agents/breqy"),
         client=cast(Any, client),
         provider=cast(Any, provider or FakeProvider()),
         skill_loader=None,
@@ -194,10 +200,7 @@ class TestModelListHandler:
         await runtime.run()
 
         # Find the ModelListResponseEvent
-        responses = [
-            e for e in client.sent_events
-            if isinstance(e, ModelListResponseEvent)
-        ]
+        responses = [e for e in client.sent_events if isinstance(e, ModelListResponseEvent)]
         assert len(responses) == 1
         resp = responses[0]
         assert resp.current_provider == "copilot"
@@ -277,9 +280,7 @@ class TestModelSwitchHandler:
             credential_store=mock_store,
         )
 
-        with patch(
-            "breqy.agents.runtime._build_provider", return_value=new_provider
-        ) as mock_build:
+        with patch("breqy.agents.runtime._build_provider", return_value=new_provider) as mock_build:
             switch_req = ModelSwitchRequestedEvent(
                 session_id="ses_test",
                 provider_id="claude",
@@ -378,11 +379,15 @@ class TestSwitchFailure:
 
         # Should send a system error message
         error_msgs = [
-            e for e in client.sent_events
+            e
+            for e in client.sent_events
             if isinstance(e, MessageSentEvent) and e.role == MessageRole.SYSTEM
         ]
         assert len(error_msgs) >= 1
-        assert "invalid" in error_msgs[-1].content.lower() or "failed" in error_msgs[-1].content.lower()
+        assert (
+            "invalid" in error_msgs[-1].content.lower()
+            or "failed" in error_msgs[-1].content.lower()
+        )
 
     @pytest.mark.asyncio
     async def test_switch_failure_sends_old_model_info(self):
@@ -473,7 +478,9 @@ class TestModelSwitchExceptionHandling:
         old_provider = FakeProvider(provider_id="copilot", model_id="gpt-4o")
         runtime, client = _make_runtime(provider=old_provider)
 
-        with patch("breqy.agents.runtime._build_provider", side_effect=RuntimeError("factory crash")):
+        with patch(
+            "breqy.agents.runtime._build_provider", side_effect=RuntimeError("factory crash")
+        ):
             switch_req = ModelSwitchRequestedEvent(
                 session_id="ses_test",
                 provider_id="claude",
@@ -493,7 +500,9 @@ class TestModelSwitchExceptionHandling:
         old_provider = FakeProvider(provider_id="copilot", model_id="gpt-4o")
         runtime, client = _make_runtime(provider=old_provider)
 
-        with patch("breqy.agents.runtime._build_provider", side_effect=RuntimeError("factory crash")):
+        with patch(
+            "breqy.agents.runtime._build_provider", side_effect=RuntimeError("factory crash")
+        ):
             switch_req = ModelSwitchRequestedEvent(
                 session_id="ses_test",
                 provider_id="claude",
@@ -503,7 +512,8 @@ class TestModelSwitchExceptionHandling:
             await runtime.run()
 
         error_msgs = [
-            e for e in client.sent_events
+            e
+            for e in client.sent_events
             if isinstance(e, MessageSentEvent) and e.role == MessageRole.SYSTEM
         ]
         assert len(error_msgs) >= 1
@@ -516,7 +526,9 @@ class TestModelSwitchExceptionHandling:
         old_provider = FakeProvider(provider_id="copilot", model_id="gpt-4o")
         runtime, client = _make_runtime(provider=old_provider)
 
-        with patch("breqy.agents.runtime._build_provider", side_effect=RuntimeError("factory crash")):
+        with patch(
+            "breqy.agents.runtime._build_provider", side_effect=RuntimeError("factory crash")
+        ):
             switch_req = ModelSwitchRequestedEvent(
                 session_id="ses_test",
                 provider_id="claude",
@@ -542,9 +554,14 @@ class TestBuildProviderAcceptsCredentialStore:
     def test_build_provider_accepts_credential_store_kwarg(self):
         """_build_provider should accept a credential_store keyword arg."""
         from breqy.agents.runtime import _build_provider
-        from breqy.config.loader import load_agent_config
+        from breqy.config.models import AgentConfig
 
-        config = load_agent_config(str(AGENT_DIR))
+        config = AgentConfig(
+            id="breqy",
+            name="Breqy",
+            provider="copilot",
+            model="gpt-4o",
+        )
         mock_store = MagicMock()
 
         # Should not raise TypeError for unexpected kwarg
@@ -556,9 +573,14 @@ class TestBuildProviderAcceptsCredentialStore:
         """When credential_store is provided, _build_provider should use it
         instead of creating its own."""
         from breqy.agents.runtime import _build_provider
-        from breqy.config.loader import load_agent_config
+        from breqy.config.models import AgentConfig
 
-        config = load_agent_config(str(AGENT_DIR))
+        config = AgentConfig(
+            id="breqy",
+            name="Breqy",
+            provider="copilot",
+            model="gpt-4o",
+        )
         mock_store = MagicMock()
 
         with patch("breqy.agents.providers.adapters.build_model_providers") as mock_build:

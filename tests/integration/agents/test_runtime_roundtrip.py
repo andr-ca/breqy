@@ -49,7 +49,9 @@ class ProviderDouble:
 
 
 @pytest.mark.asyncio
-async def test_runtime_roundtrip_persists_user_and_assistant_messages(tmp_path: Path) -> None:
+async def test_runtime_roundtrip_persists_user_and_assistant_messages(
+    tmp_path: Path, fake_agent_dir: Path
+) -> None:
     db_path = tmp_path / "test.db"
     conn = await create_connection(str(db_path))
     await run_migrations(conn)
@@ -89,8 +91,8 @@ async def test_runtime_roundtrip_persists_user_and_assistant_messages(tmp_path: 
 
     runtime_client = RecordingClient()
     runtime = AgentRuntime(
-        config=load_agent_config(str(Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"))),
-        agent_dir=Path("/home/andrey/projects/breqy/.worktrees/exp-full-build/agents/breqy"),
+        config=load_agent_config(str(fake_agent_dir)),
+        agent_dir=fake_agent_dir,
         client=runtime_client,
         provider=ProviderDouble(),
         skill_loader=None,
