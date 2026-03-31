@@ -2034,3 +2034,44 @@ class TestAutoCopyOnTextSelected:
                 await pilot.pause()
 
             assert len(copied) == 0
+
+    @pytest.mark.asyncio
+    async def test_mouse_drag_creates_selection_with_highlight(self) -> None:
+        """Full E2E: mouse down+drag on chat log creates a visible selection.
+
+        This verifies the entire stack: mouse events -> Screen selection
+        system -> widget.text_selection -> render_line highlight.
+        """
+        from textual.geometry import Offset
+
+        from breqy.tui.screens.chat import ChatScreen
+        from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
+
+        app = BreqyApp()
+        async with app.run_test(size=(80, 24)) as pilot:
+            chat = ChatScreen(session_id="ses_highlight_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            widget = chat.query_one("#chat-log", SelectableRichLog)
+            widget.write("Mouse selection highlight test")
+            await pilot.pause()
+
+            # Simulate mouse drag
+            await pilot.mouse_down(widget, offset=Offset(2, 0))
+            await pilot.hover(widget, offset=Offset(18, 0))
+            await pilot.pause()
+
+            # Selection must be set
+            assert widget.text_selection is not None
+
+            # Rendered strip must have distinct bgcolor for selected range
+            strip = widget.render_line(0)
+            bg_colors = set()
+            for seg in strip:
+                if seg.text.strip() and seg.style and seg.style.bgcolor:
+                    bg_colors.add(str(seg.style.bgcolor))
+            assert len(bg_colors) >= 2, (
+                "Selection highlight not visible — expected at least 2 distinct "
+                f"bgcolors but got {bg_colors}"
+            )

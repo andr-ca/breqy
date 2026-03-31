@@ -249,3 +249,120 @@ class TestApplySelectionHighlight:
         style = RichStyle(reverse=True)
         result = _apply_selection_highlight(strip, 2, 100, style)
         assert result.text == "Hello"
+
+    def test_highlight_style_applied_to_selected_segment(self) -> None:
+        """The selection style must be present on the selected segment."""
+        strip = self._make_strip("Hello World")
+        style = RichStyle(reverse=True)
+        result = _apply_selection_highlight(strip, 2, 7, style)
+        # Find the segment covering the selected range
+        selected_segs = [s for s in result if s.text and s.style and s.style.reverse]
+        assert len(selected_segs) == 1
+        assert selected_segs[0].text == "llo W"
+
+    def test_highlight_style_not_on_unselected_segments(self) -> None:
+        """Segments outside the selection must not have the highlight style."""
+        strip = self._make_strip("Hello World")
+        style = RichStyle(reverse=True)
+        result = _apply_selection_highlight(strip, 2, 7, style)
+        unselected = [s for s in result if s.text and (not s.style or not s.style.reverse)]
+        assert len(unselected) == 2
+        texts = {s.text for s in unselected}
+        assert texts == {"He", "orld"}
+
+    def test_highlight_with_bgcolor_style(self) -> None:
+        """Highlight applied via bgcolor (as Textual screen--selection does)."""
+        strip = self._make_strip("Select me")
+        sel_bg = RichStyle(bgcolor="blue")
+        result = _apply_selection_highlight(strip, 0, 6, sel_bg)
+        selected = [s for s in result if s.text and s.style and s.style.bgcolor]
+        assert len(selected) >= 1
+        assert selected[0].text == "Select"
+
+
+class TestRenderLineWithSelection:
+    """Verify render_line applies highlight when text_selection is active."""
+
+    @pytest.mark.asyncio
+    async def test_render_line_highlight_changes_segment_style(self) -> None:
+        """When a selection is active, render_line must produce segments
+        with a visually distinct style in the selected range."""
+        app = SelectableRichLogApp()
+        async with app.run_test(size=(40, 10)) as pilot:
+            widget = app.query_one(SelectableRichLog)
+            widget.write("Hello World Test Line")
+            await pilot.pause()
+
+            # Trigger selection via mouse
+            await pilot.mouse_down(widget, offset=Offset(2, 0))
+            await pilot.hover(widget, offset=Offset(12, 0))
+            await pilot.pause()
+
+            assert widget.text_selection is not None
+
+            strip = widget.render_line(0)
+            # Collect background colors from segments with text
+            bg_colors = set()
+            for seg in strip:
+                if seg.text.strip() and seg.style and seg.style.bgcolor:
+                    bg_colors.add(str(seg.style.bgcolor))
+
+            # Must have at least 2 distinct bgcolors (selected vs unselected)
+            assert len(bg_colors) >= 2, f"Expected at least 2 distinct bgcolors but got {bg_colors}"
+
+    @pytest.mark.asyncio
+    async def test_render_line_no_highlight_without_selection(self) -> None:
+        """Without a selection, all segments should share the same bgcolor."""
+        app = SelectableRichLogApp()
+        async with app.run_test(size=(40, 10)) as pilot:
+            widget = app.query_one(SelectableRichLog)
+            widget.write("Hello World Test Line")
+            await pilot.pause()
+
+            assert widget.text_selection is None
+            strip = widget.render_line(0)
+
+            bg_colors = set()
+            for seg in strip:
+                if seg.text.strip() and seg.style and seg.style.bgcolor:
+                    bg_colors.add(str(seg.style.bgcolor))
+
+            # Without selection, all text segments should have same bgcolor
+            assert len(bg_colors) <= 1
+
+    @pytest.mark.asyncio
+    async def test_selection_highlight_survives_apply_style(self) -> None:
+        """The highlight must not be overwritten by apply_style(rich_style).
+
+        This was a suspected root cause — line.apply_style(self.rich_style)
+        called after _apply_selection_highlight. Verify the highlight
+        survives the base style application.
+        """
+        app = SelectableRichLogApp()
+        async with app.run_test(size=(40, 10)) as pilot:
+            widget = app.query_one(SelectableRichLog)
+            widget.write("ABCDEFGHIJKLMNOP")
+            await pilot.pause()
+
+            await pilot.mouse_down(widget, offset=Offset(4, 0))
+            await pilot.hover(widget, offset=Offset(10, 0))
+            await pilot.pause()
+
+            assert widget.text_selection is not None
+
+            strip = widget.render_line(0)
+            # Find segments in the selected range (chars 4-10)
+            pos = 0
+            highlight_found = False
+            for seg in strip:
+                seg_len = len(seg.text)
+                seg_end = pos + seg_len
+                # If this segment overlaps with [4, 10)
+                if seg_end > 4 and pos < 10 and seg.text.strip():
+                    base_bg = str(widget.rich_style.bgcolor) if widget.rich_style.bgcolor else None
+                    seg_bg = str(seg.style.bgcolor) if seg.style and seg.style.bgcolor else None
+                    if seg_bg and seg_bg != base_bg:
+                        highlight_found = True
+                pos = seg_end
+
+            assert highlight_found, "Selection highlight was overwritten by apply_style"
