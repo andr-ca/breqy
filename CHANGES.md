@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `breqy/agents/` runtime surface: typed runtime models, provider adapters, auth adapters, `CredentialStore`, `SkillLoader`, and agent-owned delegated private-memory helpers.
 - `tests/unit/agents/` and `tests/integration/agents/` coverage for credential storage, provider auth/execution adapters, skill loading, runtime streaming/tool dispatch, delegated private-memory flow, and end-to-end engine/runtime round trips.
 
+### Fixed
+- `CopilotProvider.stream()` now catches `CopilotAuthError` from `get_copilot_token()` (e.g. HTTP 404 on token exchange when OAuth token is expired/revoked) and triggers device flow re-authentication instead of crashing with an unrecoverable error message. Both the initial token fetch and the 401 retry path are covered.
+
 ### Changed
 - Replaced `RichLog` with `SelectableRichLog` in all four TUI widgets that display scrollable log content: `ChatView` (chat-log), `TaskPanel` (task-log), `ToolPanel` (tool-log), and `LogsScreen` (logs-display). Enables mouse-drag text selection and clipboard copy across all log panels.
 - Refined `GEMINI.md` with full technology stack, correct coverage thresholds, and fixed table formatting.

@@ -1,4 +1,5 @@
 """Tests for CopilotProvider ModelProvider implementation."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -130,10 +131,12 @@ class TestCopilotTokenUsage:
         mock_auth.get_copilot_token.return_value = "tid=abc;exp=9999999999;sku=copilot_pro"
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         list(provider.stream(_make_request("hi")))
@@ -151,10 +154,12 @@ class TestCopilotTokenUsage:
         mock_auth.get_copilot_token.return_value = "tid=abc;exp=9999999999"
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         list(provider.stream(_make_request("hi")))
@@ -229,10 +234,12 @@ class TestCopilotTokenUsage:
         mock_auth.get_copilot_token.side_effect = [None, "tid=new;exp=9999999999"]
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"content": "hi"}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "hi"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         events = list(provider.stream(_make_request("hi")))
@@ -255,10 +262,12 @@ class TestCopilotTokenUsage:
         mock_client = MagicMock()
         mock_client.stream_chat.side_effect = [
             CopilotApiError(401, "Unauthorized"),
-            iter([
-                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
-                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-            ]),
+            iter(
+                [
+                    {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                    {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+                ]
+            ),
         ]
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
@@ -279,11 +288,13 @@ class TestStreamTextEvents:
         mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"content": "Hello"}, "index": 0}]},
-            {"choices": [{"delta": {"content": " there"}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "Hello"}, "index": 0}]},
+                {"choices": [{"delta": {"content": " there"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         events = list(provider.stream(_make_request("hi")))
@@ -308,11 +319,39 @@ class TestStreamToolCallEvents:
         mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "function": {"name": "read_file", "arguments": ""}}]}, "index": 0}]},
-            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"path": "/tmp"}'}}]}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_1",
+                                        "function": {"name": "read_file", "arguments": ""},
+                                    }
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {"index": 0, "function": {"arguments": '{"path": "/tmp"}'}}
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         events = list(provider.stream(_make_request("read /tmp")))
@@ -368,10 +407,12 @@ class TestAuthRetry:
         # First call raises 401, second succeeds
         mock_client.stream_chat.side_effect = [
             CopilotApiError(401, "Unauthorized"),
-            iter([
-                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
-                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-            ]),
+            iter(
+                [
+                    {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                    {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+                ]
+            ),
         ]
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
@@ -401,10 +442,12 @@ class TestAuthRetry:
         mock_auth.poll_for_token.return_value = "gho_new"
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"content": "hi"}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "hi"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         events = list(provider.stream(_make_request("hi")))
@@ -432,10 +475,12 @@ class TestAuthRetry:
         mock_auth.poll_for_token.return_value = "gho_new"
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"content": "hello"}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "hello"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
         events = list(provider.stream(_make_request("hi")))
@@ -479,10 +524,12 @@ class TestAuthRetry:
         mock_auth.poll_for_token.side_effect = poll_side_effect
 
         mock_client = MagicMock()
-        mock_client.stream_chat.return_value = iter([
-            {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
-            {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
-        ])
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
 
@@ -503,6 +550,184 @@ class TestAuthRetry:
         )
 
         # Consume the rest — poll should happen now
+        remaining = list(stream_iter)
+        assert "poll_for_token" in call_order
+        assert any(e.kind == "complete" for e in remaining)
+
+
+class TestCopilotAuthErrorRecovery:
+    """CopilotAuthError from get_copilot_token() (e.g. HTTP 404 on token
+    exchange) should trigger device flow re-auth instead of propagating
+    as a raw error to the TUI.
+
+    Regression: previously, CopilotAuthError was not caught in stream(),
+    so an expired/revoked OAuth token caused an unrecoverable error
+    message instead of triggering re-authentication.
+    """
+
+    def test_auth_error_on_initial_token_triggers_device_flow(self) -> None:
+        """When get_copilot_token() raises CopilotAuthError (e.g. HTTP 404),
+        stream() should clear the bad token and start device flow."""
+        from breqy.agents.providers.copilot import CopilotProvider
+        from breqy.agents.providers.copilot_auth import (
+            CopilotAuthError,
+            DeviceFlowInfo,
+        )
+
+        mock_auth = MagicMock()
+        # First call raises CopilotAuthError (bad OAuth token → 404)
+        # After device flow completes, second call returns valid session token
+        mock_auth.get_copilot_token.side_effect = [
+            CopilotAuthError(
+                "Failed to exchange OAuth for Copilot token (token exchange): HTTP 404"
+            ),
+            "tid=fresh;exp=9999999999",
+        ]
+        mock_auth.start_device_flow.return_value = DeviceFlowInfo(
+            user_code="REAUTH-01",
+            verification_uri="https://github.com/login/device",
+            device_code="dc_reauth",
+            interval=5,
+            expires_in=900,
+        )
+        mock_auth.poll_for_token.return_value = "gho_reauthed"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "recovered"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        events = list(provider.stream(_make_request("hi")))
+
+        # Should have cleared the bad token
+        mock_auth.clear_token.assert_called_once()
+        # Should have triggered device flow
+        mock_auth.start_device_flow.assert_called_once()
+        mock_auth.poll_for_token.assert_called_once_with("dc_reauth", interval=5)
+        # Should yield notice event with auth instructions
+        notice_events = [e for e in events if e.kind == "notice"]
+        assert len(notice_events) >= 1
+        assert notice_events[0].text is not None
+        assert "REAUTH-01" in notice_events[0].text
+        # Should successfully stream after recovery
+        text_events = [e for e in events if e.kind == "text"]
+        assert len(text_events) == 1
+        assert text_events[0].text == "recovered"
+
+    def test_auth_error_on_401_retry_token_triggers_device_flow(self) -> None:
+        """When 401 retry calls get_copilot_token() and it raises
+        CopilotAuthError, the provider should fall through to device flow
+        instead of crashing."""
+        from breqy.agents.providers.copilot import CopilotProvider
+        from breqy.agents.providers.copilot_auth import (
+            CopilotAuthError,
+            DeviceFlowInfo,
+        )
+        from breqy.agents.providers.copilot_client import CopilotApiError
+
+        mock_auth = MagicMock()
+        # First call: valid token (initial stream)
+        # Second call (after 401 + clear_token): raises CopilotAuthError
+        # Third call (after device flow): returns fresh token
+        mock_auth.get_copilot_token.side_effect = [
+            "tid=old;exp=9999999999",
+            CopilotAuthError(
+                "Failed to exchange OAuth for Copilot token (token exchange): HTTP 404"
+            ),
+            "tid=recovered;exp=9999999999",
+        ]
+        mock_auth.start_device_flow.return_value = DeviceFlowInfo(
+            user_code="RETRY-01",
+            verification_uri="https://github.com/login/device",
+            device_code="dc_retry",
+            interval=5,
+            expires_in=900,
+        )
+        mock_auth.poll_for_token.return_value = "gho_retried"
+
+        mock_client = MagicMock()
+        # First stream raises 401, second succeeds
+        mock_client.stream_chat.side_effect = [
+            CopilotApiError(401, "Unauthorized"),
+            iter(
+                [
+                    {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                    {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+                ]
+            ),
+        ]
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        events = list(provider.stream(_make_request("hi")))
+
+        # Should have triggered device flow during 401 retry
+        mock_auth.start_device_flow.assert_called_once()
+        mock_auth.poll_for_token.assert_called_once_with("dc_retry", interval=5)
+        # Should yield notice event with auth instructions
+        notice_events = [e for e in events if e.kind == "notice"]
+        assert len(notice_events) >= 1
+        assert "RETRY-01" in notice_events[0].text
+        # Should successfully stream after recovery
+        text_events = [e for e in events if e.kind == "text"]
+        assert len(text_events) == 1
+        assert text_events[0].text == "ok"
+
+    def test_auth_error_notice_yielded_before_poll(self) -> None:
+        """Auth instructions from CopilotAuthError recovery must be yielded
+        before poll_for_token blocks, same as the normal device flow path."""
+        from breqy.agents.providers.copilot import CopilotProvider
+        from breqy.agents.providers.copilot_auth import (
+            CopilotAuthError,
+            DeviceFlowInfo,
+        )
+
+        call_order: list[str] = []
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.side_effect = [
+            CopilotAuthError("HTTP 404"),
+            "tid=order;exp=9999999999",
+        ]
+        mock_auth.start_device_flow.return_value = DeviceFlowInfo(
+            user_code="ORDER-01",
+            verification_uri="https://github.com/login/device",
+            device_code="dc_order",
+            interval=5,
+            expires_in=900,
+        )
+
+        def poll_side_effect(device_code, interval):
+            call_order.append("poll_for_token")
+            return "gho_order"
+
+        mock_auth.poll_for_token.side_effect = poll_side_effect
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+
+        stream_iter = provider.stream(_make_request("hi"))
+        first_event = next(stream_iter)
+
+        # Auth notice must come first
+        assert first_event.kind == "notice"
+        assert first_event.text is not None
+        assert "ORDER-01" in first_event.text
+
+        # poll_for_token must NOT have been called yet
+        assert "poll_for_token" not in call_order
+
+        # Consume remaining — poll should happen during consumption
         remaining = list(stream_iter)
         assert "poll_for_token" in call_order
         assert any(e.kind == "complete" for e in remaining)
