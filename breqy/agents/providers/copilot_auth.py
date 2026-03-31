@@ -1,4 +1,5 @@
 """GitHub Copilot OAuth device flow authenticator."""
+
 from __future__ import annotations
 
 import time
@@ -53,7 +54,7 @@ class DeviceFlowInfo(BaseModel):
 class CopilotAuthenticator:
     """Manages GitHub OAuth device flow and token persistence for Copilot."""
 
-    GITHUB_CLIENT_ID: str = "Ov23li8tweQw6odWQebz"
+    GITHUB_CLIENT_ID: str = "Iv1.b507a08c87ecfe98"
     DEVICE_CODE_URL: str = "https://github.com/login/device/code"
     ACCESS_TOKEN_URL: str = "https://github.com/login/oauth/access_token"
     COPILOT_TOKEN_URL: str = "https://api.github.com/copilot_internal/v2/token"
@@ -111,9 +112,7 @@ class CopilotAuthenticator:
                 f"HTTP {exc.response.status_code}"
             ) from exc
         except httpx.HTTPError as exc:
-            raise CopilotAuthError(
-                f"Network error during Copilot token exchange: {exc}"
-            ) from exc
+            raise CopilotAuthError(f"Network error during Copilot token exchange: {exc}") from exc
 
         data = response.json()
         session_token = data.get("token")
@@ -168,9 +167,7 @@ class CopilotAuthenticator:
                 f"Failed to initiate device flow: HTTP {exc.response.status_code}"
             ) from exc
         except httpx.HTTPError as exc:
-            raise CopilotAuthError(
-                f"Failed to initiate device flow: {exc}"
-            ) from exc
+            raise CopilotAuthError(f"Failed to initiate device flow: {exc}") from exc
 
         data = response.json()
         info = DeviceFlowInfo(
@@ -206,9 +203,7 @@ class CopilotAuthenticator:
                     },
                 )
             except httpx.HTTPError as exc:
-                raise CopilotAuthError(
-                    f"Network error during token poll: {exc}"
-                ) from exc
+                raise CopilotAuthError(f"Network error during token poll: {exc}") from exc
             data = response.json()
 
             access_token = data.get("access_token")

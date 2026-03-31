@@ -1,4 +1,5 @@
 """Tests for GitHub Copilot OAuth device flow authenticator."""
+
 from __future__ import annotations
 
 import httpx
@@ -129,7 +130,9 @@ class TestStartDeviceFlow:
             "interval": 5,
         }
 
-        with patch("breqy.agents.providers.copilot_auth.httpx.post", return_value=mock_response) as mock_post:
+        with patch(
+            "breqy.agents.providers.copilot_auth.httpx.post", return_value=mock_response
+        ) as mock_post:
             info = auth.start_device_flow()
 
         assert isinstance(info, DeviceFlowInfo)
@@ -143,7 +146,7 @@ class TestStartDeviceFlow:
         call_kwargs = mock_post.call_args
         assert call_kwargs[0][0] == "https://github.com/login/device/code"
         body = call_kwargs[1]["json"]
-        assert body["client_id"] == "Ov23li8tweQw6odWQebz"
+        assert body["client_id"] == "Iv1.b507a08c87ecfe98"
         assert body["scope"] == "read:user"
 
     def test_start_device_flow_http_error(self) -> None:
@@ -336,7 +339,9 @@ class TestGetCopilotToken:
             "expires_at": 1800,
         }
 
-        with patch("breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response) as mock_get:
+        with patch(
+            "breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response
+        ) as mock_get:
             result = auth.get_copilot_token()
 
         assert result == session_token
@@ -358,7 +363,9 @@ class TestGetCopilotToken:
         mock_response.status_code = 200
         mock_response.json.return_value = {"token": session_token}
 
-        with patch("breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response) as mock_get:
+        with patch(
+            "breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response
+        ) as mock_get:
             first = auth.get_copilot_token()
             second = auth.get_copilot_token()
 
@@ -451,7 +458,9 @@ class TestGetCopilotToken:
         mock_response.status_code = 200
         mock_response.json.return_value = {"token": session_token}
 
-        with patch("breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response) as mock_get:
+        with patch(
+            "breqy.agents.providers.copilot_auth.httpx.get", return_value=mock_response
+        ) as mock_get:
             auth.get_copilot_token()
 
         headers = mock_get.call_args[1]["headers"]
