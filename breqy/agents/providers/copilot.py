@@ -66,6 +66,10 @@ class CopilotProvider(ModelProvider):
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
+            "Copilot-Integration-Id": "vscode-chat",
+            "Editor-Version": "vscode/1.97.2",
+            "Editor-Plugin-Version": "copilot-chat/0.22.2",
+            "User-Agent": "GitHubCopilotChat/0.22.2",
         }
         try:
             resp = httpx.get(
@@ -74,9 +78,16 @@ class CopilotProvider(ModelProvider):
                 timeout=10.0,
             )
             if resp.status_code != 200:
+                logger.debug(
+                    "copilot_list_models_non_200",
+                    status_code=resp.status_code,
+                    body=resp.text[:500],
+                )
                 return [(self.model_id, self.model_id)]
             data = resp.json()
-            return [(m["id"], m.get("name", m["id"])) for m in data.get("data", [])]
+            models = [(m["id"], m.get("name", m["id"])) for m in data.get("data", [])]
+            logger.debug("copilot_list_models_ok", count=len(models))
+            return models
         except Exception:
             logger.debug("copilot_list_models_failed", exc_info=True)
             return [(self.model_id, self.model_id)]
