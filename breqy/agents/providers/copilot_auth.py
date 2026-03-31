@@ -99,8 +99,9 @@ class CopilotAuthenticator:
                 self.COPILOT_TOKEN_URL,
                 headers={
                     "Authorization": f"token {oauth_token}",
-                    "Editor-Version": "breqy/0.1.0",
-                    "User-Agent": "breqy/0.1.0",
+                    "Editor-Version": "vscode/1.97.2",
+                    "Editor-Plugin-Version": "copilot-chat/0.22.2",
+                    "User-Agent": "GitHubCopilotChat/0.22.2",
                     "Accept": "application/json",
                 },
                 timeout=10.0,

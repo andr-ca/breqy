@@ -1,4 +1,5 @@
 """Tests for GitHub Copilot streaming API client."""
+
 from __future__ import annotations
 
 import json
@@ -20,9 +21,7 @@ def _make_sse_lines(*data_values: str | dict) -> list[str]:
     return lines
 
 
-def _mock_streaming_response(
-    lines: list[str], status_code: int = 200
-) -> MagicMock:
+def _mock_streaming_response(lines: list[str], status_code: int = 200) -> MagicMock:
     """Create a mock httpx streaming response with iter_lines."""
     response = MagicMock()
     response.status_code = status_code
@@ -57,7 +56,9 @@ class TestStreamTextDeltas:
             )
         )
 
-        text_chunks = [r for r in results if r.get("choices", [{}])[0].get("delta", {}).get("content")]
+        text_chunks = [
+            r for r in results if r.get("choices", [{}])[0].get("delta", {}).get("content")
+        ]
         assert len(text_chunks) == 2
         assert text_chunks[0]["choices"][0]["delta"]["content"] == "Hello"
         assert text_chunks[1]["choices"][0]["delta"]["content"] == " world"
@@ -68,8 +69,32 @@ class TestStreamToolCall:
         from breqy.agents.providers.copilot_client import CopilotApiClient
 
         chunks = _make_sse_lines(
-            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "function": {"name": "read_file", "arguments": ""}}]}, "index": 0}]},
-            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"path":'}}]}, "index": 0}]},
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "call_1",
+                                    "function": {"name": "read_file", "arguments": ""},
+                                }
+                            ]
+                        },
+                        "index": 0,
+                    }
+                ]
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [{"index": 0, "function": {"arguments": '{"path":'}}]
+                        },
+                        "index": 0,
+                    }
+                ]
+            },
             {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
             "[DONE]",
         )
@@ -87,8 +112,7 @@ class TestStreamToolCall:
         )
 
         tool_chunks = [
-            r for r in results
-            if r.get("choices", [{}])[0].get("delta", {}).get("tool_calls")
+            r for r in results if r.get("choices", [{}])[0].get("delta", {}).get("tool_calls")
         ]
         assert len(tool_chunks) == 2
 
@@ -249,7 +273,7 @@ class TestOriginatorHeaders:
     """TUI-13: Verify originator identity headers are sent on every request."""
 
     def test_stream_chat_sends_copilot_integration_id(self) -> None:
-        """Copilot-Integration-Id header must be set to 'breqy'."""
+        """Copilot-Integration-Id header must be set to 'vscode-chat'."""
         from breqy.agents.providers.copilot_client import CopilotApiClient
 
         chunks = _make_sse_lines("[DONE]")
@@ -258,18 +282,20 @@ class TestOriginatorHeaders:
         mock_client.stream.return_value = mock_response
 
         client = CopilotApiClient(http_client=mock_client)
-        list(client.stream_chat(
-            token="gho_test",
-            model="gpt-4o",
-            messages=[{"role": "user", "content": "hi"}],
-        ))
+        list(
+            client.stream_chat(
+                token="gho_test",
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
 
         call_args = mock_client.stream.call_args
         headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
-        assert headers["Copilot-Integration-Id"] == "breqy"
+        assert headers["Copilot-Integration-Id"] == "vscode-chat"
 
     def test_stream_chat_sends_editor_version(self) -> None:
-        """Editor-Version header must identify breqy."""
+        """Editor-Version header must identify vscode."""
         from breqy.agents.providers.copilot_client import CopilotApiClient
 
         chunks = _make_sse_lines("[DONE]")
@@ -278,16 +304,18 @@ class TestOriginatorHeaders:
         mock_client.stream.return_value = mock_response
 
         client = CopilotApiClient(http_client=mock_client)
-        list(client.stream_chat(
-            token="gho_test",
-            model="gpt-5.4-mini",
-            messages=[{"role": "user", "content": "hi"}],
-        ))
+        list(
+            client.stream_chat(
+                token="gho_test",
+                model="gpt-5.4-mini",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
 
         call_args = mock_client.stream.call_args
         headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
         assert "Editor-Version" in headers
-        assert "breqy" in headers["Editor-Version"]
+        assert "vscode" in headers["Editor-Version"]
 
     def test_originator_headers_present_with_tools(self) -> None:
         """Originator headers must also be sent on tool-use follow-up requests."""
@@ -299,20 +327,39 @@ class TestOriginatorHeaders:
         mock_client.stream.return_value = mock_response
 
         client = CopilotApiClient(http_client=mock_client)
-        list(client.stream_chat(
-            token="gho_test",
-            model="gpt-4o",
-            messages=[
-                {"role": "user", "content": "read file"},
-                {"role": "assistant", "content": None, "tool_calls": [
-                    {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
-                ]},
-                {"role": "tool", "tool_call_id": "c1", "content": "file contents"},
-            ],
-            tools=[{"type": "function", "function": {"name": "read_file", "description": "Read a file", "parameters": {}}}],
-        ))
+        list(
+            client.stream_chat(
+                token="gho_test",
+                model="gpt-4o",
+                messages=[
+                    {"role": "user", "content": "read file"},
+                    {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {"name": "read_file", "arguments": "{}"},
+                            }
+                        ],
+                    },
+                    {"role": "tool", "tool_call_id": "c1", "content": "file contents"},
+                ],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "description": "Read a file",
+                            "parameters": {},
+                        },
+                    }
+                ],
+            )
+        )
 
         call_args = mock_client.stream.call_args
         headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
-        assert headers["Copilot-Integration-Id"] == "breqy"
-        assert "breqy" in headers["Editor-Version"]
+        assert headers["Copilot-Integration-Id"] == "vscode-chat"
+        assert "vscode" in headers["Editor-Version"]

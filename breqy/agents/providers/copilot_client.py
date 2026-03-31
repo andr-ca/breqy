@@ -1,4 +1,5 @@
 """GitHub Copilot streaming chat completions API client."""
+
 from __future__ import annotations
 
 import json
@@ -41,10 +42,11 @@ class CopilotApiClient:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "User-Agent": "breqy/0.1.0",
-            "Copilot-Integration-Id": "breqy",
-            "Editor-Version": "breqy/0.1.0",
-            "Openai-Intent": "conversation-edits",
+            "User-Agent": "GitHubCopilotChat/0.22.2",
+            "Copilot-Integration-Id": "vscode-chat",
+            "Editor-Version": "vscode/1.97.2",
+            "Editor-Plugin-Version": "copilot-chat/0.22.2",
+            "Openai-Intent": "conversation-panel",
             "x-initiator": "user",
             "Accept": "text/event-stream",
         }
