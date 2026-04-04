@@ -308,12 +308,57 @@ class CopilotProvider(ModelProvider):
             for tool in tools
         ]
 
-    def _use_responses_api(self) -> bool:
-        """Determine if this model should use the /responses endpoint."""
+    def _use_responses_api(self, token: str) -> bool:
+        """Determine if this model should use the /responses endpoint.
+
+        If endpoint metadata hasn't been populated yet (e.g. fresh provider
+        created during model switch), lazily queries the /models API using
+        the provided token to discover supported endpoints.
+        """
+        if self._model_id not in self._model_endpoints:
+            logger.debug("copilot_lazy_endpoint_discovery", model=self._model_id)
+            self._discover_endpoints(token)
         endpoints = self._model_endpoints.get(self._model_id, [])
         if "/responses" in endpoints:
             return True
         return False
+
+    def _discover_endpoints(self, token: str) -> None:
+        """Fetch model metadata and populate _model_endpoints cache.
+
+        Reuses the provided session token so this can be called from
+        stream() without triggering additional auth flows.
+        """
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Copilot-Integration-Id": "vscode-chat",
+            "Editor-Version": "vscode/1.97.2",
+            "Editor-Plugin-Version": "copilot-chat/0.22.2",
+            "User-Agent": "GitHubCopilotChat/0.22.2",
+            "x-github-api-version": "2025-10-01",
+        }
+        try:
+            resp = httpx.get(
+                "https://api.githubcopilot.com/models",
+                headers=headers,
+                timeout=10.0,
+            )
+            if resp.status_code != 200:
+                logger.debug(
+                    "copilot_endpoint_discovery_non_200",
+                    status_code=resp.status_code,
+                )
+                return
+            data = resp.json()
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                if model_id:
+                    self._model_endpoints[model_id] = m.get(
+                        "supported_endpoints", ["/chat/completions"]
+                    )
+        except Exception:
+            logger.debug("copilot_endpoint_discovery_failed", exc_info=True)
 
     def _do_stream_routed(
         self,
@@ -321,7 +366,7 @@ class CopilotProvider(ModelProvider):
         request: ProviderRequest,
     ) -> Iterator[ProviderEvent]:
         """Route to the correct streaming method based on model endpoints."""
-        if self._use_responses_api():
+        if self._use_responses_api(token):
             yield from self._do_stream_responses(token, request)
         else:
             messages = self._build_messages(request)

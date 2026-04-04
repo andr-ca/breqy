@@ -968,6 +968,62 @@ class TestEndpointRouting:
         mock_client.stream_responses.assert_called_once()
         mock_client.stream_chat.assert_not_called()
 
+    def test_lazy_endpoint_discovery_routes_to_responses(self) -> None:
+        """Fresh provider (no list_models() call) must discover endpoints
+        lazily and route to /responses for models that only support it.
+
+        Regression: model switch creates a new CopilotProvider with empty
+        _model_endpoints, causing all models to default to /chat/completions.
+        """
+        from unittest.mock import patch
+
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {"type": "response.output_text.delta", "delta": "ok"},
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"total_tokens": 5},
+                        "model": "gpt-5.4-mini",
+                    },
+                },
+            ]
+        )
+
+        # Mock the /models API response so lazy discovery can populate endpoints
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "id": "gpt-5.4-mini",
+                    "name": "GPT-5.4 Mini",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                    "supported_endpoints": ["/responses"],
+                },
+            ]
+        }
+
+        provider = CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=mock_auth, client=mock_client
+        )
+        # Do NOT set _model_endpoints — simulates fresh provider after model switch
+
+        with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
+            mock_httpx.get.return_value = mock_response
+            list(provider.stream(_make_request("hi")))
+
+        mock_client.stream_responses.assert_called_once()
+        mock_client.stream_chat.assert_not_called()
+
     def test_responses_api_receives_instructions_from_persona(self) -> None:
         """When using /responses, system message from persona should be passed as instructions."""
         from breqy.agents.providers.copilot import CopilotProvider
