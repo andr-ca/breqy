@@ -1,4 +1,4 @@
-"""GitHub Copilot streaming chat completions API client."""
+"""GitHub Copilot streaming API client (chat completions + responses)."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class CopilotApiError(Exception):
 
 
 class CopilotApiClient:
-    """Streaming HTTP client for GitHub Copilot chat completions."""
+    """Streaming HTTP client for GitHub Copilot chat completions and responses."""
 
     BASE_URL: str = "https://api.githubcopilot.com"
 
@@ -81,6 +81,64 @@ class CopilotApiClient:
                     model=model,
                     error_body=error_text[:500],
                     response_headers=dict(response.headers),
+                )
+                raise CopilotApiError(response.status_code, error_text)
+
+            yield from self._parse_sse(response)
+
+    def stream_responses(
+        self,
+        *,
+        token: str,
+        model: str,
+        input_messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        instructions: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Stream from the Responses API. Yields parsed SSE event dicts."""
+        url = f"{self.BASE_URL}/responses"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "GitHubCopilotChat/0.22.2",
+            "Copilot-Integration-Id": "vscode-chat",
+            "Editor-Version": "vscode/1.97.2",
+            "Editor-Plugin-Version": "copilot-chat/0.22.2",
+            "Openai-Intent": "conversation-panel",
+            "x-initiator": "user",
+            "x-github-api-version": "2025-10-01",
+            "Accept": "text/event-stream",
+        }
+        body: dict[str, Any] = {
+            "model": model,
+            "input": input_messages,
+            "stream": True,
+        }
+        if tools is not None:
+            body["tools"] = tools
+        if instructions is not None:
+            body["instructions"] = instructions
+
+        logger.debug(
+            "copilot_responses_api_request",
+            model=model,
+            input_count=len(input_messages),
+            has_tools=bool(tools),
+        )
+
+        with self._http_client.stream("POST", url, headers=headers, json=body) as response:
+            if response.status_code >= 400:
+                error_text = ""
+                try:
+                    for chunk in response.iter_text():
+                        error_text += chunk
+                except Exception:
+                    error_text = f"HTTP {response.status_code}"
+                logger.warning(
+                    "copilot_responses_api_error",
+                    status_code=response.status_code,
+                    model=model,
+                    error_body=error_text[:500],
                 )
                 raise CopilotApiError(response.status_code, error_text)
 
