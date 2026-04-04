@@ -1,3 +1,6 @@
+# Throwaway probe/test scripts
+temp/
+
 # Python
 __pycache__/
 *.py[cod]

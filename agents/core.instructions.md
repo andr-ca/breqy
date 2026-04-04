@@ -188,6 +188,26 @@ Worktree hygiene:
 
 ---
 
+## 🧪 VALIDATE ASSUMPTIONS WITH PROBE SCRIPTS
+
+Before designing or implementing any feature that depends on external API behaviour,
+third-party library internals, or runtime data formats that cannot be fully confirmed
+by reading source code alone:
+
+1. Write a small, self-contained probe/test script to validate the assumption.
+2. Place the script in `/temp/` (project root) — never in `scripts/`, `tests/`, or source packages.
+3. Run it and record the actual output before finalising the design or plan.
+4. Delete or leave the script in `/temp/` — it is a throwaway artefact, do not commit it.
+
+Examples of when a probe script is required:
+- "Does this API actually return field X in format Y?"
+- "Which SSE event types does this endpoint emit?"
+- "Does this library method behave as I expect given this input?"
+
+Rule: do not lock in a design that depends on an unverified assumption.
+
+---
+
 ## 🔴 TDD CHECKPOINT (BEFORE IMPLEMENTATION)
 
 Confirm all answers are “yes”:
