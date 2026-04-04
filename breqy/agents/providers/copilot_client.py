@@ -70,6 +70,7 @@ class CopilotApiClient:
             message_count=len(messages),
             has_tools=bool(tools),
             body_keys=list(body.keys()),
+            initiator=initiator,
         )
 
         with self._http_client.stream("POST", url, headers=headers, json=body) as response:
@@ -130,6 +131,7 @@ class CopilotApiClient:
             model=model,
             input_count=len(input_messages),
             has_tools=bool(tools),
+            initiator=initiator,
         )
 
         with self._http_client.stream("POST", url, headers=headers, json=body) as response:

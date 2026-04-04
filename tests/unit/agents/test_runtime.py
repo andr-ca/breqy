@@ -1785,3 +1785,141 @@ def _complete_event_simple() -> ProviderEvent:
             exit_code=0,
         ),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Tool output extraction — content dict should be used, not just summary
+# --------------------------------------------------------------------------- #
+
+
+def _realistic_shell_result(
+    call_id: str = "inv_1",
+    stdout: str = "file1\nfile2\nfile3",
+    stderr: str = "",
+    return_code: int = 0,
+) -> ToolExecutionResultEvent:
+    """Realistic shell tool result: summary is a status string, stdout is in content dict."""
+    return ToolExecutionResultEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id=call_id,
+        invocation_id=call_id,
+        success_payload=StructuredResultPayload(
+            summary=f"Shell command exited with code {return_code}",
+            content={"stdout": stdout, "stderr": stderr, "return_code": return_code},
+        ),
+    )
+
+
+def _realistic_fs_result(
+    call_id: str = "inv_2",
+    path: str = "/tmp/test.txt",
+    content_text: str = "Hello, World!",
+) -> ToolExecutionResultEvent:
+    """Realistic filesystem read result: summary is status, file content is in content dict."""
+    return ToolExecutionResultEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id=call_id,
+        invocation_id=call_id,
+        success_payload=StructuredResultPayload(
+            summary=f"Read file {path}",
+            content={"content": content_text, "path": path},
+        ),
+    )
+
+
+class TestToolOutputInConversationHistory:
+    """Tool stdout/file content must be extracted from content dict, not the status summary."""
+
+    @pytest.mark.asyncio
+    async def test_shell_stdout_included_in_tool_message(self) -> None:
+        """When LLM calls the shell tool, the second-round conversation_history tool message
+        must contain actual stdout, not the status string like 'Shell command exited with code 0'.
+        """
+        round1 = [_tool_call_event("inv_1", "shell", '{"command": "ls ~"}'), _complete_event()]
+        round2 = [ProviderEvent(kind="text", text="Got files."), _complete_event()]
+
+        provider = MultiRoundProvider(rounds=[round1, round2])
+        waiter = FakeToolResultWaiter(
+            _realistic_shell_result("inv_1", stdout="file1\nfile2\nfile3")
+        )
+        runtime, _ = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        assert provider.call_count == 2
+        second_request = provider.requests[1]
+        tool_msg = next(
+            (m for m in second_request.conversation_history if m.get("role") == "tool"),
+            None,
+        )
+        assert tool_msg is not None, "conversation_history must contain a tool-role message"
+        assert "file1" in tool_msg["content"], (
+            f"Expected stdout in tool message content, got: {tool_msg['content']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_filesystem_content_included_in_tool_message(self) -> None:
+        """When LLM reads a file, the tool message must contain the file content,
+        not just 'Read file /tmp/test.txt'.
+        """
+        round1 = [
+            _tool_call_event(
+                "inv_2", "filesystem", '{"operation": "read", "path": "/tmp/test.txt"}'
+            ),
+            _complete_event(),
+        ]
+        round2 = [ProviderEvent(kind="text", text="I read it."), _complete_event()]
+
+        provider = MultiRoundProvider(rounds=[round1, round2])
+        waiter = FakeToolResultWaiter(
+            _realistic_fs_result("inv_2", path="/tmp/test.txt", content_text="Hello, World!")
+        )
+        runtime, _ = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        assert provider.call_count == 2
+        second_request = provider.requests[1]
+        tool_msg = next(
+            (m for m in second_request.conversation_history if m.get("role") == "tool"),
+            None,
+        )
+        assert tool_msg is not None, "conversation_history must contain a tool-role message"
+        assert "Hello, World!" in tool_msg["content"], (
+            f"Expected file content in tool message, got: {tool_msg['content']!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stderr_appended_when_non_empty(self) -> None:
+        """When the shell tool produces both stdout and stderr, both must appear in the tool message."""
+        round1 = [_tool_call_event("inv_3", "shell", '{"command": "ls /bad"}'), _complete_event()]
+        round2 = [ProviderEvent(kind="text", text="Error noted."), _complete_event()]
+
+        provider = MultiRoundProvider(rounds=[round1, round2])
+        waiter = FakeToolResultWaiter(
+            _realistic_shell_result(
+                "inv_3",
+                stdout="some output",
+                stderr="warning: deprecated",
+                return_code=0,
+            )
+        )
+        runtime, _ = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        assert provider.call_count == 2
+        second_request = provider.requests[1]
+        tool_msg = next(
+            (m for m in second_request.conversation_history if m.get("role") == "tool"),
+            None,
+        )
+        assert tool_msg is not None
+        assert "some output" in tool_msg["content"], (
+            f"Expected stdout in tool message, got: {tool_msg['content']!r}"
+        )
+        assert "warning: deprecated" in tool_msg["content"], (
+            f"Expected stderr in tool message, got: {tool_msg['content']!r}"
+        )

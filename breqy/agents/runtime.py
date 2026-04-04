@@ -407,11 +407,12 @@ class AgentRuntime:
                 initiator="agent" if _round > 0 else "user",
             )
 
-            logger.debug(
+            logger.info(
                 "Provider stream started",
                 provider=self._provider.provider_id,
                 model=self._provider.model_id,
                 round=_round,
+                initiator=request.initiator,
             )
 
             chunk_index = 0
@@ -533,7 +534,23 @@ class AgentRuntime:
                 output_text = ""
                 if result_event is not None:
                     if result_event.success_payload is not None:
-                        output_text = result_event.success_payload.summary
+                        payload = result_event.success_payload
+                        content = payload.content or {}
+                        if "stdout" in content:
+                            # Shell tool: use stdout; append stderr if non-empty
+                            output_text = content["stdout"]
+                            stderr = content.get("stderr", "")
+                            if stderr:
+                                output_text = f"{output_text}\n[stderr]: {stderr}"
+                        elif "content" in content:
+                            # Filesystem read tool: use file content
+                            output_text = content["content"]
+                        elif content:
+                            # Generic tool: JSON-serialize the content dict
+                            output_text = json.dumps(content)
+                        else:
+                            # No structured content — fall back to summary
+                            output_text = payload.summary
                     elif result_event.failure_payload is not None:
                         output_text = str(result_event.failure_payload)
                 next_history.append(
