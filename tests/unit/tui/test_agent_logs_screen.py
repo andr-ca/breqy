@@ -152,3 +152,55 @@ class TestReadNewLines:
         new_text2, new_offset2 = read_new_lines(log_file, 0)
         assert "new content" in new_text2
         assert new_offset2 > 0
+
+
+# ---------------------------------------------------------------------------
+# Pure helper: filter_lines
+# ---------------------------------------------------------------------------
+
+
+class TestFilterLines:
+    """filter_lines returns only lines containing the filter substring."""
+
+    def test_filter_lines_hides_non_matching(self) -> None:
+        """Lines not containing the filter string are excluded."""
+        from breqy.tui.screens.agent_logs import filter_lines
+
+        lines = ["info: provider started", "debug: tool called", "info: stream ended"]
+        result = filter_lines(lines, "info")
+        assert result == ["info: provider started", "info: stream ended"]
+
+    def test_filter_lines_empty_returns_all(self) -> None:
+        """Empty filter string returns all lines unchanged."""
+        from breqy.tui.screens.agent_logs import filter_lines
+
+        lines = ["line a", "line b", "line c"]
+        result = filter_lines(lines, "")
+        assert result == ["line a", "line b", "line c"]
+
+    def test_filter_lines_is_case_insensitive(self) -> None:
+        """Lowercase filter matches uppercase content and vice versa."""
+        from breqy.tui.screens.agent_logs import filter_lines
+
+        lines = ["INFO: started", "DEBUG: called", "WARNING: slow"]
+        result = filter_lines(lines, "info")
+        assert result == ["INFO: started"]
+
+    def test_filter_lines_partial_match(self) -> None:
+        """Substring match — does not require full-line equality."""
+        from breqy.tui.screens.agent_logs import filter_lines
+
+        lines = [
+            '{"event": "llm_call", "initiator": "user"}',
+            '{"event": "tool_result", "initiator": "agent"}',
+        ]
+        result = filter_lines(lines, "initiator")
+        assert len(result) == 2
+
+    def test_filter_lines_no_matches_returns_empty(self) -> None:
+        """Filter with no matches returns an empty list."""
+        from breqy.tui.screens.agent_logs import filter_lines
+
+        lines = ["alpha", "beta", "gamma"]
+        result = filter_lines(lines, "zzz")
+        assert result == []

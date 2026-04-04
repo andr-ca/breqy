@@ -13,6 +13,7 @@ Pure helpers (importable without a running Textual app):
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -83,6 +84,17 @@ def read_new_lines(path: Path, offset: int) -> tuple[str, int]:
         return new_text, new_offset
     except OSError:
         return "", offset
+
+
+def filter_lines(lines: Iterable[str], filter_str: str) -> list[str]:
+    """Return lines containing *filter_str* (case-insensitive).
+
+    If *filter_str* is empty, all lines are returned.
+    """
+    if not filter_str:
+        return list(lines)
+    needle = filter_str.lower()
+    return [line for line in lines if needle in line.lower()]
 
 
 # ---------------------------------------------------------------------------
