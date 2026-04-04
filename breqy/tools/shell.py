@@ -13,6 +13,21 @@ logger = structlog.get_logger(__name__)
 class ShellTool(ToolExecutor):
     name = "shell"
     description = "Execute a shell command and return its output"
+    input_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "The shell command to execute"},
+            "timeout_seconds": {
+                "type": "integer",
+                "description": "Maximum seconds to wait for the command to complete",
+            },
+            "cwd": {
+                "type": "string",
+                "description": "Working directory for command execution",
+            },
+        },
+        "required": ["command"],
+    }
 
     def __init__(self, timeout: int = 120) -> None:
         self._timeout = timeout
@@ -43,7 +58,9 @@ class ShellTool(ToolExecutor):
                 cwd=str(cwd) if cwd is not None else None,
             )
         except OSError as exc:
-            return ToolResult(success=False, error=f"Failed to start shell command for cwd {cwd}: {exc}")
+            return ToolResult(
+                success=False, error=f"Failed to start shell command for cwd {cwd}: {exc}"
+            )
 
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)

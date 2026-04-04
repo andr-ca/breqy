@@ -3,6 +3,18 @@ import pytest
 from breqy.tools.shell import ShellTool
 
 
+def test_shell_has_input_schema() -> None:
+    tool = ShellTool()
+    schema = tool.input_schema
+
+    assert schema["type"] == "object"
+    assert "command" in schema["properties"]
+    assert schema["required"] == ["command"]
+    # Optional params present
+    assert "timeout_seconds" in schema["properties"]
+    assert "cwd" in schema["properties"]
+
+
 @pytest.mark.asyncio
 async def test_shell_echo() -> None:
     result = await ShellTool(timeout=5).execute({"command": "echo hello"})

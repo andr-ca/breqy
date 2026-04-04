@@ -16,6 +16,7 @@ class ToolResult(BaseModel):
 class ToolExecutor(ABC):
     name: str = ""
     description: str = ""
+    input_schema: dict[str, object] = {}
 
     @abstractmethod
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:

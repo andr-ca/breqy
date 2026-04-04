@@ -7,6 +7,21 @@ from breqy.domain.enums import FilesystemOperation
 from breqy.tools.filesystem import FilesystemTool, derive_operations
 
 
+def test_filesystem_has_input_schema() -> None:
+    tool = FilesystemTool()
+    schema = tool.input_schema
+
+    assert schema["type"] == "object"
+    assert "operation" in schema["properties"]
+    assert "path" in schema["properties"]
+    assert "operation" in schema["required"]
+    assert "path" in schema["required"]
+    # Optional params for write/edit
+    assert "content" in schema["properties"]
+    assert "old_string" in schema["properties"]
+    assert "new_string" in schema["properties"]
+
+
 @pytest.mark.asyncio
 async def test_read_file(tmp_dir: Path) -> None:
     path = tmp_dir / "input.txt"

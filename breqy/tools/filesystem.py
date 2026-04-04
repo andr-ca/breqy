@@ -28,6 +28,30 @@ def derive_operations(arguments: dict[str, Any]) -> list[FilesystemOperation]:
 class FilesystemTool(ToolExecutor):
     name = "filesystem"
     description = "Read, write, edit, and delete files"
+    input_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "operation": {
+                "type": "string",
+                "enum": ["read", "write", "edit", "delete"],
+                "description": "The filesystem operation to perform",
+            },
+            "path": {"type": "string", "description": "Target file path"},
+            "content": {
+                "type": "string",
+                "description": "File content for write operation",
+            },
+            "old_string": {
+                "type": "string",
+                "description": "Text to find for edit operation",
+            },
+            "new_string": {
+                "type": "string",
+                "description": "Replacement text for edit operation",
+            },
+        },
+        "required": ["operation", "path"],
+    }
 
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:
         operation = arguments.get("operation")
