@@ -210,8 +210,15 @@ class CopilotProvider(ModelProvider):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
     ) -> Iterator[ProviderEvent]:
-        """Stream from API and map chunks to ProviderEvent."""
-        active_tool_calls: dict[int, ToolCallDelta] = {}
+        """Stream from API and map chunks to ProviderEvent.
+
+        Tool call arguments arrive in fragments across many SSE delta events.
+        We accumulate them per-index and emit a single complete ToolCallDelta
+        event per tool call only when finish_reason is set, so consumers
+        always receive parseable (complete) JSON arguments.
+        """
+        # index -> (call_id, tool_name, accumulated_args)
+        active_tool_calls: dict[int, tuple[str, str, str]] = {}
 
         for chunk in self._client.stream_chat(
             token=token,
@@ -227,12 +234,12 @@ class CopilotProvider(ModelProvider):
             delta = choice.get("delta", {})
             finish_reason = choice.get("finish_reason")
 
-            # Text content
+            # Text content — yield immediately for live streaming
             content = delta.get("content")
             if isinstance(content, str) and content:
                 yield ProviderEvent(kind="text", text=content)
 
-            # Tool calls
+            # Tool call deltas — accumulate, don't yield yet
             tool_calls = delta.get("tool_calls")
             if tool_calls:
                 for tc in tool_calls:
@@ -243,27 +250,29 @@ class CopilotProvider(ModelProvider):
                     arguments = function.get("arguments", "")
 
                     if call_id and tool_name:
-                        active_tool_calls[index] = ToolCallDelta(
-                            call_id=call_id,
-                            tool_name=tool_name,
-                            arguments_chunk=arguments,
-                        )
-                        yield ProviderEvent(
-                            kind="tool_call",
-                            tool_call=active_tool_calls[index],
-                        )
-                    elif index in active_tool_calls and arguments:
-                        yield ProviderEvent(
-                            kind="tool_call",
-                            tool_call=ToolCallDelta(
-                                call_id=active_tool_calls[index].call_id,
-                                tool_name=active_tool_calls[index].tool_name,
-                                arguments_chunk=arguments,
-                            ),
+                        # First delta for this tool call index
+                        active_tool_calls[index] = (call_id, tool_name, arguments)
+                    elif index in active_tool_calls:
+                        # Subsequent argument fragment — accumulate
+                        existing_id, existing_name, prev_args = active_tool_calls[index]
+                        active_tool_calls[index] = (
+                            existing_id,
+                            existing_name,
+                            prev_args + arguments,
                         )
 
-            # Stream complete
+            # On finish: emit all accumulated complete tool calls, then complete event
             if finish_reason:
+                for idx in sorted(active_tool_calls):
+                    call_id, tool_name, full_args = active_tool_calls[idx]
+                    yield ProviderEvent(
+                        kind="tool_call",
+                        tool_call=ToolCallDelta(
+                            call_id=call_id,
+                            tool_name=tool_name,
+                            arguments_chunk=full_args,
+                        ),
+                    )
                 yield ProviderEvent(
                     kind="complete",
                     metadata=CompletionMetadata(

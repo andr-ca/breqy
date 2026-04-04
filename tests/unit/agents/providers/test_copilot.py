@@ -323,6 +323,8 @@ class TestStreamTextEvents:
 
 class TestStreamToolCallEvents:
     def test_stream_tool_call_events(self) -> None:
+        """_do_stream yields one complete tool_call event per tool call
+        (args accumulated across SSE chunks), not one event per chunk."""
         from breqy.agents.providers.copilot import CopilotProvider
 
         mock_auth = MagicMock()
@@ -359,20 +361,21 @@ class TestStreamToolCallEvents:
                         }
                     ]
                 },
-                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "tool_calls", "index": 0}]},
             ]
         )
 
         provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        provider._model_endpoints = {"gpt-4o": ["/chat/completions"]}
         events = list(provider.stream(_make_request("read /tmp")))
 
         tool_events = [e for e in events if e.kind == "tool_call"]
-        assert len(tool_events) == 2
+        # Exactly ONE event with the complete accumulated arguments
+        assert len(tool_events) == 1
         assert tool_events[0].tool_call is not None
         assert tool_events[0].tool_call.call_id == "call_1"
         assert tool_events[0].tool_call.tool_name == "read_file"
-        assert tool_events[1].tool_call is not None
-        assert tool_events[1].tool_call.arguments_chunk == '{"path": "/tmp"}'
+        assert tool_events[0].tool_call.arguments_chunk == '{"path": "/tmp"}'
 
 
 class TestApiErrors:
@@ -1059,3 +1062,227 @@ class TestEndpointRouting:
         input_msgs = call_kwargs["input_messages"]
         assert all(m["role"] != "system" for m in input_msgs)
         assert any(m["role"] == "user" for m in input_msgs)
+
+
+# --------------------------------------------------------------------------- #
+# Tool call argument accumulation
+# --------------------------------------------------------------------------- #
+
+
+class TestToolCallArgumentAccumulation:
+    """_do_stream() must accumulate argument chunks across SSE deltas so that
+    consumers receive a single tool_call event per call with complete JSON
+    arguments, not one event per chunk with partial JSON."""
+
+    def test_chunked_args_yield_single_complete_tool_call_event(self) -> None:
+        """Arguments split across multiple SSE chunks must arrive as ONE event.
+
+        The OpenAI streaming protocol splits tool call arguments across many
+        delta events.  The runtime calls json.loads() on arguments_chunk, so
+        it must receive the full JSON string, not a partial fragment.
+        """
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter(
+            [
+                # First chunk: id + name, empty args
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_abc",
+                                        "function": {"name": "shell", "arguments": ""},
+                                    }
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                # Second chunk: first arg fragment
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [{"index": 0, "function": {"arguments": '{"comman'}}]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                # Third chunk: second arg fragment
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [{"index": 0, "function": {"arguments": 'd": "ls"}'}}]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                # Finish
+                {"choices": [{"delta": {}, "finish_reason": "tool_calls", "index": 0}]},
+            ]
+        )
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        provider._model_endpoints = {"gpt-4o": ["/chat/completions"]}
+        events = list(provider.stream(_make_request("ls")))
+
+        tool_events = [e for e in events if e.kind == "tool_call"]
+        # Must be exactly ONE tool_call event (not one per chunk)
+        assert len(tool_events) == 1, (
+            f"Expected 1 tool_call event with complete args; got {len(tool_events)}"
+        )
+        assert tool_events[0].tool_call is not None
+        assert tool_events[0].tool_call.call_id == "call_abc"
+        assert tool_events[0].tool_call.tool_name == "shell"
+        # Arguments must be the complete, JSON-parseable string
+        import json
+
+        parsed = json.loads(tool_events[0].tool_call.arguments_chunk)
+        assert parsed == {"command": "ls"}
+
+    def test_multiple_tool_calls_each_accumulated_separately(self) -> None:
+        """When the model requests two tools, each gets its own complete event."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter(
+            [
+                # Tool 0: id + name
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_0",
+                                        "function": {"name": "shell", "arguments": '{"c'},
+                                    }
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                # Tool 1: id + name (simultaneous)
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 1,
+                                        "id": "call_1",
+                                        "function": {"name": "fs", "arguments": '{"p'},
+                                    }
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                # Tool 0: rest of args
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {"index": 0, "function": {"arguments": 'md": "ls"}'}}
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                # Tool 1: rest of args
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {"index": 1, "function": {"arguments": 'ath": "/"}'}}
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                {"choices": [{"delta": {}, "finish_reason": "tool_calls", "index": 0}]},
+            ]
+        )
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        provider._model_endpoints = {"gpt-4o": ["/chat/completions"]}
+        events = list(provider.stream(_make_request("do stuff")))
+
+        tool_events = [e for e in events if e.kind == "tool_call"]
+        assert len(tool_events) == 2
+
+        import json
+
+        call_ids = {e.tool_call.call_id for e in tool_events}
+        assert call_ids == {"call_0", "call_1"}
+
+        by_id = {e.tool_call.call_id: e for e in tool_events}
+        assert json.loads(by_id["call_0"].tool_call.arguments_chunk) == {"cmd": "ls"}
+        assert json.loads(by_id["call_1"].tool_call.arguments_chunk) == {"path": "/"}
+
+    def test_text_events_still_yielded_immediately_during_tool_accumulation(self) -> None:
+        """Text delta events must still stream out immediately even if tool args
+        are being accumulated in the same turn."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "Running..."}, "index": 0}]},
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_x",
+                                        "function": {
+                                            "name": "shell",
+                                            "arguments": '{"command": "ls"}',
+                                        },
+                                    }
+                                ]
+                            },
+                            "index": 0,
+                        }
+                    ]
+                },
+                {"choices": [{"delta": {}, "finish_reason": "tool_calls", "index": 0}]},
+            ]
+        )
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        provider._model_endpoints = {"gpt-4o": ["/chat/completions"]}
+        events = list(provider.stream(_make_request("ls")))
+
+        text_events = [e for e in events if e.kind == "text"]
+        assert len(text_events) == 1
+        assert text_events[0].text == "Running..."
+
+        tool_events = [e for e in events if e.kind == "tool_call"]
+        assert len(tool_events) == 1
