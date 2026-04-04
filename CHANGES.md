@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `breqy/tui/screens/agent_logs.py`: `AgentLogsScreen` overlay screen that live-tails the agent subprocess log file (e.g. `~/.breqy/data/logs/agent-breqy.log`). Exposes three pure helper utilities: `resolve_agent_log_path()` (respects `BREQY_DATA_DIR`), `read_tail(path, n)` (last 200 lines on open), and `read_new_lines(path, offset)` (incremental 0.5 s poll). Handles missing file (waiting placeholder), `OSError` on poll (silent resume), and agent restart (offset preserved). Close with `q` or `Escape`.
+- `/logs` slash command: registered in `ChatScreen._build_command_registry()`, routed in `BreqyApp.on_command_executed` to push `AgentLogsScreen`. App now tracks `_current_agent_id` from `AgentLifecycleEvent` to resolve the correct log file path.
+- `tests/unit/tui/test_agent_logs_screen.py`: 9 unit tests for the pure log helpers (path resolution, tail slicing, missing/empty file, incremental poll, file disappear/reappear).
+- `tests/unit/tui/test_slash_commands.py`: 2 tests confirming `/logs` is registered and dispatches the `"logs"` token.
+- `agents/providers/copilot_client.py`: added `initiator=` field to both LLM provider debug log calls for per-round observability.
+- `agents/runtime.py`: extract tool result text from `content` dict (priority: `stdout` → `content` → JSON) instead of the plain `summary` string; append `stderr` when non-empty. Promoted "Provider stream started" to `logger.info` with `initiator=` field.
 - `breqy/tui/widgets/selectable_rich_log.py`: `SelectableRichLog` subclass of `RichLog` that enables Textual's built-in text selection and clipboard support. Adds `Strip.apply_offsets` for mouse hit-testing and selection highlight rendering that `RichLog` does not implement. Includes `_apply_selection_highlight` helper for applying styles to character ranges within a `Strip`, and overrides `get_selection` to extract text from actual log content.
 - `tests/tui/test_selectable_rich_log.py`: 20 unit tests covering subclass contract, write/clear, selection offsets, selection_updated cache invalidation, get_selection (single-line, multi-line, empty), and `_apply_selection_highlight` edge cases.
 - `breqy/tui/clipboard.py`: `copy_to_system_clipboard` helper that tries `xclip`, `xsel`, `wl-copy`, and `pbcopy` as subprocess fallbacks for environments where OSC 52 is unreliable (e.g. tmux without `set-clipboard on`).
