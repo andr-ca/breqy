@@ -26,8 +26,12 @@ class CopilotApiClient:
 
     BASE_URL: str = "https://api.githubcopilot.com"
 
+    # Streaming responses with tool definitions can take >5 s for first byte.
+    # Use a generous read timeout; keep connect short to fail fast on network issues.
+    _DEFAULT_TIMEOUT: httpx.Timeout = httpx.Timeout(read=120.0, connect=15.0, write=30.0, pool=5.0)
+
     def __init__(self, http_client: httpx.Client | None = None) -> None:
-        self._http_client = http_client or httpx.Client()
+        self._http_client = http_client or httpx.Client(timeout=self._DEFAULT_TIMEOUT)
 
     def stream_chat(
         self,

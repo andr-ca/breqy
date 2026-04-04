@@ -392,3 +392,41 @@ class TestApiVersionHeader:
         call_args = mock_client.stream.call_args
         headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
         assert headers.get("x-github-api-version") == "2025-10-01"
+
+
+# --------------------------------------------------------------------------- #
+# Timeout configuration
+# --------------------------------------------------------------------------- #
+
+
+class TestHttpxTimeout:
+    def test_default_client_has_long_read_timeout(self) -> None:
+        """CopilotApiClient default httpx.Client must have read timeout >= 120s.
+
+        The Copilot API can take >5 seconds to start streaming a response when
+        tool definitions are included. The httpx default of 5 seconds is too
+        short and causes ReadTimeout errors before any content is received.
+        """
+        import httpx
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        client = CopilotApiClient()
+        # Access the internal client to inspect its timeout
+        assert client._http_client.timeout.read >= 120.0
+
+    def test_default_client_has_reasonable_connect_timeout(self) -> None:
+        """Connect timeout should be set to a reasonable value (>= 10s)."""
+        import httpx
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        client = CopilotApiClient()
+        assert client._http_client.timeout.connect >= 10.0
+
+    def test_custom_http_client_is_used_as_is(self) -> None:
+        """When a custom http_client is passed, it must be used without modification."""
+        import httpx
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        custom_client = httpx.Client(timeout=httpx.Timeout(999.0))
+        client = CopilotApiClient(http_client=custom_client)
+        assert client._http_client is custom_client
