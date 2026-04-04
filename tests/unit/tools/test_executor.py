@@ -7,6 +7,11 @@ from breqy.tools.registry import ToolRegistry
 class EchoTool(ToolExecutor):
     name = "echo"
     description = "Echo text"
+    input_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
+    }
 
     async def execute(self, arguments: dict[str, object]) -> ToolResult:
         text = str(arguments.get("text", ""))
@@ -56,3 +61,50 @@ def test_registry_rejects_empty_tool_names() -> None:
 
     with pytest.raises(ValueError, match="empty tool name"):
         registry.register(NamelessTool())
+
+
+def test_registry_to_definitions_returns_tool_definitions() -> None:
+    from breqy.agents.providers.base import ToolDefinition
+
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+
+    defs = registry.to_definitions()
+
+    assert len(defs) == 1
+    assert isinstance(defs[0], ToolDefinition)
+    assert defs[0].name == "echo"
+    assert defs[0].description == "Echo text"
+    assert defs[0].input_schema == {
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
+    }
+
+
+def test_registry_to_definitions_filters_by_names() -> None:
+    from breqy.agents.providers.base import ToolDefinition
+
+    class AnotherTool(ToolExecutor):
+        name = "another"
+        description = "Another tool"
+
+        async def execute(self, arguments: dict[str, object]) -> ToolResult:
+            return ToolResult(success=True)
+
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    registry.register(AnotherTool())
+
+    defs = registry.to_definitions(names=["echo"])
+
+    assert len(defs) == 1
+    assert defs[0].name == "echo"
+
+
+def test_registry_to_definitions_empty_registry() -> None:
+    registry = ToolRegistry()
+
+    defs = registry.to_definitions()
+
+    assert defs == []
