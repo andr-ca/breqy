@@ -45,6 +45,7 @@ class CopilotProvider(ModelProvider):
         self._model_id = model_id
         self._authenticator = authenticator
         self._client = client
+        self._model_endpoints: dict[str, list[str]] = {}
 
     @property
     def provider_id(self) -> str:
@@ -59,7 +60,13 @@ class CopilotProvider(ModelProvider):
         return True
 
     def list_models(self) -> list[tuple[str, str]]:
-        """Query Copilot API for available models."""
+        """Query Copilot API for available models.
+
+        Filters to models with capabilities.type == 'chat' and
+        model_picker_enabled == True. Deduplicates by name, keeping
+        the highest version. Stores supported_endpoints metadata per
+        model for endpoint routing.
+        """
         token = self._authenticator.get_copilot_token()
         if token is None:
             return [(self.model_id, self.model_id)]
@@ -70,6 +77,7 @@ class CopilotProvider(ModelProvider):
             "Editor-Version": "vscode/1.97.2",
             "Editor-Plugin-Version": "copilot-chat/0.22.2",
             "User-Agent": "GitHubCopilotChat/0.22.2",
+            "x-github-api-version": "2025-10-01",
         }
         try:
             resp = httpx.get(
@@ -85,8 +93,37 @@ class CopilotProvider(ModelProvider):
                 )
                 return [(self.model_id, self.model_id)]
             data = resp.json()
-            models = [(m["id"], m.get("name", m["id"])) for m in data.get("data", [])]
-            logger.debug("copilot_list_models_ok", count=len(models))
+            raw_models = data.get("data", [])
+
+            # Filter: chat models with model_picker_enabled
+            chat_models = []
+            for m in raw_models:
+                caps = m.get("capabilities", {})
+                if caps.get("type") != "chat":
+                    continue
+                if not m.get("model_picker_enabled", False):
+                    continue
+                chat_models.append(m)
+
+            # Deduplicate by name, keeping highest version
+            name_map: dict[str, dict] = {}
+            for m in chat_models:
+                name = m.get("name", m["id"])
+                existing = name_map.get(name)
+                if existing is None or m.get("version", "") > existing.get("version", ""):
+                    name_map[name] = m
+
+            # Store endpoint metadata for routing
+            models = []
+            for m in name_map.values():
+                model_id = m["id"]
+                display_name = m.get("name", model_id)
+                self._model_endpoints[model_id] = m.get(
+                    "supported_endpoints", ["/chat/completions"]
+                )
+                models.append((model_id, display_name))
+
+            logger.debug("copilot_list_models_ok", count=len(models), total_raw=len(raw_models))
             return models
         except Exception:
             logger.debug("copilot_list_models_failed", exc_info=True)
@@ -109,11 +146,8 @@ class CopilotProvider(ModelProvider):
             # After device flow stores the OAuth token, exchange it for a session token
             token = self._authenticator.get_copilot_token()
 
-        messages = self._build_messages(request)
-        tools = self._convert_tools(request.tools) if request.tools else None
-
         try:
-            yield from self._do_stream(token, messages, tools)
+            yield from self._do_stream_routed(token, request)
         except CopilotApiError as exc:
             if exc.status_code == 401:
                 logger.info("copilot_token_expired_retrying")
@@ -130,7 +164,7 @@ class CopilotProvider(ModelProvider):
                         pending_flow.device_code, interval=pending_flow.interval
                     )
                     token = self._authenticator.get_copilot_token()
-                yield from self._do_stream(token, messages, tools)
+                yield from self._do_stream_routed(token, request)
             else:
                 yield ProviderEvent(
                     kind="complete",
@@ -261,3 +295,157 @@ class CopilotProvider(ModelProvider):
             }
             for tool in tools
         ]
+
+    def _convert_tools_responses(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+        """Convert Breqy ToolDefinition to Responses API tool format."""
+        return [
+            {
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
+            }
+            for tool in tools
+        ]
+
+    def _use_responses_api(self, token: str) -> bool:
+        """Determine if this model should use the /responses endpoint.
+
+        If endpoint metadata hasn't been populated yet (e.g. fresh provider
+        created during model switch), lazily queries the /models API using
+        the provided token to discover supported endpoints.
+        """
+        if self._model_id not in self._model_endpoints:
+            logger.debug("copilot_lazy_endpoint_discovery", model=self._model_id)
+            self._discover_endpoints(token)
+        endpoints = self._model_endpoints.get(self._model_id, [])
+        if "/responses" in endpoints:
+            return True
+        return False
+
+    def _discover_endpoints(self, token: str) -> None:
+        """Fetch model metadata and populate _model_endpoints cache.
+
+        Reuses the provided session token so this can be called from
+        stream() without triggering additional auth flows.
+        """
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Copilot-Integration-Id": "vscode-chat",
+            "Editor-Version": "vscode/1.97.2",
+            "Editor-Plugin-Version": "copilot-chat/0.22.2",
+            "User-Agent": "GitHubCopilotChat/0.22.2",
+            "x-github-api-version": "2025-10-01",
+        }
+        try:
+            resp = httpx.get(
+                "https://api.githubcopilot.com/models",
+                headers=headers,
+                timeout=10.0,
+            )
+            if resp.status_code != 200:
+                logger.debug(
+                    "copilot_endpoint_discovery_non_200",
+                    status_code=resp.status_code,
+                )
+                return
+            data = resp.json()
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                if model_id:
+                    self._model_endpoints[model_id] = m.get(
+                        "supported_endpoints", ["/chat/completions"]
+                    )
+        except Exception:
+            logger.debug("copilot_endpoint_discovery_failed", exc_info=True)
+
+    def _do_stream_routed(
+        self,
+        token: str,
+        request: ProviderRequest,
+    ) -> Iterator[ProviderEvent]:
+        """Route to the correct streaming method based on model endpoints."""
+        if self._use_responses_api(token):
+            yield from self._do_stream_responses(token, request)
+        else:
+            messages = self._build_messages(request)
+            tools = self._convert_tools(request.tools) if request.tools else None
+            yield from self._do_stream(token, messages, tools)
+
+    def _build_responses_input(
+        self, request: ProviderRequest
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Convert ProviderRequest to Responses API input format.
+
+        Returns (input_messages, instructions) where system messages
+        are extracted into the instructions parameter.
+        """
+        instructions: str | None = None
+        persona = request.extra_env.get("BREQY_PERSONA")
+        if persona:
+            instructions = persona
+
+        input_messages: list[dict[str, Any]] = [
+            {"role": "user", "content": request.prompt},
+        ]
+        return input_messages, instructions
+
+    def _do_stream_responses(
+        self,
+        token: str,
+        request: ProviderRequest,
+    ) -> Iterator[ProviderEvent]:
+        """Stream from Responses API and map events to ProviderEvent."""
+        input_messages, instructions = self._build_responses_input(request)
+        tools = self._convert_tools_responses(request.tools) if request.tools else None
+
+        for event in self._client.stream_responses(
+            token=token,
+            model=self._model_id,
+            input_messages=input_messages,
+            tools=tools,
+            instructions=instructions,
+        ):
+            event_type = event.get("type", "")
+
+            # Text content
+            if event_type == "response.output_text.delta":
+                delta = event.get("delta", "")
+                if delta:
+                    yield ProviderEvent(kind="text", text=delta)
+
+            # Tool call (complete item)
+            elif event_type == "response.output_item.done":
+                item = event.get("item", {})
+                if item.get("type") == "function_call":
+                    yield ProviderEvent(
+                        kind="tool_call",
+                        tool_call=ToolCallDelta(
+                            call_id=item.get("call_id", ""),
+                            tool_name=item.get("name", ""),
+                            arguments_chunk=item.get("arguments", ""),
+                        ),
+                    )
+
+            # Stream complete (success)
+            elif event_type == "response.completed":
+                yield ProviderEvent(
+                    kind="complete",
+                    metadata=CompletionMetadata(
+                        provider_id=self.provider_id,
+                        model_id=self.model_id,
+                        exit_code=0,
+                    ),
+                )
+
+            # Stream complete (failure)
+            elif event_type == "response.failed":
+                yield ProviderEvent(
+                    kind="complete",
+                    metadata=CompletionMetadata(
+                        provider_id=self.provider_id,
+                        model_id=self.model_id,
+                        exit_code=1,
+                    ),
+                )
