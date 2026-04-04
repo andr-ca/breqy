@@ -1,4 +1,5 @@
 """Tests for breqy.tui.screens.chat — ChatScreen assembly of all chat widgets."""
+
 from __future__ import annotations
 
 import pytest
@@ -606,9 +607,7 @@ class TestChatScreenApprovalDecision:
             def on_mount(self) -> None:
                 self.push_screen(ChatScreen(session_id=SESSION_ID))
 
-            def on_approval_prompt_approved(
-                self, event: ApprovalPrompt.Approved
-            ) -> None:
+            def on_approval_prompt_approved(self, event: ApprovalPrompt.Approved) -> None:
                 approved.append(event)
 
         app = CapturingApp()
@@ -636,9 +635,7 @@ class TestChatScreenApprovalDecision:
             def on_mount(self) -> None:
                 self.push_screen(ChatScreen(session_id=SESSION_ID))
 
-            def on_approval_prompt_denied(
-                self, event: ApprovalPrompt.Denied
-            ) -> None:
+            def on_approval_prompt_denied(self, event: ApprovalPrompt.Denied) -> None:
                 denied.append(event)
 
         app = CapturingApp()
@@ -675,9 +672,7 @@ class TestChatScreenControlAction:
             def on_mount(self) -> None:
                 self.push_screen(ChatScreen(session_id=SESSION_ID))
 
-            def on_control_bar_control_action(
-                self, event: ControlBar.ControlAction
-            ) -> None:
+            def on_control_bar_control_action(self, event: ControlBar.ControlAction) -> None:
                 actions.append(event)
 
         app = CapturingApp()
@@ -760,8 +755,7 @@ class TestChatScreenLayout:
             msg_input = screen.query_one(MessageInput)
             # Widget's region.y + height must be <= terminal height (40)
             assert msg_input.region.y < 40, (
-                f"MessageInput at y={msg_input.region.y} is off-screen "
-                f"(viewport height=40)"
+                f"MessageInput at y={msg_input.region.y} is off-screen (viewport height=40)"
             )
 
     @pytest.mark.asyncio
@@ -783,8 +777,7 @@ class TestChatScreenLayout:
             screen = _get_screen(app)
             control = screen.query_one(ControlBar)
             assert control.region.y < 40, (
-                f"ControlBar at y={control.region.y} is off-screen "
-                f"(viewport height=40)"
+                f"ControlBar at y={control.region.y} is off-screen (viewport height=40)"
             )
 
     @pytest.mark.asyncio
@@ -798,3 +791,88 @@ class TestChatScreenLayout:
             assert chat_view.region.height >= 20, (
                 f"ChatView height={chat_view.region.height}, expected >= 20"
             )
+
+
+# --------------------------------------------------------------------------- #
+# Event routing tests — ReasoningStartedEvent / ReasoningDoneEvent
+# --------------------------------------------------------------------------- #
+
+
+class TestChatScreenReasoningHandlers:
+    """ChatScreen calls show/hide thinking indicator on reasoning events."""
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_started_shows_indicator(self) -> None:
+        from breqy.domain.events import ReasoningStartedEvent
+
+        event = ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_started(event)
+            await pilot.pause()
+            assert len(screen.query("#thinking-indicator")) == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_done_hides_indicator(self) -> None:
+        from breqy.domain.events import ReasoningStartedEvent, ReasoningDoneEvent
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            await pilot.pause()
+            screen.handle_reasoning_done(ReasoningDoneEvent(session_id=SESSION_ID, agent_id="ag_1"))
+            await pilot.pause()
+            assert len(screen.query("#thinking-indicator")) == 0
+
+    @pytest.mark.asyncio
+    async def test_handle_message_chunk_hides_indicator(self) -> None:
+        """First MessageChunkEvent also removes the thinking indicator (safety net)."""
+        from breqy.domain.events import ReasoningStartedEvent, MessageChunkEvent
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            await pilot.pause()
+            screen.handle_message_chunk(
+                MessageChunkEvent(
+                    session_id=SESSION_ID,
+                    agent_id="ag_1",
+                    message_id="msg_1",
+                    chunk="Hello",
+                    chunk_index=0,
+                )
+            )
+            await pilot.pause()
+            assert len(screen.query("#thinking-indicator")) == 0
+
+    @pytest.mark.asyncio
+    async def test_handle_message_chunk_hides_indicator(self) -> None:
+        """First MessageChunkEvent also removes the thinking indicator (safety net)."""
+        from breqy.domain.events import ReasoningStartedEvent, MessageChunkEvent
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            await pilot.pause()
+            screen.handle_message_chunk(
+                MessageChunkEvent(
+                    session_id=SESSION_ID,
+                    agent_id="ag_1",
+                    message_id="msg_1",
+                    chunk="Hello",
+                    chunk_index=0,
+                )
+            )
+            await pilot.pause()
+            assert len(app.query("#thinking-indicator")) == 0

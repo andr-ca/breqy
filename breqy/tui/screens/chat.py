@@ -24,6 +24,8 @@ from breqy.domain.events import (
     MessageChunkEvent,
     MessageSentEvent,
     ModelInfoEvent,
+    ReasoningDoneEvent,
+    ReasoningStartedEvent,
     TaskUpdatedEvent,
     ToolInvocationCompletedEvent,
     ToolInvocationFailedEvent,
@@ -144,13 +146,25 @@ class ChatScreen(Screen[None]):
             )
 
     def handle_message_chunk(self, event: MessageChunkEvent) -> None:
-        """Route a ``MessageChunkEvent`` to the ``ChatView`` for streaming."""
+        """Route a ``MessageChunkEvent`` to the ``ChatView`` for streaming.
+
+        Also hides the thinking indicator if it is still showing (safety net).
+        """
         chat_view = self.query_one(ChatView)
+        chat_view.hide_thinking_indicator()
         chat_view.add_chunk(
             message_id=event.message_id,
             chunk=event.chunk,
             chunk_index=event.chunk_index,
         )
+
+    def handle_reasoning_started(self, event: ReasoningStartedEvent) -> None:
+        """Show the 'Thinking...' indicator when the model enters a reasoning phase."""
+        self.query_one(ChatView).show_thinking_indicator()
+
+    def handle_reasoning_done(self, event: ReasoningDoneEvent) -> None:
+        """Remove the 'Thinking...' indicator when the reasoning phase ends."""
+        self.query_one(ChatView).hide_thinking_indicator()
 
     def handle_task_updated(self, event: TaskUpdatedEvent) -> None:
         """Route a ``TaskUpdatedEvent`` to the ``TaskPanel``."""
