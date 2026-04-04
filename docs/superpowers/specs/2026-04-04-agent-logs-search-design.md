@@ -66,10 +66,12 @@ Extracted as a module-level pure function — testable without Textual.
 
 ### On open (`on_mount`)
 
-1. `read_tail(path, 200)` → split by newlines → extend `_lines`
-2. `_refresh_display()` — render filtered subset to `RichLog`
-3. `_offset` set to file size
-4. `set_interval(0.5, _poll_log)` started
+The existing `_load_initial_lines()` private method is updated (not replaced) to:
+1. `read_tail(path, 200)` → split by newlines → extend `_lines` (new step)
+2. `_refresh_display()` replaces the current direct `RichLog.write` call
+3. `_offset` set to file size (unchanged)
+
+`on_mount` then calls `set_interval(0.5, _poll_log)` as before.
 
 ### On filter change (`Input.Changed` on `#agent-logs-filter`)
 
@@ -79,7 +81,7 @@ Extracted as a module-level pure function — testable without Textual.
 ### On poll (`_poll_log`)
 
 1. `read_new_lines(path, _offset)` → new text, `_offset` updated
-2. Split into lines, extend `_lines`
+2. Split into lines, **extend `_lines` first** (always, regardless of filter)
 3. **Fast path** (no filter): `RichLog.write(new_text)` directly — avoids full re-render
 4. **Filter active**: `_refresh_display()` — full re-render to include new matches
 
@@ -98,7 +100,7 @@ for line in filter_lines(_lines, _filter):
 | Key | Action |
 |---|---|
 | `f` | Focus the filter `Input` |
-| `c` | Clear filter and reset `Input` value |
+| `c` | Clear filter, reset `Input` value; focus stays on the `Input` |
 | `q` / `Escape` | Close overlay (unchanged) |
 
 ---
