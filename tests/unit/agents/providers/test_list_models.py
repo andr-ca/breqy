@@ -7,6 +7,7 @@ Covers MDL-03, MDL-04, MDL-05 success criteria:
 4. PROVIDER_FALLBACK_MODELS dict has entries for all 5 providers
 5. Existing tests still pass (no regressions)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -108,9 +109,24 @@ class TestCopilotListModels:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "data": [
-                {"id": "gpt-4o", "name": "GPT-4o"},
-                {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
-                {"id": "o3-mini", "name": "O3 Mini"},
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
+                {
+                    "id": "gpt-4o-mini",
+                    "name": "GPT-4o Mini",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
+                {
+                    "id": "o3-mini",
+                    "name": "O3 Mini",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
             ]
         }
 
@@ -132,7 +148,11 @@ class TestCopilotListModels:
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"data": [{"id": "gpt-4o"}]}
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "gpt-4o", "capabilities": {"type": "chat"}, "model_picker_enabled": True}
+            ]
+        }
 
         with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
             mock_httpx.get.return_value = mock_response
@@ -151,7 +171,11 @@ class TestCopilotListModels:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "data": [
-                {"id": "gpt-4o"},  # no "name" key
+                {
+                    "id": "gpt-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },  # no "name" key
             ]
         }
 

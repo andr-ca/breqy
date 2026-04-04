@@ -186,8 +186,18 @@ class TestCopilotTokenUsage:
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "data": [
-                {"id": "gpt-4o", "name": "GPT-4o"},
-                {"id": "gpt-5.4-mini", "name": "GPT-5.4 Mini"},
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
+                {
+                    "id": "gpt-5.4-mini",
+                    "name": "GPT-5.4 Mini",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
             ]
         }
 
