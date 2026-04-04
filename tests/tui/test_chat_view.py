@@ -181,8 +181,6 @@ class TestThinkingIndicator:
 
     @pytest.mark.asyncio
     async def test_show_thinking_indicator_mounts_widget(self) -> None:
-        from textual.widgets import Static
-
         app = ChatViewApp()
         async with app.run_test() as pilot:
             chat = app.query_one(ChatView)

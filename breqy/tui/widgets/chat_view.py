@@ -8,7 +8,7 @@ incremental streaming via ``StreamBuffer``.
 from __future__ import annotations
 
 from textual.widget import Widget
-from textual.widgets import RichLog
+from textual.widgets import RichLog, Static
 
 from breqy.domain.enums import MessageRole
 from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
@@ -68,8 +68,6 @@ class ChatView(Widget):
         """
         if self.query("#thinking-indicator"):
             return
-        from textual.widgets import Static
-
         self.mount(Static("● Thinking...", id="thinking-indicator", classes="thinking-indicator"))
 
     def hide_thinking_indicator(self) -> None:
