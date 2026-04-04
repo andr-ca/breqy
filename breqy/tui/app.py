@@ -33,6 +33,7 @@ from breqy.tui.clipboard import copy_to_system_clipboard
 from breqy.tui.events import EventDispatcher
 from breqy.tui.screens.auth import AuthScreen
 from breqy.tui.screens.chat import ChatScreen
+from breqy.tui.screens.agent_logs import AgentLogsScreen, resolve_agent_log_path
 from breqy.tui.screens.logs import LogEntry, LogsScreen
 from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
@@ -97,6 +98,7 @@ class BreqyApp(App):
 
         # Agent connectivity tracking
         self._agent_connected: bool = False
+        self._current_agent_id: str = ""
 
         # Debounce flag for model list requests (ctrl+m)
         self._model_list_pending: bool = False
@@ -231,6 +233,8 @@ class BreqyApp(App):
         """Handle agent connect: route to ChatScreen and track connectivity."""
         self._route_to_chat("handle_agent_lifecycle", event)
         self._agent_connected = True
+        if event.agent_id:
+            self._current_agent_id = event.agent_id
 
     def _handle_agent_disconnected(self, event: Event) -> None:
         """Handle agent disconnect: route to ChatScreen and reset pending state."""
@@ -529,6 +533,9 @@ class BreqyApp(App):
             self.action_push_model_select()
         elif cmd == "help":
             self._show_help()
+        elif cmd == "logs":
+            log_file = resolve_agent_log_path(self._current_agent_id)
+            self.push_screen(AgentLogsScreen(log_file=log_file))
         else:
             logger.debug("Unhandled command result", command=message.command, result=cmd)
 

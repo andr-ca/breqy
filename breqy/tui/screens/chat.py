@@ -9,6 +9,7 @@ widget.
 The screen does **not** own A2A connections — that is the ``App``'s
 responsibility (Task 15).
 """
+
 from __future__ import annotations
 
 from textual.binding import Binding
@@ -89,6 +90,11 @@ class ChatScreen(Screen[None]):
             "help",
             lambda: CommandResult(success=True, message="help"),
             description="Show available commands",
+        )
+        registry.register(
+            "logs",
+            lambda: CommandResult(success=True, message="logs"),
+            description="Open agent log file viewer",
         )
         return registry
 
