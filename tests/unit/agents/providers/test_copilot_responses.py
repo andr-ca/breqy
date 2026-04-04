@@ -270,3 +270,99 @@ class TestStreamResponsesTools:
         body = call_args[1].get("json", {})
         assert "tools" in body
         assert body["tools"] == tools
+
+
+class TestStreamResponsesReasoningItem:
+    """_do_stream_responses emits reasoning_started / reasoning_done for reasoning output items."""
+
+    def _make_provider(self) -> "CopilotProvider":
+        from breqy.agents.providers.copilot import CopilotProvider
+        from unittest.mock import MagicMock
+
+        authenticator = MagicMock()
+        authenticator.get_copilot_token.return_value = "tok"
+        client = MagicMock()
+        return CopilotProvider(model_id="gpt-5-mini", authenticator=authenticator, client=client)
+
+    def _make_sse(self, *events) -> list[str]:
+        import json
+
+        lines = []
+        for ev in events:
+            lines.append(f"data: {json.dumps(ev)}")
+            lines.append("")
+        return lines
+
+    def test_reasoning_output_item_emits_reasoning_started_then_done(self) -> None:
+        from unittest.mock import MagicMock, patch
+        from breqy.agents.providers.base import ProviderEvent, ProviderRequest
+        from pathlib import Path
+
+        reasoning_added = {
+            "type": "response.output_item.added",
+            "item": {"id": "r1", "type": "reasoning", "summary": []},
+            "output_index": 0,
+        }
+        reasoning_done = {
+            "type": "response.output_item.done",
+            "item": {"id": "r1", "type": "reasoning", "summary": []},
+            "output_index": 0,
+        }
+        text_delta = {"type": "response.output_text.delta", "delta": "Hello"}
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        lines = self._make_sse(reasoning_added, reasoning_done, text_delta, completed, "[DONE]")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_lines.return_value = iter(lines)
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter(
+            [
+                reasoning_added,
+                reasoning_done,
+                text_delta,
+                completed,
+            ]
+        )
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        kinds = [e.kind for e in events]
+        assert "reasoning_started" in kinds
+        assert "reasoning_done" in kinds
+        # reasoning_started must come before reasoning_done
+        assert kinds.index("reasoning_started") < kinds.index("reasoning_done")
+
+    def test_non_reasoning_output_item_does_not_emit_reasoning_events(self) -> None:
+        from breqy.agents.providers.base import ProviderRequest
+        from pathlib import Path
+
+        function_call_done = {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "read_file",
+                "arguments": '{"path": "/tmp/x"}',
+            },
+        }
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter(
+            [
+                function_call_done,
+                completed,
+            ]
+        )
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        kinds = [e.kind for e in events]
+        assert "reasoning_started" not in kinds
+        assert "reasoning_done" not in kinds

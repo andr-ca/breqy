@@ -441,7 +441,13 @@ class CopilotProvider(ModelProvider):
                 if delta:
                     yield ProviderEvent(kind="text", text=delta)
 
-            # Tool call (complete item)
+            # Reasoning item started
+            elif event_type == "response.output_item.added":
+                item = event.get("item", {})
+                if item.get("type") == "reasoning":
+                    yield ProviderEvent(kind="reasoning_started")
+
+            # Tool call OR reasoning item done
             elif event_type == "response.output_item.done":
                 item = event.get("item", {})
                 if item.get("type") == "function_call":
@@ -453,6 +459,8 @@ class CopilotProvider(ModelProvider):
                             arguments_chunk=item.get("arguments", ""),
                         ),
                     )
+                elif item.get("type") == "reasoning":
+                    yield ProviderEvent(kind="reasoning_done")
 
             # Stream complete (success)
             elif event_type == "response.completed":
