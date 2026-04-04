@@ -22,6 +22,11 @@ class ChatView(Widget):
     ChatView {
         height: 1fr;
     }
+    .thinking-indicator {
+        color: $text-muted;
+        text-style: italic;
+        padding: 0 2;
+    }
     """
 
     def __init__(self, **kwargs) -> None:  # type: ignore[override]
@@ -55,6 +60,25 @@ class ChatView(Widget):
     def clear_messages(self) -> None:
         """Clear all messages from the chat."""
         self.log_widget.clear()
+
+    def show_thinking_indicator(self) -> None:
+        """Show a 'Thinking...' indicator at the bottom of the chat.
+
+        Idempotent — calling this multiple times only mounts one indicator.
+        """
+        if self.query("#thinking-indicator"):
+            return
+        from textual.widgets import Static
+
+        self.mount(Static("● Thinking...", id="thinking-indicator", classes="thinking-indicator"))
+
+    def hide_thinking_indicator(self) -> None:
+        """Remove the 'Thinking...' indicator if it is present.
+
+        No-op if no indicator is currently shown.
+        """
+        for widget in self.query("#thinking-indicator"):
+            widget.remove()
 
     @staticmethod
     def _role_prefix(role: MessageRole, agent_id: str = "") -> str:

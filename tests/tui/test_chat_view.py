@@ -1,4 +1,5 @@
 """Tests for breqy.tui.widgets.chat_view — ChatView widget."""
+
 from __future__ import annotations
 
 import pytest
@@ -173,3 +174,53 @@ class TestChatViewClear:
             chat.clear_messages()
             await pilot.pause()
             assert len(chat.log_widget.lines) == 0
+
+
+class TestThinkingIndicator:
+    """ChatView.show_thinking_indicator / hide_thinking_indicator."""
+
+    @pytest.mark.asyncio
+    async def test_show_thinking_indicator_mounts_widget(self) -> None:
+        from textual.widgets import Static
+
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.show_thinking_indicator()
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 1
+
+    @pytest.mark.asyncio
+    async def test_show_thinking_indicator_is_idempotent(self) -> None:
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.show_thinking_indicator()
+            chat.show_thinking_indicator()
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 1
+
+    @pytest.mark.asyncio
+    async def test_hide_thinking_indicator_removes_widget(self) -> None:
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.show_thinking_indicator()
+            await pilot.pause()
+            chat.hide_thinking_indicator()
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 0
+
+    @pytest.mark.asyncio
+    async def test_hide_thinking_indicator_is_noop_when_none_shown(self) -> None:
+        """hide_thinking_indicator does not raise if no indicator is mounted."""
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.hide_thinking_indicator()  # should not raise
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 0
