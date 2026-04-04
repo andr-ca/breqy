@@ -312,3 +312,209 @@ class TestRunnerProviderListModels:
 
         assert hasattr(_BaseRunnerProvider, "list_models")
         assert "list_models" not in _BaseRunnerProvider.__dict__  # not overridden
+
+
+# --------------------------------------------------------------------------- #
+# SC-6: CopilotProvider.list_models() filtering by capabilities
+# --------------------------------------------------------------------------- #
+
+
+class TestCopilotListModelsFiltering:
+    """CopilotProvider.list_models() filters by capabilities and model_picker_enabled."""
+
+    def _make_provider(self, *, authenticator=None, client=None):
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        return CopilotProvider(
+            model_id="gpt-4o",
+            authenticator=authenticator or MagicMock(),
+            client=client or MagicMock(),
+        )
+
+    def test_filters_out_non_chat_models(self):
+        """Models without capabilities.type == 'chat' are excluded."""
+        auth = MagicMock()
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
+                {
+                    "id": "text-embedding-ada",
+                    "name": "Ada Embedding",
+                    "capabilities": {"type": "embeddings"},
+                    "model_picker_enabled": True,
+                },
+            ]
+        }
+
+        with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
+            mock_httpx.get.return_value = mock_response
+            provider = self._make_provider(authenticator=auth)
+            result = provider.list_models()
+
+        model_ids = [m[0] for m in result]
+        assert "gpt-4o" in model_ids
+        assert "text-embedding-ada" not in model_ids
+
+    def test_filters_out_model_picker_disabled(self):
+        """Models with model_picker_enabled == false are excluded."""
+        auth = MagicMock()
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
+                {
+                    "id": "gpt-internal",
+                    "name": "Internal",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": False,
+                },
+            ]
+        }
+
+        with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
+            mock_httpx.get.return_value = mock_response
+            provider = self._make_provider(authenticator=auth)
+            result = provider.list_models()
+
+        model_ids = [m[0] for m in result]
+        assert "gpt-4o" in model_ids
+        assert "gpt-internal" not in model_ids
+
+    def test_graceful_with_missing_capabilities(self):
+        """Models without capabilities field are excluded (defensive)."""
+        auth = MagicMock()
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
+                {"id": "mystery", "name": "Mystery Model"},
+            ]
+        }
+
+        with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
+            mock_httpx.get.return_value = mock_response
+            provider = self._make_provider(authenticator=auth)
+            result = provider.list_models()
+
+        model_ids = [m[0] for m in result]
+        assert "gpt-4o" in model_ids
+        assert "mystery" not in model_ids
+
+    def test_deduplicates_by_name_keeping_highest_version(self):
+        """When multiple models share a name, keep the one with highest version."""
+        auth = MagicMock()
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "id": "gpt-4o-2024-08-06",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                    "version": "2024-08-06",
+                },
+                {
+                    "id": "gpt-4o-2025-03-01",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                    "version": "2025-03-01",
+                },
+            ]
+        }
+
+        with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
+            mock_httpx.get.return_value = mock_response
+            provider = self._make_provider(authenticator=auth)
+            result = provider.list_models()
+
+        model_ids = [m[0] for m in result]
+        assert "gpt-4o-2025-03-01" in model_ids
+        assert "gpt-4o-2024-08-06" not in model_ids
+
+    def test_stores_endpoint_metadata(self):
+        """list_models() stores supported_endpoints per model for routing."""
+        auth = MagicMock()
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                    "supported_endpoints": ["/chat/completions", "/responses"],
+                },
+                {
+                    "id": "gpt-5.4-mini",
+                    "name": "GPT-5.4 Mini",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                    "supported_endpoints": ["/responses"],
+                },
+            ]
+        }
+
+        with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
+            mock_httpx.get.return_value = mock_response
+            provider = self._make_provider(authenticator=auth)
+            provider.list_models()
+
+        assert provider._model_endpoints["gpt-4o"] == ["/chat/completions", "/responses"]
+        assert provider._model_endpoints["gpt-5.4-mini"] == ["/responses"]
+
+    def test_defaults_endpoints_to_chat_completions(self):
+        """Models without supported_endpoints default to /chat/completions."""
+        auth = MagicMock()
+        auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "id": "gpt-4o",
+                    "name": "GPT-4o",
+                    "capabilities": {"type": "chat"},
+                    "model_picker_enabled": True,
+                },
+            ]
+        }
+
+        with patch("breqy.agents.providers.copilot.httpx") as mock_httpx:
+            mock_httpx.get.return_value = mock_response
+            provider = self._make_provider(authenticator=auth)
+            provider.list_models()
+
+        assert provider._model_endpoints["gpt-4o"] == ["/chat/completions"]

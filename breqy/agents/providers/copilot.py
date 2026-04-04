@@ -45,6 +45,7 @@ class CopilotProvider(ModelProvider):
         self._model_id = model_id
         self._authenticator = authenticator
         self._client = client
+        self._model_endpoints: dict[str, list[str]] = {}
 
     @property
     def provider_id(self) -> str:
@@ -59,7 +60,13 @@ class CopilotProvider(ModelProvider):
         return True
 
     def list_models(self) -> list[tuple[str, str]]:
-        """Query Copilot API for available models."""
+        """Query Copilot API for available models.
+
+        Filters to models with capabilities.type == 'chat' and
+        model_picker_enabled == True. Deduplicates by name, keeping
+        the highest version. Stores supported_endpoints metadata per
+        model for endpoint routing.
+        """
         token = self._authenticator.get_copilot_token()
         if token is None:
             return [(self.model_id, self.model_id)]
@@ -70,6 +77,7 @@ class CopilotProvider(ModelProvider):
             "Editor-Version": "vscode/1.97.2",
             "Editor-Plugin-Version": "copilot-chat/0.22.2",
             "User-Agent": "GitHubCopilotChat/0.22.2",
+            "x-github-api-version": "2025-10-01",
         }
         try:
             resp = httpx.get(
@@ -85,8 +93,37 @@ class CopilotProvider(ModelProvider):
                 )
                 return [(self.model_id, self.model_id)]
             data = resp.json()
-            models = [(m["id"], m.get("name", m["id"])) for m in data.get("data", [])]
-            logger.debug("copilot_list_models_ok", count=len(models))
+            raw_models = data.get("data", [])
+
+            # Filter: chat models with model_picker_enabled
+            chat_models = []
+            for m in raw_models:
+                caps = m.get("capabilities", {})
+                if caps.get("type") != "chat":
+                    continue
+                if not m.get("model_picker_enabled", False):
+                    continue
+                chat_models.append(m)
+
+            # Deduplicate by name, keeping highest version
+            name_map: dict[str, dict] = {}
+            for m in chat_models:
+                name = m.get("name", m["id"])
+                existing = name_map.get(name)
+                if existing is None or m.get("version", "") > existing.get("version", ""):
+                    name_map[name] = m
+
+            # Store endpoint metadata for routing
+            models = []
+            for m in name_map.values():
+                model_id = m["id"]
+                display_name = m.get("name", model_id)
+                self._model_endpoints[model_id] = m.get(
+                    "supported_endpoints", ["/chat/completions"]
+                )
+                models.append((model_id, display_name))
+
+            logger.debug("copilot_list_models_ok", count=len(models), total_raw=len(raw_models))
             return models
         except Exception:
             logger.debug("copilot_list_models_failed", exc_info=True)
