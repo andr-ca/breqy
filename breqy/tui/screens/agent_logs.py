@@ -8,18 +8,21 @@ Pure helpers (importable without a running Textual app):
   - ``resolve_agent_log_path(agent_id)`` — resolves the log file path
   - ``read_tail(path, n)`` — reads the last *n* lines from a file
   - ``read_new_lines(path, offset)`` — returns bytes written after *offset*
+  - ``filter_lines(lines, filter_str)`` — case-insensitive substring filter
 """
 
 from __future__ import annotations
 
+import collections
 import os
 from collections.abc import Iterable
 from pathlib import Path
 
+from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import RichLog, Static
+from textual.widgets import Input, RichLog, Static
 
 from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
 
@@ -29,6 +32,7 @@ from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
 
 _WAITING_PLACEHOLDER = "Waiting for log file…"
 _TAIL_LINES = 200
+_MAX_BUFFER_LINES = 1000
 
 
 def resolve_agent_log_path(agent_id: str) -> Path:
@@ -110,17 +114,21 @@ class AgentLogsScreen(Screen[None]):
         ┌─────────────────────────────────────────────────────┐
         │  Agent Logs  ~/.breqy/data/logs/agent-breqy.log     │
         ├─────────────────────────────────────────────────────┤
+        │  Filter: [____________]                             │
+        ├─────────────────────────────────────────────────────┤
         │                                                     │
         │  SelectableRichLog (scrollable, text-selectable)    │
         │  — last 200 lines pre-loaded on open               │
         │  — new lines appended every 0.5 s via set_interval │
         │                                                     │
-        └─── q / Escape to close ────────────────────────────┘
+        └─── q/Esc close  F filter  C clear ────────────────┘
     """
 
     BINDINGS = [
         Binding("escape", "pop_screen", "Close", show=True),
         Binding("q", "pop_screen", "Close", show=True),
+        Binding("f", "focus_filter", "Filter", show=True),
+        Binding("c", "clear_filter", "Clear filter", show=True),
     ]
 
     def __init__(
@@ -134,6 +142,8 @@ class AgentLogsScreen(Screen[None]):
             log_file if log_file is not None else resolve_agent_log_path(agent_id)
         )
         self._offset: int = 0
+        self._lines: collections.deque[str] = collections.deque(maxlen=_MAX_BUFFER_LINES)
+        self._filter: str = ""
 
     # ------------------------------------------------------------------
     # Compose
@@ -142,9 +152,10 @@ class AgentLogsScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         """Yield the agent logs screen layout."""
         yield Static(f"Agent Logs  {self._log_file}", id="agent-logs-header")
+        yield Input(placeholder="Filter…", id="agent-logs-filter")
         yield SelectableRichLog(id="agent-logs-display", wrap=True, markup=False)
         yield Static(
-            "[b]Escape[/b] / [b]q[/b]  Close",
+            "[b]Escape[/b]/[b]q[/b] Close  [b]f[/b] Filter  [b]c[/b] Clear filter",
             id="agent-logs-footer",
         )
 
@@ -158,15 +169,25 @@ class AgentLogsScreen(Screen[None]):
         self.set_interval(0.5, self._poll_log)
 
     # ------------------------------------------------------------------
+    # Input handler
+    # ------------------------------------------------------------------
+
+    @on(Input.Changed, "#agent-logs-filter")
+    def _on_filter_changed(self, event: Input.Changed) -> None:
+        """Update filter and re-render when the user types in the filter box."""
+        self._filter = event.value.strip().lower()
+        self._refresh_display()
+
+    # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
     def _load_initial_lines(self) -> None:
-        """Read and display the last _TAIL_LINES lines from the log file."""
-        display = self.query_one("#agent-logs-display", RichLog)
+        """Read last _TAIL_LINES lines into the buffer, then render."""
         initial_text = read_tail(self._log_file, n=_TAIL_LINES)
         if initial_text:
-            display.write(initial_text)
+            self._lines.extend(initial_text.splitlines())
+        self._refresh_display()
         # Seek to end so subsequent polls only return new content
         try:
             self._offset = self._log_file.stat().st_size
@@ -177,9 +198,30 @@ class AgentLogsScreen(Screen[None]):
         """Append any new log lines written since the last poll."""
         new_text, new_offset = read_new_lines(self._log_file, self._offset)
         self._offset = new_offset
-        if new_text:
+        if not new_text:
+            return
+
+        new_lines = new_text.splitlines()
+        self._lines.extend(new_lines)  # always update buffer first
+
+        if self._filter:
+            # Filter active: full re-render to include any new matches
+            self._refresh_display()
+        else:
+            # Fast path: append directly without clearing the display
             display = self.query_one("#agent-logs-display", RichLog)
             display.write(new_text)
+
+    def _refresh_display(self) -> None:
+        """Clear the log display and re-render from the buffer."""
+        try:
+            display = self.query_one("#agent-logs-display", RichLog)
+        except Exception:
+            return  # not mounted yet
+
+        display.clear()
+        for line in filter_lines(self._lines, self._filter):
+            display.write(line)
 
     # ------------------------------------------------------------------
     # Actions
@@ -188,3 +230,15 @@ class AgentLogsScreen(Screen[None]):
     def action_pop_screen(self) -> None:
         """Pop this screen (close the overlay)."""
         self.app.pop_screen()
+
+    def action_focus_filter(self) -> None:
+        """Move keyboard focus to the filter Input."""
+        self.query_one("#agent-logs-filter", Input).focus()
+
+    def action_clear_filter(self) -> None:
+        """Clear the active filter and reset the Input widget."""
+        self._filter = ""
+        filter_input = self.query_one("#agent-logs-filter", Input)
+        filter_input.value = ""
+        filter_input.focus()
+        self._refresh_display()
