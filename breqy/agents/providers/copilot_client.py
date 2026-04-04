@@ -48,6 +48,7 @@ class CopilotApiClient:
             "Editor-Plugin-Version": "copilot-chat/0.22.2",
             "Openai-Intent": "conversation-panel",
             "x-initiator": "user",
+            "x-github-api-version": "2025-10-01",
             "Accept": "text/event-stream",
         }
         body: dict[str, Any] = {

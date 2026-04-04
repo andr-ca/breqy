@@ -363,3 +363,32 @@ class TestOriginatorHeaders:
         headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
         assert headers["Copilot-Integration-Id"] == "vscode-chat"
         assert "vscode" in headers["Editor-Version"]
+
+
+# --------------------------------------------------------------------------- #
+# API version header
+# --------------------------------------------------------------------------- #
+
+
+class TestApiVersionHeader:
+    def test_stream_chat_sends_api_version_header(self) -> None:
+        """x-github-api-version header must be sent on chat completions."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(
+            client.stream_chat(
+                token="gho_test",
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+
+        call_args = mock_client.stream.call_args
+        headers = call_args[1]["headers"] if "headers" in call_args[1] else call_args[0][2]
+        assert headers.get("x-github-api-version") == "2025-10-01"

@@ -103,6 +103,7 @@ class CopilotAuthenticator:
                     "Editor-Plugin-Version": "copilot-chat/0.22.2",
                     "User-Agent": "GitHubCopilotChat/0.22.2",
                     "Accept": "application/json",
+                    "x-github-api-version": "2025-10-01",
                 },
                 timeout=10.0,
             )
