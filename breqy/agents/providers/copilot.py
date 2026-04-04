@@ -209,6 +209,7 @@ class CopilotProvider(ModelProvider):
         token: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None,
+        initiator: str = "user",
     ) -> Iterator[ProviderEvent]:
         """Stream from API and map chunks to ProviderEvent.
 
@@ -225,6 +226,7 @@ class CopilotProvider(ModelProvider):
             model=self._model_id,
             messages=messages,
             tools=tools,
+            initiator=initiator,
         ):
             choices = chunk.get("choices", [])
             if not choices:
@@ -389,7 +391,7 @@ class CopilotProvider(ModelProvider):
         else:
             messages = self._build_messages(request)
             tools = self._convert_tools(request.tools) if request.tools else None
-            yield from self._do_stream(token, messages, tools)
+            yield from self._do_stream(token, messages, tools, initiator=request.initiator)
 
     def _build_responses_input(
         self, request: ProviderRequest
@@ -429,6 +431,7 @@ class CopilotProvider(ModelProvider):
             input_messages=input_messages,
             tools=tools,
             instructions=instructions,
+            initiator=request.initiator,
         ):
             event_type = event.get("type", "")
 

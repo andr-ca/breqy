@@ -430,3 +430,98 @@ class TestHttpxTimeout:
         custom_client = httpx.Client(timeout=httpx.Timeout(999.0))
         client = CopilotApiClient(http_client=custom_client)
         assert client._http_client is custom_client
+
+
+# --------------------------------------------------------------------------- #
+# x-initiator header — premium request attribution
+# --------------------------------------------------------------------------- #
+
+
+class TestXInitiatorHeader:
+    """x-initiator must be 'user' by default and 'agent' for follow-up tool rounds."""
+
+    def test_stream_chat_x_initiator_defaults_to_user(self) -> None:
+        """When initiator is not provided, x-initiator header must be 'user'."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(
+            client.stream_chat(
+                token="t",
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+
+        headers = mock_client.stream.call_args[1]["headers"]
+        assert headers["x-initiator"] == "user"
+
+    def test_stream_chat_sends_agent_x_initiator(self) -> None:
+        """When initiator='agent', x-initiator header must be 'agent'."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(
+            client.stream_chat(
+                token="t",
+                model="gpt-4o",
+                messages=[{"role": "user", "content": "hi"}],
+                initiator="agent",
+            )
+        )
+
+        headers = mock_client.stream.call_args[1]["headers"]
+        assert headers["x-initiator"] == "agent"
+
+    def test_stream_responses_x_initiator_defaults_to_user(self) -> None:
+        """When initiator is not provided, x-initiator header must be 'user' on /responses."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(
+            client.stream_responses(
+                token="t",
+                model="gpt-5.4-mini",
+                input_messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+
+        headers = mock_client.stream.call_args[1]["headers"]
+        assert headers["x-initiator"] == "user"
+
+    def test_stream_responses_sends_agent_x_initiator(self) -> None:
+        """When initiator='agent', x-initiator header must be 'agent' on /responses."""
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(
+            client.stream_responses(
+                token="t",
+                model="gpt-5.4-mini",
+                input_messages=[{"role": "user", "content": "hi"}],
+                initiator="agent",
+            )
+        )
+
+        headers = mock_client.stream.call_args[1]["headers"]
+        assert headers["x-initiator"] == "agent"

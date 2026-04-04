@@ -1732,6 +1732,49 @@ class TestSessionContextInConversationHistory:
         )
 
 
+# --------------------------------------------------------------------------- #
+# x-initiator binding — round 0 = "user", round 1+ = "agent"
+# --------------------------------------------------------------------------- #
+
+
+class TestAgentInitiatorBinding:
+    """handle_work() must set initiator='user' for round 0 and 'agent' for follow-up rounds."""
+
+    @pytest.mark.asyncio
+    async def test_first_round_request_initiator_is_user(self) -> None:
+        """Round 0 ProviderRequest must have initiator='user' (direct user request)."""
+        provider = FakeProvider(events=[_complete_event()])
+        runtime, _ = _build_runtime(provider=provider)
+
+        await runtime.handle_work(_work_event())
+
+        assert len(provider.requests) == 1
+        assert provider.requests[0].initiator == "user", (
+            "First round must be attributed to the user to avoid misclassifying as agent-originated"
+        )
+
+    @pytest.mark.asyncio
+    async def test_tool_follow_up_round_initiator_is_agent(self) -> None:
+        """After a tool call, round 1 ProviderRequest must have initiator='agent'.
+
+        Tool-call follow-up rounds are agent-generated, not directly user-initiated.
+        Marking them as 'agent' prevents GitHub Copilot from counting each tool
+        continuation as a separate premium request.
+        """
+        round1 = [_tool_call_event("inv_1"), _complete_event()]
+        round2 = [ProviderEvent(kind="text", text="Done."), _complete_event()]
+        provider = MultiRoundProvider(rounds=[round1, round2])
+        waiter = FakeToolResultWaiter(_tool_result_event("inv_1"))
+        runtime, _ = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        assert provider.call_count == 2
+        assert provider.requests[1].initiator == "agent", (
+            "Tool follow-up round must be marked 'agent' so Copilot does not charge it as premium"
+        )
+
+
 def _complete_event_simple() -> ProviderEvent:
     """A minimal complete event with no metadata for simple tests."""
     return ProviderEvent(

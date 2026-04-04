@@ -404,6 +404,7 @@ class AgentRuntime:
                 tools=tools,
                 extra_env=extra_env,
                 conversation_history=conversation_history,
+                initiator="agent" if _round > 0 else "user",
             )
 
             logger.debug(

@@ -40,6 +40,7 @@ class CopilotApiClient:
         model: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        initiator: str = "user",
     ) -> Iterator[dict[str, Any]]:
         """Stream chat completions. Yields parsed SSE chunk dicts."""
         url = f"{self.BASE_URL}/chat/completions"
@@ -51,7 +52,7 @@ class CopilotApiClient:
             "Editor-Version": "vscode/1.97.2",
             "Editor-Plugin-Version": "copilot-chat/0.22.2",
             "Openai-Intent": "conversation-panel",
-            "x-initiator": "user",
+            "x-initiator": initiator,
             "x-github-api-version": "2025-10-01",
             "Accept": "text/event-stream",
         }
@@ -98,6 +99,7 @@ class CopilotApiClient:
         input_messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         instructions: str | None = None,
+        initiator: str = "user",
     ) -> Iterator[dict[str, Any]]:
         """Stream from the Responses API. Yields parsed SSE event dicts."""
         url = f"{self.BASE_URL}/responses"
@@ -109,7 +111,7 @@ class CopilotApiClient:
             "Editor-Version": "vscode/1.97.2",
             "Editor-Plugin-Version": "copilot-chat/0.22.2",
             "Openai-Intent": "conversation-panel",
-            "x-initiator": "user",
+            "x-initiator": initiator,
             "x-github-api-version": "2025-10-01",
             "Accept": "text/event-stream",
         }

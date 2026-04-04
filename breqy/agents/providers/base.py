@@ -22,6 +22,7 @@ class ProviderRequest(BaseModel):
     tools: list[ToolDefinition] = Field(default_factory=list)
     extra_env: dict[str, str] = Field(default_factory=dict)
     conversation_history: list[dict[str, Any]] | None = None
+    initiator: Literal["user", "agent"] = "user"
 
 
 class ToolCallDelta(BaseModel):
