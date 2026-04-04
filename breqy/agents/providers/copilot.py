@@ -283,12 +283,21 @@ class CopilotProvider(ModelProvider):
                 )
 
     def _build_messages(self, request: ProviderRequest) -> list[dict[str, Any]]:
-        """Convert ProviderRequest to OpenAI messages format."""
+        """Convert ProviderRequest to OpenAI messages format.
+
+        When ``request.conversation_history`` is set (multi-turn tool loop),
+        it replaces the single user turn and already contains the full history
+        including tool calls and tool results.  A system persona message is
+        still prepended when configured.
+        """
         messages: list[dict[str, Any]] = []
         persona = request.extra_env.get("BREQY_PERSONA")
         if persona:
             messages.append({"role": "system", "content": persona})
-        messages.append({"role": "user", "content": request.prompt})
+        if request.conversation_history is not None:
+            messages.extend(request.conversation_history)
+        else:
+            messages.append({"role": "user", "content": request.prompt})
         return messages
 
     def _convert_tools(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
@@ -389,15 +398,20 @@ class CopilotProvider(ModelProvider):
 
         Returns (input_messages, instructions) where system messages
         are extracted into the instructions parameter.
+
+        When ``request.conversation_history`` is set (multi-turn tool loop),
+        the full history is passed as input_messages instead of a single user
+        turn.
         """
         instructions: str | None = None
         persona = request.extra_env.get("BREQY_PERSONA")
         if persona:
             instructions = persona
 
-        input_messages: list[dict[str, Any]] = [
-            {"role": "user", "content": request.prompt},
-        ]
+        if request.conversation_history is not None:
+            input_messages: list[dict[str, Any]] = list(request.conversation_history)
+        else:
+            input_messages = [{"role": "user", "content": request.prompt}]
         return input_messages, instructions
 
     def _do_stream_responses(

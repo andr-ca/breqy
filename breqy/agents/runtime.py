@@ -42,6 +42,37 @@ class ToolResultWaiter(Protocol):
     async def wait_for(self, invocation_id: str) -> ToolExecutionResultEvent: ...
 
 
+_MAX_TOOL_ROUNDS = 10
+
+
+class ToolResultBroker:
+    """Asyncio Future-based mediator that connects run() to handle_work().
+
+    ``run()`` calls ``deliver()`` when a ``ToolExecutionResultEvent`` arrives
+    from the engine.  ``handle_work()`` calls ``wait_for()`` to suspend until
+    the matching result is delivered.
+    """
+
+    def __init__(self) -> None:
+        self._pending: dict[str, asyncio.Future[ToolExecutionResultEvent]] = {}
+
+    async def wait_for(self, invocation_id: str) -> ToolExecutionResultEvent:
+        """Register interest in *invocation_id* and await its result."""
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[ToolExecutionResultEvent] = loop.create_future()
+        self._pending[invocation_id] = fut
+        try:
+            return await fut
+        finally:
+            self._pending.pop(invocation_id, None)
+
+    def deliver(self, event: ToolExecutionResultEvent) -> None:
+        """Resolve the future waiting for *event.invocation_id*, if any."""
+        fut = self._pending.get(event.invocation_id)
+        if fut is not None and not fut.done():
+            fut.set_result(event)
+
+
 class AgentRuntime:
     def __init__(
         self,
@@ -104,6 +135,10 @@ class AgentRuntime:
     async def run(self) -> None:
         """Start, listen for incoming events, and stop on disconnect."""
         await self.start()
+        broker = ToolResultBroker()
+        # Install broker as the tool_result_waiter so handle_work uses it
+        self._tool_result_waiter = broker
+        active_work_task: asyncio.Task[None] | None = None
         try:
             async for envelope in self._client.listen():
                 event = envelope.to_event()
@@ -113,15 +148,34 @@ class AgentRuntime:
                     session_id=getattr(event, "session_id", ""),
                 )
                 if isinstance(event, AgentWorkRequestedEvent):
-                    await self.handle_work(event)
+                    # Wait for any prior work task before starting a new one.
+                    # In practice there is only ever one active task at a time.
+                    if active_work_task is not None:
+                        await active_work_task
+                    active_work_task = asyncio.create_task(self.handle_work(event))
+                elif isinstance(event, ToolExecutionResultEvent):
+                    # Route result to broker while handle_work is awaiting it
+                    broker.deliver(event)
                 elif isinstance(event, ModelListRequestedEvent):
                     await self._handle_model_list(event)
                 elif isinstance(event, ModelSwitchRequestedEvent):
                     await self._handle_model_switch(event)
                 elif isinstance(event, ControlEvent):
                     self.handle_control(event)
+            # Drain the last work task after the listen loop ends
+            if active_work_task is not None:
+                await active_work_task
         finally:
+            if active_work_task is not None and not active_work_task.done():
+                active_work_task.cancel()
             await self.stop()
+
+    def _with_broker(self, broker: ToolResultBroker) -> "AgentRuntime":
+        """Return a lightweight view of this runtime that uses *broker* as the tool_result_waiter."""
+        # We mutate self._tool_result_waiter in-place for simplicity — the
+        # broker is re-created per run() call so there are no concurrency issues.
+        self._tool_result_waiter = broker
+        return self
 
     def handle_control(self, event: ControlEvent) -> None:
         """Process a control event from the engine."""
@@ -312,94 +366,171 @@ class AgentRuntime:
                 await self._client.send_event(failure_event)
                 return
 
-        content_parts: list[str] = []
-        chunk_index = 0
         tools = self._filter_tools(event.available_tools)
         extra_env: dict[str, str] = {}
         if self._config.persona_content:
             extra_env["BREQY_PERSONA"] = self._config.persona_content
-        request = ProviderRequest(
-            prompt=event.user_message_content,
-            work_dir=self._agent_dir,
-            tools=tools,
-            extra_env=extra_env,
-        )
-        logger.debug(
-            "Provider stream started",
-            provider=self._provider.provider_id,
-            model=self._provider.model_id,
-        )
+
+        # Multi-turn state
+        conversation_history: list[dict[str, Any]] | None = None
+        # Accumulate text content across all rounds (including partial rounds on cancel)
+        final_content_parts: list[str] = []
         stream_error: Exception | None = None
-        try:
-            for provider_event in self._provider.stream(request):
-                # Cancellation checkpoint 1: before processing each provider event
-                if self._cancel_requested.is_set():
-                    break
 
-                if provider_event.kind == "notice" and provider_event.text is not None:
-                    # Notice events are sent as complete standalone messages
-                    # so the TUI renders them immediately (e.g. auth instructions).
-                    notice_message_id = generate_prefixed_id("msg")
-                    await self._client.send_event(
-                        MessageSentEvent(
-                            session_id=event.session_id,
-                            agent_id=event.agent_id,
-                            correlation_id=event.correlation_id,
-                            message_id=notice_message_id,
-                            role=MessageRole.SYSTEM,
-                            content=provider_event.text,
-                        )
-                    )
-                    # Reset for the next (real) streaming message
-                    assistant_message_id = generate_prefixed_id("msg")
-                    content_parts = []
-                    chunk_index = 0
-                    continue
+        for _round in range(_MAX_TOOL_ROUNDS):
+            if self._cancel_requested.is_set():
+                break
 
-                if provider_event.kind == "text" and provider_event.text is not None:
-                    content_parts.append(provider_event.text)
-                    await self._client.send_event(
-                        MessageChunkEvent(
-                            session_id=event.session_id,
-                            agent_id=event.agent_id,
-                            correlation_id=event.correlation_id,
-                            message_id=assistant_message_id,
-                            chunk=provider_event.text,
-                            chunk_index=chunk_index,
-                        )
-                    )
-                    chunk_index += 1
-                    continue
-
-                if provider_event.kind == "tool_call" and provider_event.tool_call is not None:
-                    arguments: dict[str, Any] = {}
-                    if provider_event.tool_call.arguments_chunk:
-                        arguments = json.loads(provider_event.tool_call.arguments_chunk)
-                    await self._client.send_event(
-                        ToolExecutionRequestedEvent(
-                            session_id=event.session_id,
-                            agent_id=event.agent_id,
-                            correlation_id=provider_event.tool_call.call_id,
-                            invocation_id=provider_event.tool_call.call_id,
-                            tool_name=provider_event.tool_call.tool_name,
-                            arguments=arguments,
-                        )
-                    )
-                    if self._tool_result_waiter is not None:
-                        await self._tool_result_waiter.wait_for(provider_event.tool_call.call_id)
-
-                    # Cancellation checkpoint 2: after tool result
-                    if self._cancel_requested.is_set():
-                        break
-        except Exception as exc:
-            stream_error = exc
-            logger.error(
-                "Provider stream error",
-                provider=self._provider.provider_id,
-                model=self._provider.model_id,
-                error=str(exc),
+            request = ProviderRequest(
+                prompt=event.user_message_content,
+                work_dir=self._agent_dir,
+                tools=tools,
+                extra_env=extra_env,
+                conversation_history=conversation_history,
             )
 
+            logger.debug(
+                "Provider stream started",
+                provider=self._provider.provider_id,
+                model=self._provider.model_id,
+                round=_round,
+            )
+
+            chunk_index = 0
+            # (call_id, tool_name, args, result_event_or_None)
+            tool_calls_this_round: list[
+                tuple[str, str, dict[str, Any], ToolExecutionResultEvent | None]
+            ] = []
+
+            try:
+                for provider_event in self._provider.stream(request):
+                    if self._cancel_requested.is_set():
+                        break
+
+                    if provider_event.kind == "notice" and provider_event.text is not None:
+                        notice_message_id = generate_prefixed_id("msg")
+                        await self._client.send_event(
+                            MessageSentEvent(
+                                session_id=event.session_id,
+                                agent_id=event.agent_id,
+                                correlation_id=event.correlation_id,
+                                message_id=notice_message_id,
+                                role=MessageRole.SYSTEM,
+                                content=provider_event.text,
+                            )
+                        )
+                        assistant_message_id = generate_prefixed_id("msg")
+                        chunk_index = 0
+                        continue
+
+                    if provider_event.kind == "text" and provider_event.text is not None:
+                        final_content_parts.append(provider_event.text)
+                        await self._client.send_event(
+                            MessageChunkEvent(
+                                session_id=event.session_id,
+                                agent_id=event.agent_id,
+                                correlation_id=event.correlation_id,
+                                message_id=assistant_message_id,
+                                chunk=provider_event.text,
+                                chunk_index=chunk_index,
+                            )
+                        )
+                        chunk_index += 1
+                        continue
+
+                    if provider_event.kind == "tool_call" and provider_event.tool_call is not None:
+                        tc = provider_event.tool_call
+                        arguments: dict[str, Any] = {}
+                        if tc.arguments_chunk:
+                            arguments = json.loads(tc.arguments_chunk)
+                        await self._client.send_event(
+                            ToolExecutionRequestedEvent(
+                                session_id=event.session_id,
+                                agent_id=event.agent_id,
+                                correlation_id=tc.call_id,
+                                invocation_id=tc.call_id,
+                                tool_name=tc.tool_name,
+                                arguments=arguments,
+                            )
+                        )
+                        # Await result inline so cancel can interrupt streaming
+                        result_event: ToolExecutionResultEvent | None = None
+                        if self._tool_result_waiter is not None:
+                            result_event = await self._tool_result_waiter.wait_for(tc.call_id)
+                        tool_calls_this_round.append(
+                            (tc.call_id, tc.tool_name, arguments, result_event)
+                        )
+                        # Cancellation checkpoint after tool result (waiter may set cancel)
+                        if self._cancel_requested.is_set():
+                            break
+                        continue
+
+            except Exception as exc:
+                stream_error = exc
+                logger.error(
+                    "Provider stream error",
+                    provider=self._provider.provider_id,
+                    model=self._provider.model_id,
+                    error=str(exc),
+                )
+                break
+
+            if self._cancel_requested.is_set():
+                break
+
+            # No tool calls this round → final text response, done
+            if not tool_calls_this_round:
+                break
+
+            # Tool calls present — but only loop if we have a waiter
+            # (if no waiter, results are None and we can't build conversation history)
+            if self._tool_result_waiter is None:
+                break
+
+            # Build next conversation_history from collected tool calls + their results
+            assistant_tool_calls = [
+                {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": json.dumps(args)},
+                }
+                for call_id, tool_name, args, _result in tool_calls_this_round
+            ]
+
+            # Build the new conversation_history for the next round
+            if conversation_history is None:
+                next_history: list[dict[str, Any]] = [
+                    {"role": "user", "content": event.user_message_content}
+                ]
+            else:
+                next_history = list(conversation_history)
+
+            # Add the assistant's tool call message
+            next_history.append(
+                {"role": "assistant", "content": None, "tool_calls": assistant_tool_calls}
+            )
+
+            # Append each tool result (already fetched inline during streaming)
+            for call_id, tool_name, _args, result_event in tool_calls_this_round:
+                output_text = ""
+                if result_event is not None:
+                    if result_event.success_payload is not None:
+                        output_text = result_event.success_payload.summary
+                    elif result_event.failure_payload is not None:
+                        output_text = str(result_event.failure_payload)
+                next_history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "name": tool_name,
+                        "content": output_text,
+                    }
+                )
+
+            conversation_history = next_history
+            # Continue to next round
+
+        # Emit final result
         if stream_error is not None:
             error_message_id = generate_prefixed_id("msg")
             await self._client.send_event(
@@ -420,14 +551,13 @@ class AgentRuntime:
                     correlation_id=event.correlation_id,
                     message_id=assistant_message_id,
                     role=MessageRole.ASSISTANT,
-                    content="".join(content_parts),
+                    content="".join(final_content_parts),
                 )
             )
         logger.debug(
             "Response complete",
             message_id=assistant_message_id,
-            content_length=len("".join(content_parts)),
-            chunk_count=chunk_index,
+            content_length=len("".join(final_content_parts)),
         )
 
     def _filter_tools(self, available_tools: list[ToolDefinition]) -> list[ToolDefinition]:

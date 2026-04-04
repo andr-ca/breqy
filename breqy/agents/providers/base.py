@@ -1,9 +1,10 @@
 """Breqy-owned model provider contracts."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Any, Iterator, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,7 @@ class ProviderRequest(BaseModel):
     session_id: str | None = None
     tools: list[ToolDefinition] = Field(default_factory=list)
     extra_env: dict[str, str] = Field(default_factory=dict)
+    conversation_history: list[dict[str, Any]] | None = None
 
 
 class ToolCallDelta(BaseModel):

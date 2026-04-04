@@ -334,23 +334,31 @@ async def test_agent_runtime_emits_chunks_requests_tools_and_final_message(
 
     config = load_agent_config(str(fake_agent_dir))
     client = FakeA2AClient()
-    provider = FakeProvider(
-        events=[
-            ProviderEvent(kind="text", text="Hello"),
-            ProviderEvent(
-                kind="tool_call",
-                tool_call=ToolCallDelta(
-                    call_id="inv_tool", tool_name="shell", arguments_chunk='{"command":"pwd"}'
-                ),
+
+    # Round 1: text + tool_call + text in one stream
+    # Round 2: empty (LLM has nothing more to say after tool result)
+    round1 = [
+        ProviderEvent(kind="text", text="Hello"),
+        ProviderEvent(
+            kind="tool_call",
+            tool_call=ToolCallDelta(
+                call_id="inv_tool", tool_name="shell", arguments_chunk='{"command":"pwd"}'
             ),
-            ProviderEvent(kind="text", text=" world"),
-            ProviderEvent(
-                kind="complete",
-                metadata=CompletionMetadata(
-                    provider_id="claude", model_id="claude-test", exit_code=0
-                ),
-            ),
-        ]
+        ),
+        ProviderEvent(kind="text", text=" world"),
+        ProviderEvent(
+            kind="complete",
+            metadata=CompletionMetadata(provider_id="claude", model_id="claude-test", exit_code=0),
+        ),
+    ]
+    round2 = [
+        ProviderEvent(
+            kind="complete",
+            metadata=CompletionMetadata(provider_id="claude", model_id="claude-test", exit_code=0),
+        ),
+    ]
+    provider = MultiRoundProvider(
+        rounds=[round1, round2], provider_id="claude", model_id="claude-test"
     )
     tool_waiter = FakeToolResultWaiter(
         ToolExecutionResultEvent(
@@ -1312,3 +1320,317 @@ async def test_handle_work_passes_persona_content_in_extra_env() -> None:
     assert len(provider.requests) == 1
     request = provider.requests[0]
     assert request.extra_env.get("BREQY_PERSONA") == "You are Breqy, a helpful coding assistant."
+
+
+# --------------------------------------------------------------------------- #
+# Multi-turn tool execution loop (Bug 3)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class MultiRoundProvider:
+    """Provider that serves different event sequences on successive stream() calls."""
+
+    rounds: list[list[ProviderEvent]]
+    supports_tool_calls: bool = True
+    provider_id: str = "test"
+    model_id: str = "test-model"
+    requests: list[ProviderRequest] = field(default_factory=list)
+    call_count: int = 0
+
+    def stream(self, request: ProviderRequest):  # noqa: ANN201
+        self.requests.append(request)
+        idx = min(self.call_count, len(self.rounds) - 1)
+        self.call_count += 1
+        yield from self.rounds[idx]
+
+
+def _tool_call_event(
+    call_id: str = "inv_1",
+    tool_name: str = "shell",
+    arguments: str = '{"command": "ls"}',
+) -> ProviderEvent:
+    from breqy.agents.providers.base import ToolCallDelta
+
+    return ProviderEvent(
+        kind="tool_call",
+        tool_call=ToolCallDelta(
+            call_id=call_id,
+            tool_name=tool_name,
+            arguments_chunk=arguments,
+        ),
+    )
+
+
+def _complete_event() -> ProviderEvent:
+    return ProviderEvent(
+        kind="complete",
+        metadata=CompletionMetadata(
+            provider_id="test",
+            model_id="test-model",
+            exit_code=0,
+        ),
+    )
+
+
+def _tool_result_event(
+    call_id: str = "inv_1",
+    output: str = "file1  file2",
+) -> ToolExecutionResultEvent:
+    return ToolExecutionResultEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id=call_id,
+        invocation_id=call_id,
+        success_payload=StructuredResultPayload(
+            summary=output,
+            content={"output": output},
+        ),
+    )
+
+
+class TestToolResultBroker:
+    """ToolResultBroker mediates tool result delivery between run() and handle_work()."""
+
+    @pytest.mark.asyncio
+    async def test_wait_for_resolves_when_result_delivered(self) -> None:
+        """wait_for() should return the delivered result for the matching invocation_id."""
+        import asyncio
+        from breqy.agents.runtime import ToolResultBroker
+
+        broker = ToolResultBroker()
+        result = _tool_result_event("inv_abc")
+
+        async def deliver_after_yield():
+            await asyncio.sleep(0)  # yield control, let wait_for register
+            broker.deliver(result)
+
+        asyncio.create_task(deliver_after_yield())
+        received = await broker.wait_for("inv_abc")
+
+        assert received is result
+
+    @pytest.mark.asyncio
+    async def test_deliver_unknown_invocation_id_is_noop(self) -> None:
+        """Delivering a result for an unknown invocation_id must not raise."""
+        from breqy.agents.runtime import ToolResultBroker
+
+        broker = ToolResultBroker()
+        # Should not raise even when nobody is waiting for "unknown_id"
+        broker.deliver(_tool_result_event("unknown_id"))
+
+    @pytest.mark.asyncio
+    async def test_multiple_pending_futures_resolved_independently(self) -> None:
+        """Multiple concurrent wait_for calls must each resolve to their own result."""
+        import asyncio
+        from breqy.agents.runtime import ToolResultBroker
+
+        broker = ToolResultBroker()
+        result_1 = _tool_result_event("inv_1", "output_1")
+        result_2 = _tool_result_event("inv_2", "output_2")
+
+        async def deliver_both():
+            await asyncio.sleep(0)
+            broker.deliver(result_1)
+            broker.deliver(result_2)
+
+        asyncio.create_task(deliver_both())
+        r1, r2 = await asyncio.gather(
+            broker.wait_for("inv_1"),
+            broker.wait_for("inv_2"),
+        )
+        assert r1 is result_1
+        assert r2 is result_2
+
+
+class TestMultiTurnToolLoop:
+    """handle_work() must loop: stream → tool_call → execute → re-prompt → text."""
+
+    @pytest.mark.asyncio
+    async def test_tool_call_triggers_second_provider_round(self) -> None:
+        """When LLM returns tool_call, handle_work calls provider a second time."""
+        round1 = [_tool_call_event("inv_1"), _complete_event()]
+        round2 = [ProviderEvent(kind="text", text="Done."), _complete_event()]
+
+        provider = MultiRoundProvider(rounds=[round1, round2])
+        waiter = FakeToolResultWaiter(_tool_result_event("inv_1"))
+        runtime, client = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        assert provider.call_count == 2, "Provider should be called twice (tool round + text round)"
+
+    @pytest.mark.asyncio
+    async def test_second_round_receives_conversation_history_with_tool_result(self) -> None:
+        """The second provider call must include conversation_history containing the tool result."""
+        round1 = [_tool_call_event("inv_1", "shell", '{"command": "ls"}'), _complete_event()]
+        round2 = [ProviderEvent(kind="text", text="Files: foo"), _complete_event()]
+
+        provider = MultiRoundProvider(rounds=[round1, round2])
+        waiter = FakeToolResultWaiter(_tool_result_event("inv_1", output="foo  bar"))
+        runtime, client = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        assert provider.call_count == 2
+        second_request = provider.requests[1]
+        assert second_request.conversation_history is not None, (
+            "Second round must use conversation_history"
+        )
+        # Tool result must appear as a tool-role message
+        tool_msg = next(
+            (m for m in second_request.conversation_history if m.get("role") == "tool"),
+            None,
+        )
+        assert tool_msg is not None, "conversation_history must contain a tool-role message"
+        assert tool_msg["tool_call_id"] == "inv_1"
+        assert "foo  bar" in tool_msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_final_message_contains_text_from_second_round(self) -> None:
+        """MessageSentEvent content must include text from the LLM's post-tool response."""
+        round1 = [_tool_call_event("inv_1"), _complete_event()]
+        round2 = [ProviderEvent(kind="text", text="All done."), _complete_event()]
+
+        provider = MultiRoundProvider(rounds=[round1, round2])
+        waiter = FakeToolResultWaiter(_tool_result_event("inv_1"))
+        runtime, client = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        final_msg = next(
+            (
+                e
+                for e in reversed(client.sent_events)
+                if isinstance(e, MessageSentEvent) and e.role == MessageRole.ASSISTANT
+            ),
+            None,
+        )
+        assert final_msg is not None
+        assert final_msg.content == "All done."
+
+    @pytest.mark.asyncio
+    async def test_no_tool_result_waiter_still_sends_tool_request_but_no_second_round(self) -> None:
+        """When tool_result_waiter is None, tool request is sent but provider is not called again."""
+        round1 = [_tool_call_event("inv_1"), _complete_event()]
+
+        provider = MultiRoundProvider(rounds=[round1])
+        runtime, client = _build_runtime(provider=provider, tool_result_waiter=None)
+
+        await runtime.handle_work(_work_event())
+
+        # Tool request must still be sent to the engine
+        tool_req = next(
+            (e for e in client.sent_events if isinstance(e, ToolExecutionRequestedEvent)),
+            None,
+        )
+        assert tool_req is not None, "ToolExecutionRequestedEvent must be sent even without waiter"
+        assert tool_req.tool_name == "shell"
+
+        # But provider is only called once (no second round)
+        assert provider.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_max_tool_rounds_guard_prevents_infinite_loop(self) -> None:
+        """If the LLM keeps returning tool calls indefinitely, the loop must stop after 10 rounds."""
+        # Every round returns a tool call
+        tool_only_round = [_tool_call_event(f"inv_{i}") for i in range(1)] + [_complete_event()]
+
+        provider = MultiRoundProvider(rounds=[tool_only_round] * 20)
+        # Waiter always returns a result so the loop can continue
+        waiter = FakeToolResultWaiter(_tool_result_event("inv_0"))
+        runtime, client = _build_runtime(provider=provider, tool_result_waiter=waiter)
+
+        await runtime.handle_work(_work_event())
+
+        # Must stop after MAX_TOOL_ROUNDS calls
+        assert provider.call_count <= 10, (
+            f"Expected at most 10 provider calls; got {provider.call_count}"
+        )
+
+
+class TestRunDeliverToolResults:
+    """run() must route ToolExecutionResultEvent to the broker while handle_work is running."""
+
+    @pytest.mark.asyncio
+    async def test_run_delivers_tool_result_to_broker_during_handle_work(
+        self, fake_agent_dir: Path
+    ) -> None:
+        """run() must call broker.deliver() when ToolExecutionResultEvent arrives
+        while handle_work is running as a task."""
+        import asyncio
+        from breqy.agents.runtime import AgentRuntime, ToolResultBroker
+        from breqy.config.loader import load_agent_config
+
+        # Provider: round 1 = tool call, round 2 = text
+        tool_result = _tool_result_event("inv_run_1", "output_text")
+        round1 = [_tool_call_event("inv_run_1"), _complete_event()]
+        round2 = [ProviderEvent(kind="text", text="Done via run."), _complete_event()]
+        provider = MultiRoundProvider(rounds=[round1, round2])
+
+        config = load_agent_config(str(fake_agent_dir))
+        client = FakeA2AClient()
+
+        # Build the work and result envelopes for the fake listen loop
+        work_event = _work_event()
+
+        class FakeEnvelope:
+            def __init__(self, event):
+                self._event = event
+
+            def to_event(self):
+                return self._event
+
+        # Deliver work, then tool result (after a small gap)
+        async def _delayed_tool_result(client_ref):
+            # Wait briefly so the work task starts and registers wait_for()
+            await asyncio.sleep(0.01)
+            client_ref._listen_envelopes.append(FakeEnvelope(tool_result))
+
+        client.set_listen_envelopes([FakeEnvelope(work_event)])
+
+        runtime = AgentRuntime(
+            config=config,
+            agent_dir=fake_agent_dir,
+            client=cast(Any, client),
+            provider=cast(Any, provider),
+            skill_loader=None,
+            private_memory_runtime=None,
+            tool_result_waiter=None,  # run() will install its own broker
+        )
+
+        # Patch listen to yield work then pause, deliver tool result, end
+        events_to_yield = [work_event, tool_result]
+        yielded = []
+
+        async def fake_listen():
+            # yield work event first
+            yield FakeEnvelope(work_event)
+            # pause so the task can start and register wait_for
+            await asyncio.sleep(0.02)
+            # yield tool result
+            yield FakeEnvelope(tool_result)
+            # pause so handle_work can finish the second round
+            await asyncio.sleep(0.05)
+
+        client.listen = fake_listen
+
+        await runtime.run()
+
+        # Provider must have been called twice (tool round + text round)
+        assert provider.call_count == 2, (
+            f"Expected 2 provider calls (got {provider.call_count}): "
+            "run() must deliver tool results so handle_work can complete"
+        )
+
+        # Final assistant message must have text from second round
+        final_msg = next(
+            (
+                e
+                for e in reversed(client.sent_events)
+                if isinstance(e, MessageSentEvent) and e.role == MessageRole.ASSISTANT
+            ),
+            None,
+        )
+        assert final_msg is not None
+        assert final_msg.content == "Done via run."
