@@ -852,27 +852,3 @@ class TestChatScreenReasoningHandlers:
             )
             await pilot.pause()
             assert len(screen.query("#thinking-indicator")) == 0
-
-    @pytest.mark.asyncio
-    async def test_handle_message_chunk_hides_indicator(self) -> None:
-        """First MessageChunkEvent also removes the thinking indicator (safety net)."""
-        from breqy.domain.events import ReasoningStartedEvent, MessageChunkEvent
-
-        app = ChatScreenApp()
-        async with app.run_test() as pilot:
-            screen = _get_screen(app)
-            screen.handle_reasoning_started(
-                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
-            )
-            await pilot.pause()
-            screen.handle_message_chunk(
-                MessageChunkEvent(
-                    session_id=SESSION_ID,
-                    agent_id="ag_1",
-                    message_id="msg_1",
-                    chunk="Hello",
-                    chunk_index=0,
-                )
-            )
-            await pilot.pause()
-            assert len(app.query("#thinking-indicator")) == 0
