@@ -146,11 +146,8 @@ class CopilotProvider(ModelProvider):
             # After device flow stores the OAuth token, exchange it for a session token
             token = self._authenticator.get_copilot_token()
 
-        messages = self._build_messages(request)
-        tools = self._convert_tools(request.tools) if request.tools else None
-
         try:
-            yield from self._do_stream(token, messages, tools)
+            yield from self._do_stream_routed(token, request)
         except CopilotApiError as exc:
             if exc.status_code == 401:
                 logger.info("copilot_token_expired_retrying")
@@ -167,7 +164,7 @@ class CopilotProvider(ModelProvider):
                         pending_flow.device_code, interval=pending_flow.interval
                     )
                     token = self._authenticator.get_copilot_token()
-                yield from self._do_stream(token, messages, tools)
+                yield from self._do_stream_routed(token, request)
             else:
                 yield ProviderEvent(
                     kind="complete",
@@ -298,3 +295,112 @@ class CopilotProvider(ModelProvider):
             }
             for tool in tools
         ]
+
+    def _convert_tools_responses(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
+        """Convert Breqy ToolDefinition to Responses API tool format."""
+        return [
+            {
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema,
+            }
+            for tool in tools
+        ]
+
+    def _use_responses_api(self) -> bool:
+        """Determine if this model should use the /responses endpoint."""
+        endpoints = self._model_endpoints.get(self._model_id, [])
+        if "/responses" in endpoints:
+            return True
+        return False
+
+    def _do_stream_routed(
+        self,
+        token: str,
+        request: ProviderRequest,
+    ) -> Iterator[ProviderEvent]:
+        """Route to the correct streaming method based on model endpoints."""
+        if self._use_responses_api():
+            yield from self._do_stream_responses(token, request)
+        else:
+            messages = self._build_messages(request)
+            tools = self._convert_tools(request.tools) if request.tools else None
+            yield from self._do_stream(token, messages, tools)
+
+    def _build_responses_input(
+        self, request: ProviderRequest
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Convert ProviderRequest to Responses API input format.
+
+        Returns (input_messages, instructions) where system messages
+        are extracted into the instructions parameter.
+        """
+        instructions: str | None = None
+        persona = request.extra_env.get("BREQY_PERSONA")
+        if persona:
+            instructions = persona
+
+        input_messages: list[dict[str, Any]] = [
+            {"role": "user", "content": request.prompt},
+        ]
+        return input_messages, instructions
+
+    def _do_stream_responses(
+        self,
+        token: str,
+        request: ProviderRequest,
+    ) -> Iterator[ProviderEvent]:
+        """Stream from Responses API and map events to ProviderEvent."""
+        input_messages, instructions = self._build_responses_input(request)
+        tools = self._convert_tools_responses(request.tools) if request.tools else None
+
+        for event in self._client.stream_responses(
+            token=token,
+            model=self._model_id,
+            input_messages=input_messages,
+            tools=tools,
+            instructions=instructions,
+        ):
+            event_type = event.get("type", "")
+
+            # Text content
+            if event_type == "response.output_text.delta":
+                delta = event.get("delta", "")
+                if delta:
+                    yield ProviderEvent(kind="text", text=delta)
+
+            # Tool call (complete item)
+            elif event_type == "response.output_item.done":
+                item = event.get("item", {})
+                if item.get("type") == "function_call":
+                    yield ProviderEvent(
+                        kind="tool_call",
+                        tool_call=ToolCallDelta(
+                            call_id=item.get("call_id", ""),
+                            tool_name=item.get("name", ""),
+                            arguments_chunk=item.get("arguments", ""),
+                        ),
+                    )
+
+            # Stream complete (success)
+            elif event_type == "response.completed":
+                yield ProviderEvent(
+                    kind="complete",
+                    metadata=CompletionMetadata(
+                        provider_id=self.provider_id,
+                        model_id=self.model_id,
+                        exit_code=0,
+                    ),
+                )
+
+            # Stream complete (failure)
+            elif event_type == "response.failed":
+                yield ProviderEvent(
+                    kind="complete",
+                    metadata=CompletionMetadata(
+                        provider_id=self.provider_id,
+                        model_id=self.model_id,
+                        exit_code=1,
+                    ),
+                )

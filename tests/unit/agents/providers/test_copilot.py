@@ -741,3 +741,265 @@ class TestCopilotAuthErrorRecovery:
         remaining = list(stream_iter)
         assert "poll_for_token" in call_order
         assert any(e.kind == "complete" for e in remaining)
+
+
+# --------------------------------------------------------------------------- #
+# Responses API event mapping
+# --------------------------------------------------------------------------- #
+
+
+class TestResponsesApiStreamEvents:
+    """CopilotProvider maps Responses API events to ProviderEvent."""
+
+    def test_text_delta_mapped_to_text_event(self) -> None:
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {"type": "response.output_text.delta", "delta": "Hello"},
+                {"type": "response.output_text.delta", "delta": " world"},
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"total_tokens": 10},
+                        "model": "gpt-5.4-mini",
+                    },
+                },
+            ]
+        )
+
+        provider = CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=mock_auth, client=mock_client
+        )
+        provider._model_endpoints = {"gpt-5.4-mini": ["/responses"]}
+        events = list(provider.stream(_make_request("hi")))
+
+        text_events = [e for e in events if e.kind == "text"]
+        assert len(text_events) == 2
+        assert text_events[0].text == "Hello"
+        assert text_events[1].text == " world"
+
+    def test_tool_call_mapped_to_tool_call_event(self) -> None:
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {
+                    "type": "response.output_item.done",
+                    "item": {
+                        "type": "function_call",
+                        "call_id": "call_1",
+                        "name": "read_file",
+                        "arguments": '{"path": "/tmp"}',
+                    },
+                },
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"total_tokens": 10},
+                        "model": "gpt-5.4-mini",
+                    },
+                },
+            ]
+        )
+
+        provider = CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=mock_auth, client=mock_client
+        )
+        provider._model_endpoints = {"gpt-5.4-mini": ["/responses"]}
+        events = list(provider.stream(_make_request("read file")))
+
+        tool_events = [e for e in events if e.kind == "tool_call"]
+        assert len(tool_events) == 1
+        assert tool_events[0].tool_call.call_id == "call_1"
+        assert tool_events[0].tool_call.tool_name == "read_file"
+        assert tool_events[0].tool_call.arguments_chunk == '{"path": "/tmp"}'
+
+    def test_completed_mapped_to_complete_event(self) -> None:
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {"type": "response.output_text.delta", "delta": "done"},
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"total_tokens": 5},
+                        "model": "gpt-5.4-mini",
+                    },
+                },
+            ]
+        )
+
+        provider = CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=mock_auth, client=mock_client
+        )
+        provider._model_endpoints = {"gpt-5.4-mini": ["/responses"]}
+        events = list(provider.stream(_make_request("hi")))
+
+        complete_events = [e for e in events if e.kind == "complete"]
+        assert len(complete_events) == 1
+        assert complete_events[0].metadata.exit_code == 0
+
+    def test_failed_response_yields_exit_code_1(self) -> None:
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {"type": "response.failed", "error": {"message": "model overloaded"}},
+            ]
+        )
+
+        provider = CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=mock_auth, client=mock_client
+        )
+        provider._model_endpoints = {"gpt-5.4-mini": ["/responses"]}
+        events = list(provider.stream(_make_request("hi")))
+
+        complete_events = [e for e in events if e.kind == "complete"]
+        assert len(complete_events) == 1
+        assert complete_events[0].metadata.exit_code == 1
+
+
+# --------------------------------------------------------------------------- #
+# Endpoint routing
+# --------------------------------------------------------------------------- #
+
+
+class TestEndpointRouting:
+    """CopilotProvider routes to correct API based on model endpoints."""
+
+    def test_routes_to_chat_completions_by_default(self) -> None:
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_chat.return_value = iter(
+            [
+                {"choices": [{"delta": {"content": "ok"}, "index": 0}]},
+                {"choices": [{"delta": {}, "finish_reason": "stop", "index": 0}]},
+            ]
+        )
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        # No _model_endpoints set -> defaults to chat completions
+        list(provider.stream(_make_request("hi")))
+
+        mock_client.stream_chat.assert_called_once()
+        mock_client.stream_responses.assert_not_called()
+
+    def test_routes_to_responses_when_only_responses_supported(self) -> None:
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {"type": "response.output_text.delta", "delta": "ok"},
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"total_tokens": 5},
+                        "model": "gpt-5.4-mini",
+                    },
+                },
+            ]
+        )
+
+        provider = CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=mock_auth, client=mock_client
+        )
+        provider._model_endpoints = {"gpt-5.4-mini": ["/responses"]}
+        list(provider.stream(_make_request("hi")))
+
+        mock_client.stream_responses.assert_called_once()
+        mock_client.stream_chat.assert_not_called()
+
+    def test_routes_to_responses_when_both_supported(self) -> None:
+        """When model supports both endpoints, prefer /responses (newer API)."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {"type": "response.output_text.delta", "delta": "ok"},
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"total_tokens": 5},
+                        "model": "gpt-4o",
+                    },
+                },
+            ]
+        )
+
+        provider = CopilotProvider(model_id="gpt-4o", authenticator=mock_auth, client=mock_client)
+        provider._model_endpoints = {"gpt-4o": ["/chat/completions", "/responses"]}
+        list(provider.stream(_make_request("hi")))
+
+        mock_client.stream_responses.assert_called_once()
+        mock_client.stream_chat.assert_not_called()
+
+    def test_responses_api_receives_instructions_from_persona(self) -> None:
+        """When using /responses, system message from persona should be passed as instructions."""
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        mock_auth = MagicMock()
+        mock_auth.get_copilot_token.return_value = "tid=test;exp=9999999999"
+
+        mock_client = MagicMock()
+        mock_client.stream_responses.return_value = iter(
+            [
+                {"type": "response.output_text.delta", "delta": "ok"},
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"total_tokens": 5},
+                        "model": "gpt-5.4-mini",
+                    },
+                },
+            ]
+        )
+
+        provider = CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=mock_auth, client=mock_client
+        )
+        provider._model_endpoints = {"gpt-5.4-mini": ["/responses"]}
+        request = _make_request("hi", extra_env={"BREQY_PERSONA": "You are helpful."})
+        list(provider.stream(request))
+
+        call_kwargs = mock_client.stream_responses.call_args.kwargs
+        assert call_kwargs["instructions"] == "You are helpful."
+        # User message should be in input_messages, not system
+        input_msgs = call_kwargs["input_messages"]
+        assert all(m["role"] != "system" for m in input_msgs)
+        assert any(m["role"] == "user" for m in input_msgs)
