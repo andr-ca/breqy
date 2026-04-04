@@ -1,5 +1,9 @@
-# Throwaway probe/test scripts
+ # Throwaway probe/test scripts
 temp/
+
+# Git worktrees
+.worktrees/
+
 
 # Python
 __pycache__/
