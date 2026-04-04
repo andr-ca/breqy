@@ -371,8 +371,25 @@ class AgentRuntime:
         if self._config.persona_content:
             extra_env["BREQY_PERSONA"] = self._config.persona_content
 
-        # Multi-turn state
-        conversation_history: list[dict[str, Any]] | None = None
+        # Multi-turn state: seed from prior session turns, then append current user message.
+        _prior_messages: list[dict[str, Any]] = []
+        for msg in event.session_context.messages:
+            if msg.role == MessageRole.USER:
+                _prior_messages.append({"role": "user", "content": msg.content})
+            elif msg.role == MessageRole.ASSISTANT:
+                _prior_messages.append({"role": "assistant", "content": msg.content})
+            # SYSTEM and TOOL roles are skipped
+
+        if _prior_messages:
+            _prior_messages.append({"role": "user", "content": event.user_message_content})
+            logger.info(
+                "session_context_loaded",
+                prior_message_count=len(_prior_messages) - 1,
+                session_id=event.session_id,
+            )
+            conversation_history: list[dict[str, Any]] | None = _prior_messages
+        else:
+            conversation_history = None
         # Accumulate text content across all rounds (including partial rounds on cancel)
         final_content_parts: list[str] = []
         stream_error: Exception | None = None

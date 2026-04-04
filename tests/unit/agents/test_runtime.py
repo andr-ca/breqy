@@ -1634,3 +1634,111 @@ class TestRunDeliverToolResults:
         )
         assert final_msg is not None
         assert final_msg.content == "Done via run."
+
+
+# --------------------------------------------------------------------------- #
+# Session context — prior turns seeded into conversation_history
+# --------------------------------------------------------------------------- #
+
+
+class TestSessionContextInConversationHistory:
+    """handle_work() must seed conversation_history from session_context.messages."""
+
+    @pytest.mark.asyncio
+    async def test_prior_session_messages_included_in_first_request(self) -> None:
+        """When session_context has prior turns, they must appear in the first
+        ProviderRequest's conversation_history so the LLM sees the full history."""
+        provider = FakeProvider(events=[_complete_event_simple()])
+        runtime, _ = _build_runtime(provider=provider)
+
+        prior_user = Message(session_id="ses_123", role=MessageRole.USER, content="What is 2+2?")
+        prior_assistant = Message(
+            session_id="ses_123",
+            role=MessageRole.ASSISTANT,
+            content="4.",
+            agent_id="breqy",
+        )
+        work = AgentWorkRequestedEvent(
+            session_id="ses_123",
+            agent_id="breqy",
+            correlation_id="corr_1",
+            message_id="msg_user",
+            user_message_content="Now what is 3+3?",
+            session_context=SessionContextBundle(messages=[prior_user, prior_assistant]),
+        )
+
+        await runtime.handle_work(work)
+
+        assert len(provider.requests) == 1
+        req = provider.requests[0]
+        assert req.conversation_history is not None, (
+            "conversation_history must be set when session_context has prior messages"
+        )
+        roles = [m["role"] for m in req.conversation_history]
+        assert roles == ["user", "assistant", "user"], (
+            "history must contain prior user, prior assistant, then the current user turn"
+        )
+        assert req.conversation_history[0]["content"] == "What is 2+2?"
+        assert req.conversation_history[1]["content"] == "4."
+        assert req.conversation_history[2]["content"] == "Now what is 3+3?"
+
+    @pytest.mark.asyncio
+    async def test_empty_session_context_leaves_conversation_history_none(self) -> None:
+        """When session_context has no prior messages, conversation_history must be None
+        so the provider falls back to the single-user-turn path."""
+        provider = FakeProvider(events=[_complete_event_simple()])
+        runtime, _ = _build_runtime(provider=provider)
+
+        work = AgentWorkRequestedEvent(
+            session_id="ses_123",
+            agent_id="breqy",
+            correlation_id="corr_1",
+            message_id="msg_user",
+            user_message_content="Hello.",
+            session_context=SessionContextBundle(messages=[]),
+        )
+
+        await runtime.handle_work(work)
+
+        assert len(provider.requests) == 1
+        assert provider.requests[0].conversation_history is None, (
+            "conversation_history must be None when there are no prior session messages"
+        )
+
+    @pytest.mark.asyncio
+    async def test_session_context_seeding_emits_info_log(self) -> None:
+        """An INFO-level structlog entry must be emitted when prior session messages are included."""
+        import structlog.testing
+
+        provider = FakeProvider(events=[_complete_event_simple()])
+        runtime, _ = _build_runtime(provider=provider)
+
+        prior = Message(session_id="ses_123", role=MessageRole.USER, content="previous message")
+        work = AgentWorkRequestedEvent(
+            session_id="ses_123",
+            agent_id="breqy",
+            correlation_id="corr_1",
+            message_id="msg_user",
+            user_message_content="Next message.",
+            session_context=SessionContextBundle(messages=[prior]),
+        )
+
+        with structlog.testing.capture_logs() as logs:
+            await runtime.handle_work(work)
+
+        info_logs = [l for l in logs if l.get("log_level") == "info"]
+        assert any("session" in str(l).lower() for l in info_logs), (
+            f"Expected an INFO structlog entry referencing session context; got: {info_logs}"
+        )
+
+
+def _complete_event_simple() -> ProviderEvent:
+    """A minimal complete event with no metadata for simple tests."""
+    return ProviderEvent(
+        kind="complete",
+        metadata=CompletionMetadata(
+            provider_id="test",
+            model_id="test-model",
+            exit_code=0,
+        ),
+    )
