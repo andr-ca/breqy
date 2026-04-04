@@ -28,6 +28,8 @@ from breqy.domain.events import (
     ModelListRequestedEvent,
     ModelListResponseEvent,
     ModelSwitchRequestedEvent,
+    ReasoningDoneEvent,
+    ReasoningStartedEvent,
     ToolExecutionRequestedEvent,
     ToolExecutionResultEvent,
 )
@@ -440,6 +442,26 @@ class AgentRuntime:
                         )
                         assistant_message_id = generate_prefixed_id("msg")
                         chunk_index = 0
+                        continue
+
+                    if provider_event.kind == "reasoning_started":
+                        await self._client.send_event(
+                            ReasoningStartedEvent(
+                                session_id=event.session_id,
+                                agent_id=event.agent_id,
+                                correlation_id=event.correlation_id,
+                            )
+                        )
+                        continue
+
+                    if provider_event.kind == "reasoning_done":
+                        await self._client.send_event(
+                            ReasoningDoneEvent(
+                                session_id=event.session_id,
+                                agent_id=event.agent_id,
+                                correlation_id=event.correlation_id,
+                            )
+                        )
                         continue
 
                     if provider_event.kind == "text" and provider_event.text is not None:
