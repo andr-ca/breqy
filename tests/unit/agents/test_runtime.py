@@ -1113,3 +1113,202 @@ class TestStreamErrorHandling:
         # The second call should produce normal events
         final = cast(MessageSentEvent, client.sent_events[-1])
         assert final.content == "recovered"
+
+
+# --------------------------------------------------------------------------- #
+# Tool wiring: available_tools → ProviderRequest.tools
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_handle_work_passes_available_tools_to_provider_request() -> None:
+    """When the work event carries available_tools, they are forwarded to ProviderRequest.tools."""
+    from breqy.agents.providers.base import ToolDefinition
+
+    shell_def = ToolDefinition(
+        name="shell",
+        description="Execute shell commands",
+        input_schema={
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
+    )
+    fs_def = ToolDefinition(
+        name="filesystem",
+        description="Filesystem operations",
+        input_schema={
+            "type": "object",
+            "properties": {"operation": {"type": "string"}},
+            "required": ["operation"],
+        },
+    )
+
+    events = [
+        ProviderEvent(
+            kind="complete",
+            metadata=CompletionMetadata(
+                provider_id="copilot",
+                model_id="gpt-4o",
+                exit_code=0,
+            ),
+        ),
+    ]
+    provider = FakeProvider(events=events)
+    runtime, _client = _build_runtime(provider=provider)
+
+    work = AgentWorkRequestedEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id="corr_1",
+        message_id="msg_user",
+        user_message_content="run ls",
+        session_context=SessionContextBundle(messages=[]),
+        available_tools=[shell_def, fs_def],
+    )
+
+    await runtime.handle_work(work)
+
+    assert len(provider.requests) == 1
+    request = provider.requests[0]
+    assert len(request.tools) == 2
+    tool_names = {t.name for t in request.tools}
+    assert tool_names == {"shell", "filesystem"}
+
+
+@pytest.mark.asyncio
+async def test_handle_work_filters_tools_by_agent_tool_permissions() -> None:
+    """Runtime filters available_tools by config.tool_permissions before sending to provider."""
+    from breqy.agents.providers.base import ToolDefinition
+    from breqy.config.models import AgentConfig
+
+    shell_def = ToolDefinition(
+        name="shell",
+        description="Execute shell commands",
+        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+    )
+    fs_def = ToolDefinition(
+        name="filesystem",
+        description="Filesystem operations",
+        input_schema={"type": "object", "properties": {"operation": {"type": "string"}}},
+    )
+    memory_def = ToolDefinition(
+        name="memory",
+        description="Memory search",
+        input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+    )
+
+    events = [
+        ProviderEvent(
+            kind="complete",
+            metadata=CompletionMetadata(
+                provider_id="copilot",
+                model_id="gpt-4o",
+                exit_code=0,
+            ),
+        ),
+    ]
+    provider = FakeProvider(events=events)
+
+    # Config that only allows "shell" and "fs"
+    config = AgentConfig(
+        id="breqy",
+        name="Breqy",
+        provider="copilot",
+        model="gpt-4o",
+        tool_permissions=["shell", "filesystem"],
+    )
+    from breqy.agents.runtime import AgentRuntime
+
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("."),
+        client=cast(Any, FakeA2AClient()),
+        provider=cast(Any, provider),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    work = AgentWorkRequestedEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id="corr_1",
+        message_id="msg_user",
+        user_message_content="search memory",
+        session_context=SessionContextBundle(messages=[]),
+        available_tools=[shell_def, fs_def, memory_def],
+    )
+
+    await runtime.handle_work(work)
+
+    assert len(provider.requests) == 1
+    request = provider.requests[0]
+    # Only shell and filesystem should be passed, not memory
+    tool_names = {t.name for t in request.tools}
+    assert tool_names == {"shell", "filesystem"}
+
+
+@pytest.mark.asyncio
+async def test_handle_work_empty_available_tools_means_no_tools_in_request() -> None:
+    """When no tools are provided in work event, ProviderRequest.tools stays empty."""
+    events = [
+        ProviderEvent(
+            kind="complete",
+            metadata=CompletionMetadata(
+                provider_id="copilot",
+                model_id="gpt-4o",
+                exit_code=0,
+            ),
+        ),
+    ]
+    provider = FakeProvider(events=events)
+    runtime, _client = _build_runtime(provider=provider)
+
+    work = _work_event()  # no available_tools
+
+    await runtime.handle_work(work)
+
+    assert len(provider.requests) == 1
+    assert provider.requests[0].tools == []
+
+
+@pytest.mark.asyncio
+async def test_handle_work_passes_persona_content_in_extra_env() -> None:
+    """When config has persona_content, it is passed as BREQY_PERSONA in extra_env."""
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.models import AgentConfig
+
+    events = [
+        ProviderEvent(
+            kind="complete",
+            metadata=CompletionMetadata(
+                provider_id="copilot",
+                model_id="gpt-4o",
+                exit_code=0,
+            ),
+        ),
+    ]
+    provider = FakeProvider(events=events)
+    config = AgentConfig(
+        id="breqy",
+        name="Breqy",
+        provider="copilot",
+        model="gpt-4o",
+        persona_content="You are Breqy, a helpful coding assistant.",
+    )
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("."),
+        client=cast(Any, FakeA2AClient()),
+        provider=cast(Any, provider),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    await runtime.handle_work(_work_event())
+
+    assert len(provider.requests) == 1
+    request = provider.requests[0]
+    assert request.extra_env.get("BREQY_PERSONA") == "You are Breqy, a helpful coding assistant."

@@ -1,4 +1,5 @@
 """Tests for breqy.domain.events — typed A2A event schemas."""
+
 from __future__ import annotations
 
 from typing import Any, cast
@@ -503,12 +504,15 @@ def test_memory_promotion_requested_event_rejects_wrong_event_type():
     from breqy.domain.enums import EventType
 
     with pytest.raises(ValueError, match="memory.promotion.requested"):
-        cast(Any, MemoryPromotionRequestedEvent.model_construct(
-            session_id="ses_test",
-            event_type=EventType.MEMORY_PROMOTION_APPROVED,
-            promotion_id="mpr_test",
-            source_record_id="mem_test",
-        )).validate_requested_status()
+        cast(
+            Any,
+            MemoryPromotionRequestedEvent.model_construct(
+                session_id="ses_test",
+                event_type=EventType.MEMORY_PROMOTION_APPROVED,
+                promotion_id="mpr_test",
+                source_record_id="mem_test",
+            ),
+        ).validate_requested_status()
 
 
 def test_memory_promotion_approved_event_rejects_wrong_event_type():
@@ -516,13 +520,16 @@ def test_memory_promotion_approved_event_rejects_wrong_event_type():
     from breqy.domain.enums import EventType
 
     with pytest.raises(ValueError, match="memory.promotion.approved"):
-        cast(Any, MemoryPromotionApprovedEvent.model_construct(
-            session_id="ses_test",
-            event_type=EventType.MEMORY_PROMOTION_DENIED,
-            promotion_id="mpr_test",
-            source_record_id="mem_source",
-            target_record_id="mem_target",
-        )).validate_approved_status()
+        cast(
+            Any,
+            MemoryPromotionApprovedEvent.model_construct(
+                session_id="ses_test",
+                event_type=EventType.MEMORY_PROMOTION_DENIED,
+                promotion_id="mpr_test",
+                source_record_id="mem_source",
+                target_record_id="mem_target",
+            ),
+        ).validate_approved_status()
 
 
 def test_memory_promotion_denied_event_rejects_wrong_event_type():
@@ -530,12 +537,15 @@ def test_memory_promotion_denied_event_rejects_wrong_event_type():
     from breqy.domain.enums import EventType
 
     with pytest.raises(ValueError, match="memory.promotion.denied"):
-        cast(Any, MemoryPromotionDeniedEvent.model_construct(
-            session_id="ses_test",
-            event_type=EventType.MEMORY_PROMOTION_APPROVED,
-            promotion_id="mpr_test",
-            source_record_id="mem_source",
-        )).validate_denied_status()
+        cast(
+            Any,
+            MemoryPromotionDeniedEvent.model_construct(
+                session_id="ses_test",
+                event_type=EventType.MEMORY_PROMOTION_APPROVED,
+                promotion_id="mpr_test",
+                source_record_id="mem_source",
+            ),
+        ).validate_denied_status()
 
 
 def test_deserialize_event_memory_record_created():
@@ -950,3 +960,91 @@ def test_session_create_requested_event_roundtrip_via_deserialize():
     result = deserialize_event(event.model_dump())
     assert isinstance(result, SessionCreateRequestedEvent)
     assert result.requested_agent_id == "agt_custom"
+
+
+# --------------------------------------------------------------------------- #
+# AgentWorkRequestedEvent: available_tools field
+# --------------------------------------------------------------------------- #
+
+
+def test_agent_work_requested_event_carries_available_tools():
+    """AgentWorkRequestedEvent.available_tools transports ToolDefinition objects."""
+    from breqy.agents.providers.base import ToolDefinition
+    from breqy.domain.events import AgentWorkRequestedEvent
+    from breqy.domain.models import SessionContextBundle
+
+    shell_def = ToolDefinition(
+        name="shell",
+        description="Execute shell commands",
+        input_schema={
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
+    )
+
+    event = AgentWorkRequestedEvent(
+        session_id="ses_test",
+        agent_id="agt_test",
+        correlation_id="corr_1",
+        message_id="msg_1",
+        user_message_content="run ls",
+        session_context=SessionContextBundle(messages=[]),
+        available_tools=[shell_def],
+    )
+
+    assert len(event.available_tools) == 1
+    assert event.available_tools[0].name == "shell"
+    assert event.available_tools[0].input_schema["required"] == ["command"]
+
+
+def test_agent_work_requested_event_available_tools_defaults_empty():
+    """available_tools defaults to empty list for backward compatibility."""
+    from breqy.domain.events import AgentWorkRequestedEvent
+    from breqy.domain.models import SessionContextBundle
+
+    event = AgentWorkRequestedEvent(
+        session_id="ses_test",
+        agent_id="agt_test",
+        correlation_id="corr_1",
+        message_id="msg_1",
+        user_message_content="hello",
+        session_context=SessionContextBundle(messages=[]),
+    )
+
+    assert event.available_tools == []
+
+
+def test_agent_work_requested_event_available_tools_roundtrip():
+    """available_tools survive serialize/deserialize roundtrip."""
+    from breqy.agents.providers.base import ToolDefinition
+    from breqy.domain.events import AgentWorkRequestedEvent, deserialize_event
+    from breqy.domain.models import SessionContextBundle
+
+    shell_def = ToolDefinition(
+        name="shell",
+        description="Execute shell commands",
+        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+    )
+    fs_def = ToolDefinition(
+        name="filesystem",
+        description="Filesystem operations",
+        input_schema={"type": "object", "properties": {"operation": {"type": "string"}}},
+    )
+
+    event = AgentWorkRequestedEvent(
+        session_id="ses_test",
+        agent_id="agt_test",
+        correlation_id="corr_1",
+        message_id="msg_1",
+        user_message_content="read file",
+        session_context=SessionContextBundle(messages=[]),
+        available_tools=[shell_def, fs_def],
+    )
+
+    restored = deserialize_event(event.model_dump())
+
+    assert isinstance(restored, AgentWorkRequestedEvent)
+    assert len(restored.available_tools) == 2
+    assert restored.available_tools[0].name == "shell"
+    assert restored.available_tools[1].name == "filesystem"

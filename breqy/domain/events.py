@@ -4,6 +4,7 @@ All events exchanged between engine, agents, and TUI use one of these
 typed classes. Import from ``breqy.domain.events`` — never construct
 raw dicts.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -22,6 +23,7 @@ from breqy.domain.enums import (
     ToolStatus,
 )
 from breqy.domain.ids import generate_prefixed_id
+from breqy.agents.providers.base import ToolDefinition
 from breqy.domain.models import (
     ModelEntry,
     SessionContextBundle,
@@ -123,13 +125,16 @@ class AgentWorkRequestedEvent(CorrelatedAgentEvent, FixedEventTypeEvent):
     session_context: SessionContextBundle
     task_context: TaskContextReference | None = None
     active_skill_ids: list[str] = Field(default_factory=list)
+    available_tools: list[ToolDefinition] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_task_context_agreement(self) -> AgentWorkRequestedEvent:
         if self.task_context is None or self.session_context.task_context is None:
             return self
         if self.task_context != self.session_context.task_context:
-            raise ValueError("event task_context must match session_context.task_context when both are present")
+            raise ValueError(
+                "event task_context must match session_context.task_context when both are present"
+            )
         return self
 
 
@@ -162,7 +167,9 @@ class ToolExecutionRequestedEvent(CorrelatedAgentEvent, FixedEventTypeEvent):
     @model_validator(mode="after")
     def validate_correlation_matches_invocation(self) -> ToolExecutionRequestedEvent:
         if self.correlation_id != self.invocation_id:
-            raise ValueError("tool execution request requires correlation_id to match invocation_id")
+            raise ValueError(
+                "tool execution request requires correlation_id to match invocation_id"
+            )
         return self
 
 
@@ -227,7 +234,9 @@ class PrivateMemoryOperationRequestedEvent(CorrelatedAgentEvent, FixedEventTypeE
     @model_validator(mode="after")
     def validate_correlation_matches_invocation(self) -> PrivateMemoryOperationRequestedEvent:
         if self.correlation_id != self.invocation_id:
-            raise ValueError("private memory request requires correlation_id to match invocation_id")
+            raise ValueError(
+                "private memory request requires correlation_id to match invocation_id"
+            )
         return self
 
 
@@ -272,7 +281,10 @@ class ApprovalDecidedEvent(FixedEventTypeEvent):
 
     @model_validator(mode="after")
     def validate_event_type_matches_decision(self) -> ApprovalDecidedEvent:
-        if self.event_type == EventType.APPROVAL_GRANTED and self.decision != ApprovalStatus.GRANTED:
+        if (
+            self.event_type == EventType.APPROVAL_GRANTED
+            and self.decision != ApprovalStatus.GRANTED
+        ):
             raise ValueError("approval.granted events must use granted decision")
         if self.event_type == EventType.APPROVAL_DENIED and self.decision != ApprovalStatus.DENIED:
             raise ValueError("approval.denied events must use denied decision")
@@ -358,7 +370,9 @@ class MemoryPromotionRequestedEvent(FixedEventTypeEvent):
     @model_validator(mode="after")
     def validate_requested_status(self) -> MemoryPromotionRequestedEvent:
         if self.event_type != EventType.MEMORY_PROMOTION_REQUESTED:
-            raise ValueError("requested memory promotion events must use memory.promotion.requested")
+            raise ValueError(
+                "requested memory promotion events must use memory.promotion.requested"
+            )
         if self.status != MemoryPromotionStatus.PENDING:
             raise ValueError("requested memory promotion events must use pending status")
         return self

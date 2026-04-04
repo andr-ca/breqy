@@ -1,4 +1,5 @@
 """Phase 8 agent runtime loop and CLI entrypoint."""
+
 from __future__ import annotations
 
 import argparse
@@ -12,7 +13,7 @@ import structlog
 from breqy.a2a.client import A2AClient
 from breqy.agents.credentials import CredentialStore
 from breqy.agents.private_memory import PrivateMemoryRuntime
-from breqy.agents.providers.base import ModelProvider, ProviderRequest
+from breqy.agents.providers.base import ModelProvider, ProviderRequest, ToolDefinition
 from breqy.agents.skills import SkillLoader, SkillActivationError
 from breqy.config.loader import load_agent_config
 from breqy.config.models import AgentConfig
@@ -313,9 +314,15 @@ class AgentRuntime:
 
         content_parts: list[str] = []
         chunk_index = 0
+        tools = self._filter_tools(event.available_tools)
+        extra_env: dict[str, str] = {}
+        if self._config.persona_content:
+            extra_env["BREQY_PERSONA"] = self._config.persona_content
         request = ProviderRequest(
             prompt=event.user_message_content,
             work_dir=self._agent_dir,
+            tools=tools,
+            extra_env=extra_env,
         )
         logger.debug(
             "Provider stream started",
@@ -423,6 +430,17 @@ class AgentRuntime:
             chunk_count=chunk_index,
         )
 
+    def _filter_tools(self, available_tools: list[ToolDefinition]) -> list[ToolDefinition]:
+        """Filter available tools by agent tool_permissions from config.
+
+        If tool_permissions is empty, all tools are allowed (backward compat).
+        """
+        permissions = self._config.tool_permissions
+        if not permissions:
+            return list(available_tools)
+        allowed = set(permissions)
+        return [t for t in available_tools if t.name in allowed]
+
     async def _emit_skill_failure(
         self,
         event: AgentWorkRequestedEvent,
@@ -527,9 +545,7 @@ def main() -> None:
     # Initialize logging for agent subprocess
     import os
 
-    data_dir = Path(
-        os.environ.get("BREQY_DATA_DIR", str(Path.home() / ".breqy" / "data"))
-    )
+    data_dir = Path(os.environ.get("BREQY_DATA_DIR", str(Path.home() / ".breqy" / "data")))
     log_dir = data_dir / "logs"
     setup_logging(
         level=config.log_level,

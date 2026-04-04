@@ -1,4 +1,5 @@
 """Engine server: composites all engine components and handles A2A routing."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,7 +23,11 @@ from breqy.domain.events import (
     ToolExecutionRequestedEvent,
     ToolExecutionResultEvent,
 )
-from breqy.domain.models import SessionContextBundle, StructuredErrorPayload, StructuredResultPayload
+from breqy.domain.models import (
+    SessionContextBundle,
+    StructuredErrorPayload,
+    StructuredResultPayload,
+)
 from breqy.domain.models import Message
 from breqy.engine.agent_registry import AgentRegistry
 from breqy.engine.agent_spawner import AgentSpawner
@@ -157,7 +162,8 @@ class EngineServer:
             # Create participant record if participant_repo is configured
             if self._participant_repo is not None:
                 await self.session_manager.add_participant(
-                    event.session_id, event.agent_id,
+                    event.session_id,
+                    event.agent_id,
                 )
 
         if isinstance(event, ControlEvent):
@@ -198,11 +204,14 @@ class EngineServer:
         # Look up agent info before unregistering so we have session_id
         info = self.agent_registry.get_by_client_id(client_id)
         self.agent_registry.unregister_by_client_id(client_id)
-        logger.debug("Client disconnected", client_id=client_id, agent_id=info.agent_id if info else None)
+        logger.debug(
+            "Client disconnected", client_id=client_id, agent_id=info.agent_id if info else None
+        )
         # Mark participant as left if we have session context
         if info is not None and info.session_id and self._participant_repo is not None:
             await self.session_manager.remove_participant(
-                info.session_id, info.agent_id,
+                info.session_id,
+                info.agent_id,
             )
 
     async def _handle_session_create_request(self, event: SessionCreateRequestedEvent) -> None:
@@ -255,6 +264,9 @@ class EngineServer:
             return
 
         messages = await self.session_manager.get_messages(event.session_id)
+        available_tools = (
+            self.tool_service._registry.to_definitions() if self.tool_service is not None else []
+        )
         work_event = AgentWorkRequestedEvent(
             session_id=event.session_id,
             agent_id=session.primary_agent_id,
@@ -263,9 +275,12 @@ class EngineServer:
             user_message_content=event.content,
             session_context=SessionContextBundle(messages=messages),
             active_skill_ids=[],
+            available_tools=available_tools,
         )
         await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(work_event))
-        logger.debug("Work dispatched", session_id=event.session_id, agent_id=session.primary_agent_id)
+        logger.debug(
+            "Work dispatched", session_id=event.session_id, agent_id=session.primary_agent_id
+        )
 
     async def _handle_runtime_message(self, event: MessageSentEvent, *, client_id: str) -> None:
         message = Message(
@@ -327,7 +342,9 @@ class EngineServer:
             )
         await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(response))
 
-    async def _route_private_memory_request(self, event: PrivateMemoryOperationRequestedEvent) -> None:
+    async def _route_private_memory_request(
+        self, event: PrivateMemoryOperationRequestedEvent
+    ) -> None:
         logger.debug(
             "Private memory request routed",
             session_id=event.session_id,
@@ -340,7 +357,8 @@ class EngineServer:
         await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(event))
 
     async def _route_model_request_to_agent(
-        self, event: ModelListRequestedEvent | ModelSwitchRequestedEvent,
+        self,
+        event: ModelListRequestedEvent | ModelSwitchRequestedEvent,
     ) -> None:
         """Forward a model request (list or switch) to the session's primary agent."""
         session = await self.session_manager.get_session(event.session_id)
@@ -436,7 +454,7 @@ class EngineServer:
         name = agent_id
         for prefix in ("agt_", "agent_"):
             if name.startswith(prefix):
-                name = name[len(prefix):]
+                name = name[len(prefix) :]
                 break
         if not name or name == "default":
             return "agents/breqy"

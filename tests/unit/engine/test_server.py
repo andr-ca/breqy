@@ -1,4 +1,5 @@
 """Tests for EngineServer tool wiring."""
+
 from __future__ import annotations
 
 from typing import Any, cast
@@ -397,6 +398,7 @@ async def test_engine_server_registers_agent_connection_from_lifecycle_event(soc
         task_repo=cast(Any, object()),
         approval_repo=cast(Any, object()),
     )
+
     async def publish(_: object) -> None:
         return None
 
@@ -486,6 +488,115 @@ async def test_engine_server_routes_user_message_to_primary_agent_with_work_requ
 
 
 @pytest.mark.asyncio
+async def test_engine_server_work_request_includes_available_tools_from_registry(
+    db_connection,
+    socket_path,
+) -> None:
+    """When EngineServer has a tool registry, AgentWorkRequestedEvent carries available_tools."""
+    from breqy.tools.filesystem import FilesystemTool
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    invocation_repo = SqliteToolInvocationRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    registry = ToolRegistry()
+    registry.register(ShellTool())
+    registry.register(FilesystemTool())
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+        tool_invocation_repo=invocation_repo,
+        tool_registry=registry,
+        policy_evaluator=PolicyEvaluator([]),
+        filesystem_policy_checker=FilesystemPolicyChecker([]),
+        approval_service=ApprovalService(approval_repo),
+    )
+    server.agent_registry.register("agt_breqy", client_id="cli_agent")
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+    server.a2a_server.broadcast = cast(Any, lambda envelope, exclude_client="": None)
+
+    event = MessageSentEvent(
+        session_id=session.id,
+        message_id="msg_user",
+        role=MessageRole.USER,
+        content="run ls",
+    )
+
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_tui")
+
+    assert len(sent) == 1
+    routed_event = sent[0][1].to_event()
+    assert isinstance(routed_event, AgentWorkRequestedEvent)
+    assert len(routed_event.available_tools) == 2
+    tool_names = {t.name for t in routed_event.available_tools}
+    assert tool_names == {"shell", "filesystem"}
+    # Each tool definition must have a non-empty input_schema
+    for tool_def in routed_event.available_tools:
+        assert tool_def.input_schema, f"{tool_def.name} should have a non-empty input_schema"
+
+
+@pytest.mark.asyncio
+async def test_engine_server_work_request_has_empty_tools_when_no_registry(
+    db_connection,
+    socket_path,
+) -> None:
+    """When EngineServer has no tool registry, available_tools defaults to empty."""
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.agent_registry.register("agt_breqy", client_id="cli_agent")
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+    server.a2a_server.broadcast = cast(Any, lambda envelope, exclude_client="": None)
+
+    event = MessageSentEvent(
+        session_id=session.id,
+        message_id="msg_user",
+        role=MessageRole.USER,
+        content="hello",
+    )
+
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_tui")
+
+    assert len(sent) == 1
+    routed_event = sent[0][1].to_event()
+    assert isinstance(routed_event, AgentWorkRequestedEvent)
+    assert routed_event.available_tools == []
+
+
+@pytest.mark.asyncio
 async def test_engine_server_routes_tool_execution_request_directly_without_persisting_transport_event(
     db_connection,
     socket_path,
@@ -527,7 +638,9 @@ async def test_engine_server_routes_tool_execution_request_directly_without_pers
     await server._handle_envelope(Envelope.from_event(request), client_id="cli_agent")
 
     persisted_events = await event_repo.list_by_session(session.id, limit=20)
-    assert EventType.TOOL_EXECUTION_REQUESTED not in [event.event_type for event in persisted_events]
+    assert EventType.TOOL_EXECUTION_REQUESTED not in [
+        event.event_type for event in persisted_events
+    ]
     assert sent[0][0] == "cli_agent"
     assert sent[0][1].event_type == EventType.TOOL_EXECUTION_RESULT
 
@@ -572,7 +685,9 @@ async def test_engine_server_routes_private_memory_request_directly_without_pers
     await server._handle_envelope(Envelope.from_event(request), client_id="cli_engine")
 
     persisted_events = await event_repo.list_by_session(session.id, limit=20)
-    assert EventType.PRIVATE_MEMORY_OPERATION_REQUESTED not in [event.event_type for event in persisted_events]
+    assert EventType.PRIVATE_MEMORY_OPERATION_REQUESTED not in [
+        event.event_type for event in persisted_events
+    ]
     assert sent[0][0] == "cli_agent"
     assert sent[0][1].event_type == EventType.PRIVATE_MEMORY_OPERATION_REQUESTED
 
@@ -614,14 +729,18 @@ async def test_engine_server_user_message_returns_early_when_session_missing(soc
     server.event_bus.publish = fake_publish  # type: ignore[method-assign]
 
     await server._handle_user_message(
-        MessageSentEvent(session_id="ses_missing", message_id="msg_1", role=MessageRole.USER, content="hello")
+        MessageSentEvent(
+            session_id="ses_missing", message_id="msg_1", role=MessageRole.USER, content="hello"
+        )
     )
 
     assert send_calls == []
 
 
 @pytest.mark.asyncio
-async def test_engine_server_user_message_returns_early_when_primary_agent_missing(db_connection, socket_path) -> None:
+async def test_engine_server_user_message_returns_early_when_primary_agent_missing(
+    db_connection, socket_path
+) -> None:
     session_repo = SqliteSessionRepository(db_connection)
     message_repo = SqliteMessageRepository(db_connection)
     event_repo = SqliteEventRepository(db_connection)
@@ -646,14 +765,18 @@ async def test_engine_server_user_message_returns_early_when_primary_agent_missi
     server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
 
     await server._handle_user_message(
-        MessageSentEvent(session_id=session.id, message_id="msg_1", role=MessageRole.USER, content="hello")
+        MessageSentEvent(
+            session_id=session.id, message_id="msg_1", role=MessageRole.USER, content="hello"
+        )
     )
 
     assert sent == []
 
 
 @pytest.mark.asyncio
-async def test_engine_server_tool_request_returns_early_when_agent_not_registered(db_connection, socket_path) -> None:
+async def test_engine_server_tool_request_returns_early_when_agent_not_registered(
+    db_connection, socket_path
+) -> None:
     session_repo = SqliteSessionRepository(db_connection)
     message_repo = SqliteMessageRepository(db_connection)
     event_repo = SqliteEventRepository(db_connection)
@@ -694,7 +817,9 @@ async def test_engine_server_tool_request_returns_early_when_agent_not_registere
 
 
 @pytest.mark.asyncio
-async def test_engine_server_tool_request_success_branch_returns_structured_success(db_connection, socket_path) -> None:
+async def test_engine_server_tool_request_success_branch_returns_structured_success(
+    db_connection, socket_path
+) -> None:
     session_repo = SqliteSessionRepository(db_connection)
     message_repo = SqliteMessageRepository(db_connection)
     event_repo = SqliteEventRepository(db_connection)
@@ -741,7 +866,9 @@ async def test_engine_server_tool_request_success_branch_returns_structured_succ
 
 
 @pytest.mark.asyncio
-async def test_engine_server_private_memory_request_returns_early_when_agent_not_registered(socket_path) -> None:
+async def test_engine_server_private_memory_request_returns_early_when_agent_not_registered(
+    socket_path,
+) -> None:
     server = EngineServer(
         socket_path=str(socket_path),
         session_repo=cast(Any, object()),
@@ -1054,7 +1181,9 @@ async def test_engine_server_without_participant_repo_still_works(socket_path) -
 
 
 @pytest.mark.asyncio
-async def test_engine_server_control_event_falls_through_when_no_control_handler(socket_path) -> None:
+async def test_engine_server_control_event_falls_through_when_no_control_handler(
+    socket_path,
+) -> None:
     """Without participant_repo, control events fall through to generic publish+broadcast."""
     server = EngineServer(
         socket_path=str(socket_path),
