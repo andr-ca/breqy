@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Copilot Responses API HTTP 400 "Invalid tool name" error: memory tool names containing dots (`mcp.memory.n--search`, `mcp.memory.n--write`, `mcp.memory.n--promote`) are now sanitized (dots replaced with underscores) in `_convert_tools_responses` before being sent to the Responses API, which only allows `^[a-zA-Z0-9_-]+$`. The sanitized-to-original name mapping is reversed when the model returns a function call, so the runtime continues to route calls using the original dotted name. Without this fix, every request to the Responses API (used by gpt-5.4-mini and other reasoning models) returned HTTP 400 before any response was generated.
+
 ### Added
 - Reasoning text display: the Copilot Responses API is now requested with `reasoning:{summary:"auto"}`, causing `response.reasoning_summary_text.delta` events to stream. Each delta is yielded as a `ProviderEvent(kind="reasoning_text")`, dispatched through `runtime.py` as a `ReasoningTextChunkEvent`, buffered in `ChatView._reasoning_chunks`, and flushed as a dim italic block in the chat log when `reasoning_done` fires. The full pipeline—provider → domain event → TUI—is covered by new unit and TUI tests.
 - `breqy/tools/browser.py` and `breqy/tools/browser_runtime.py`: native Playwright-backed `browser` tool with typed action validation for navigate/click/fill/select/wait/extract/screenshot/history/tab/session/header/cookie operations, plus safe blocked-flow handling for CAPTCHA/MFA/blocked access.
