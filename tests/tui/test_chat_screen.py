@@ -903,3 +903,53 @@ class TestChatScreenReasoningHandlers:
             )
             await pilot.pause()
             assert len(screen.query("#thinking-indicator")) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Event routing tests — ReasoningTextChunkEvent
+# --------------------------------------------------------------------------- #
+
+
+class TestChatScreenReasoningTextChunkHandler:
+    """ChatScreen.handle_reasoning_text_chunk buffers chunks in ChatView."""
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_text_chunk_buffers_in_chat_view(self) -> None:
+        """handle_reasoning_text_chunk calls add_reasoning_chunk on ChatView."""
+        from breqy.domain.events import ReasoningTextChunkEvent
+
+        event = ReasoningTextChunkEvent(
+            session_id=SESSION_ID,
+            agent_id="ag_1",
+            chunk="Some reasoning thought",
+        )
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_text_chunk(event)
+            await pilot.pause()
+            # Chunk is buffered — not written to log yet
+            chat_view = screen.query_one(ChatView)
+            assert chat_view._reasoning_chunks == ["Some reasoning thought"]
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_done_flushes_reasoning_block(self) -> None:
+        """handle_reasoning_done flushes accumulated reasoning to the chat log."""
+        from breqy.domain.events import ReasoningTextChunkEvent, ReasoningDoneEvent
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            chat_view = screen.query_one(ChatView)
+
+            screen.handle_reasoning_text_chunk(
+                ReasoningTextChunkEvent(session_id=SESSION_ID, agent_id="ag_1", chunk="A thought")
+            )
+            await pilot.pause()
+            assert len(chat_view.log_widget.lines) == 0  # not yet in log
+
+            screen.handle_reasoning_done(ReasoningDoneEvent(session_id=SESSION_ID, agent_id="ag_1"))
+            await pilot.pause()
+            assert len(chat_view.log_widget.lines) >= 1  # flushed to log
+            assert chat_view._reasoning_chunks == []  # buffer cleared

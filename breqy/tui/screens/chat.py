@@ -26,6 +26,7 @@ from breqy.domain.events import (
     ModelInfoEvent,
     ReasoningDoneEvent,
     ReasoningStartedEvent,
+    ReasoningTextChunkEvent,
     TaskUpdatedEvent,
     ToolInvocationCompletedEvent,
     ToolInvocationFailedEvent,
@@ -162,15 +163,20 @@ class ChatScreen(Screen[None]):
         """Show the 'Thinking...' indicator when the model enters a reasoning phase."""
         self.query_one(ChatView).show_thinking_indicator()
 
-    def handle_reasoning_done(self, event: ReasoningDoneEvent) -> None:
-        """No-op: do NOT hide the indicator when the reasoning phase ends.
+    def handle_reasoning_text_chunk(self, event: ReasoningTextChunkEvent) -> None:
+        """Buffer a reasoning text chunk in the ChatView."""
+        self.query_one(ChatView).add_reasoning_chunk(event.chunk)
 
-        The Responses API sends ``reasoning_started`` and ``reasoning_done``
-        back-to-back (before any text delta), so hiding on ``reasoning_done``
-        would remove the indicator before a single frame is rendered.
-        The indicator is instead hidden by ``handle_message_chunk`` when the
-        first text chunk arrives.
+    def handle_reasoning_done(self, event: ReasoningDoneEvent) -> None:
+        """Flush buffered reasoning text to the chat log as a dim block.
+
+        Does NOT hide the thinking indicator — the Responses API sends
+        ``reasoning_started`` and ``reasoning_done`` back-to-back (before any
+        text delta), so hiding here would remove the indicator before any frame
+        is rendered. The indicator is instead hidden by ``handle_message_chunk``
+        when the first text chunk arrives.
         """
+        self.query_one(ChatView).flush_reasoning_block()
 
     def handle_task_updated(self, event: TaskUpdatedEvent) -> None:
         """Route a ``TaskUpdatedEvent`` to the ``TaskPanel``."""
