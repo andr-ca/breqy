@@ -151,6 +151,22 @@ async def test_extend_to_session_caches_grant():
 
 
 @pytest.mark.asyncio
+async def test_extend_to_session_uses_description_when_grant_key_is_missing() -> None:
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_5",
+        agent_id="agt_1",
+        tool_invocation_id="inv_5",
+        description="Promote memory record 'mem_source' to global scope",
+    )
+
+    await service.decide(request_id, granted=True, grant_scope=ApprovalGrantScope.SESSION)
+
+    assert service.has_session_grant("ses_5", "Promote memory record 'mem_source' to global scope") is True
+
+
+@pytest.mark.asyncio
 async def test_forever_grant_persists_and_applies_across_sessions():
     repo = _make_repo()
     service = ApprovalService(repo)
@@ -167,6 +183,25 @@ async def test_forever_grant_persists_and_applies_across_sessions():
     assert service.has_grant("ses_forever", "browser:submit:google.com") is True
     assert service.has_grant("ses_other", "browser:submit:google.com") is True
     repo.create_grant.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_forever_grant_uses_description_when_grant_key_is_missing() -> None:
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_forever",
+        agent_id="agt_1",
+        tool_invocation_id="inv_forever",
+        description="Access memory resource 'memory:session:read' for session 'ses_123'",
+    )
+
+    await service.decide(request_id, granted=True, grant_scope=ApprovalGrantScope.FOREVER)
+
+    assert service.has_grant(
+        "ses_other",
+        "Access memory resource 'memory:session:read' for session 'ses_123'",
+    ) is True
 
 
 @pytest.mark.asyncio

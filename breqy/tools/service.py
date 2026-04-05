@@ -48,7 +48,13 @@ class ToolService:
 
     async def close(self) -> None:
         for tool in self._registry.iter_tools():
-            await tool.close()
+            try:
+                await tool.close()
+            except Exception:
+                logger.exception(
+                    "Failed to close tool during ToolService shutdown",
+                    tool_name=getattr(tool, "name", type(tool).__name__),
+                )
 
     async def execute_tool(
         self,

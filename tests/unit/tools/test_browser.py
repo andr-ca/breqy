@@ -361,3 +361,76 @@ async def test_runtime_close_cleans_up_browser_processes() -> None:
     assert context.closed is True
     assert playwright.stopped is True
     assert runtime._sessions == {}
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_continues_cleanup_after_session_failures() -> None:
+    class FailingContext:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+            raise RuntimeError("context close failed")
+
+    class HealthyContext:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class FailingBrowser:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+            raise RuntimeError("browser close failed")
+
+    class HealthyBrowser:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class FakePlaywright:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+    runtime = PlaywrightBrowserRuntime()
+    playwright = FakePlaywright()
+    bad_context = FailingContext()
+    good_context = HealthyContext()
+    bad_browser = FailingBrowser()
+    good_browser = HealthyBrowser()
+    runtime._playwright = playwright
+    runtime._sessions["bad"] = _BrowserSession(
+        browser_mode="headless",
+        browser=bad_browser,
+        context=bad_context,
+        tabs={},
+        current_tab_id="tab-1",
+    )
+    runtime._sessions["good"] = _BrowserSession(
+        browser_mode="headless",
+        browser=good_browser,
+        context=good_context,
+        tabs={},
+        current_tab_id="tab-2",
+    )
+
+    with pytest.raises(RuntimeError, match="context close failed"):
+        await runtime.close()
+
+    assert bad_context.closed is True
+    assert good_context.closed is True
+    assert bad_browser.closed is True
+    assert good_browser.closed is True
+    assert playwright.stopped is True
+    assert runtime._sessions == {}
+    assert runtime._playwright is None

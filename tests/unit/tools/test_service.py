@@ -46,6 +46,12 @@ class RecordingTool(ToolExecutor):
         self.closed = True
 
 
+class FailingCloseTool(RecordingTool):
+    async def close(self) -> None:
+        self.closed = True
+        raise RuntimeError(f"{self.name} close failed")
+
+
 class ApprovalAwareTool(RecordingTool):
     def __init__(self, *, name: str = "browser", log: list[str] | None = None) -> None:
         super().__init__(name=name, log=log)
@@ -403,6 +409,25 @@ async def test_service_close_closes_registered_tools() -> None:
     await service.close()
 
     assert tool.closed is True
+
+
+@pytest.mark.asyncio
+async def test_service_close_continues_when_tool_close_fails() -> None:
+    failing = FailingCloseTool(name="browser")
+    healthy = RecordingTool(name="shell")
+    service = ToolService(
+        registry=cast(Any, RecordingToolRegistry({failing.name: failing, healthy.name: healthy})),
+        policy_evaluator=cast(Any, StubPolicyEvaluator(PolicyAction.ALLOW)),
+        filesystem_policy_checker=cast(Any, RecordingFilesystemPolicyChecker()),
+        approval_service=cast(Any, RecordingApprovalService()),
+        invocation_repo=cast(Any, RecordingInvocationRepository()),
+        event_bus=RecordingEventBus(),
+    )
+
+    await service.close()
+
+    assert failing.closed is True
+    assert healthy.closed is True
 
 
 @pytest.mark.asyncio

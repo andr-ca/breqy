@@ -111,7 +111,7 @@ class ApprovalService:
         status = pending.status
         await self._repo.update_request_status(request_id, status)
 
-        grant_key = pending.request.grant_key
+        grant_key = pending.request.grant_key or pending.request.description
         if granted and grant_key and resolved_grant_scope == ApprovalGrantScope.SESSION:
             grants = self._session_grants.setdefault(pending.request.session_id, set())
             grants.add(grant_key)

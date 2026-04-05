@@ -451,13 +451,32 @@ class PlaywrightBrowserRuntime:
         return self._playwright
 
     async def close(self) -> None:
-        for session in list(self._sessions.values()):
-            await session.context.close()
-            await session.browser.close()
-        self._sessions.clear()
-        if self._playwright is not None:
-            await self._playwright.stop()
-            self._playwright = None
+        first_error: Exception | None = None
+        try:
+            for session in list(self._sessions.values()):
+                try:
+                    await session.context.close()
+                except Exception as exc:
+                    if first_error is None:
+                        first_error = exc
+                try:
+                    await session.browser.close()
+                except Exception as exc:
+                    if first_error is None:
+                        first_error = exc
+        finally:
+            self._sessions.clear()
+            if self._playwright is not None:
+                playwright = self._playwright
+                try:
+                    await playwright.stop()
+                except Exception as exc:
+                    if first_error is None:
+                        first_error = exc
+                finally:
+                    self._playwright = None
+        if first_error is not None:
+            raise first_error
 
     @staticmethod
     def _resolve_screenshot_output_path(output_path: str | None) -> Path:
