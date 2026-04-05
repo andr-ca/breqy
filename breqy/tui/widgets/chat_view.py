@@ -32,6 +32,7 @@ class ChatView(Widget):
     def __init__(self, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._stream_buffer = StreamBuffer()
+        self._reasoning_chunks: list[str] = []
 
     def compose(self):  # noqa: ANN201
         yield SelectableRichLog(id="chat-log", wrap=True, markup=True)
@@ -77,6 +78,26 @@ class ChatView(Widget):
         """
         for widget in self.query("#thinking-indicator"):
             widget.remove()
+
+    def add_reasoning_chunk(self, chunk: str) -> None:
+        """Buffer a reasoning text chunk.
+
+        Chunks are not written to the log immediately — call
+        ``flush_reasoning_block()`` to persist the accumulated text.
+        """
+        self._reasoning_chunks.append(chunk)
+
+    def flush_reasoning_block(self) -> None:
+        """Write accumulated reasoning text to the chat log as a dim italic block.
+
+        No-op if no chunks have been buffered since the last flush.
+        Clears the buffer after writing.
+        """
+        if not self._reasoning_chunks:
+            return
+        text = "".join(self._reasoning_chunks)
+        self._reasoning_chunks = []
+        self.log_widget.write(f"[dim italic]{text}[/dim italic]")
 
     @staticmethod
     def _role_prefix(role: MessageRole, agent_id: str = "") -> str:
