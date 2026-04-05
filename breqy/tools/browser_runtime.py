@@ -11,13 +11,23 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, TypeAdapter, mo
 
 
 class BrowserCookie(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     value: str
     domain: str
     path: str = "/"
     secure: bool = False
-    http_only: bool = False
-    same_site: Literal["Strict", "Lax", "None"] | None = None
+    http_only: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("http_only", "httpOnly"),
+        serialization_alias="httpOnly",
+    )
+    same_site: Literal["Strict", "Lax", "None"] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("same_site", "sameSite"),
+        serialization_alias="sameSite",
+    )
 
 
 class BrowserActionBase(BaseModel):
@@ -480,8 +490,20 @@ class PlaywrightBrowserRuntime:
 
     @staticmethod
     def _resolve_screenshot_output_path(output_path: str | None) -> Path:
-        artifacts_dir = (Path(tempfile.gettempdir()) / "breqy-browser-artifacts").resolve()
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        artifacts_dir_raw = Path(tempfile.gettempdir()) / "breqy-browser-artifacts"
+        if artifacts_dir_raw.exists():
+            if artifacts_dir_raw.is_symlink():
+                raise ValueError(
+                    f"Refusing to use symlinked artifacts directory: {artifacts_dir_raw}"
+                )
+            if not artifacts_dir_raw.is_dir():
+                raise ValueError(
+                    f"Expected a directory at artifacts path: {artifacts_dir_raw}"
+                )
+        else:
+            artifacts_dir_raw.mkdir(parents=True, mode=0o700)
+        artifacts_dir = artifacts_dir_raw.resolve()
+
         if output_path is None:
             return artifacts_dir / f"breqy-browser-{uuid4().hex}.png"
 

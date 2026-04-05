@@ -94,8 +94,6 @@ CREATE TABLE IF NOT EXISTS approval_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_approval_grants_session_key ON approval_grants(session_id, grant_key);
 CREATE INDEX IF NOT EXISTS idx_approval_grants_scope_key ON approval_grants(scope, grant_key);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_grants_unique
-ON approval_grants(COALESCE(session_id, ''), grant_key, scope);
 
 CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY,

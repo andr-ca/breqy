@@ -298,3 +298,55 @@ async def test_run_migrations_backfills_forever_grants_with_null_session_id(db_p
     forever_row = await forever_cursor.fetchone()
     assert tuple(forever_row) == (None, "browser:extract:google.com", "forever")
     await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_run_migrations_is_idempotent_even_with_duplicate_grants(db_path: Path) -> None:
+    """SCHEMA_V3 must not fail when approval_grants already contains duplicates.
+
+    The UNIQUE index is created in _upgrade_approval_tables() *after* the dedup
+    step, so running migrations against a DB that already has duplicate rows must
+    succeed (deduplicate first, then create the index).
+    """
+    conn = await create_connection(str(db_path))
+    # Minimal pre-existing schema without the unique index
+    await conn.executescript(
+        """
+        CREATE TABLE sessions (id TEXT PRIMARY KEY);
+        CREATE TABLE approval_grants (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            grant_key TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_approval_grants_session_key
+            ON approval_grants(session_id, grant_key);
+        """
+    )
+    # Insert two duplicate rows (same logical key)
+    await conn.executemany(
+        "INSERT INTO approval_grants (id, session_id, grant_key, scope, created_at) VALUES (?, ?, ?, ?, ?)",
+        [
+            ("apg_1", "ses_1", "browser:click:example.com", "session", "2026-01-01T00:00:00"),
+            ("apg_2", "ses_1", "browser:click:example.com", "session", "2026-01-01T00:00:01"),
+        ],
+    )
+    await conn.commit()
+
+    # Must not raise even though duplicates exist before the unique index is created
+    await run_migrations(conn)
+
+    # Only one row should survive deduplication
+    cursor = await conn.execute(
+        "SELECT COUNT(*) FROM approval_grants WHERE grant_key = 'browser:click:example.com'"
+    )
+    row = await cursor.fetchone()
+    assert row[0] == 1
+
+    # Unique index must exist after migration
+    idx_cursor = await conn.execute("PRAGMA index_list(approval_grants)")
+    index_names = {r[1] for r in await idx_cursor.fetchall()}
+    assert "idx_approval_grants_unique" in index_names
+
+    await conn.close()

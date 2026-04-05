@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from breqy.tools.browser import BrowserInterventionRequired, BrowserTool
-from breqy.tools.browser_runtime import PlaywrightBrowserRuntime, _BrowserSession
+from breqy.tools.browser_runtime import BrowserCookie, PlaywrightBrowserRuntime, _BrowserSession
 
 
 class FakeBrowserRuntime:
@@ -434,3 +434,59 @@ async def test_runtime_close_continues_cleanup_after_session_failures() -> None:
     assert playwright.stopped is True
     assert runtime._sessions == {}
     assert runtime._playwright is None
+
+
+def test_browser_cookie_serializes_with_playwright_camel_case_keys() -> None:
+    cookie = BrowserCookie(
+        name="token",
+        value="abc123",
+        domain="example.com",
+        http_only=True,
+        same_site="Strict",
+    )
+
+    dumped = cookie.model_dump(exclude_none=True, by_alias=True)
+
+    assert "httpOnly" in dumped
+    assert dumped["httpOnly"] is True
+    assert "sameSite" in dumped
+    assert dumped["sameSite"] == "Strict"
+    assert "http_only" not in dumped
+    assert "same_site" not in dumped
+
+
+def test_browser_cookie_accepts_camel_case_input() -> None:
+    cookie = BrowserCookie.model_validate(
+        {
+            "name": "session",
+            "value": "xyz",
+            "domain": "example.com",
+            "httpOnly": True,
+            "sameSite": "Lax",
+        }
+    )
+
+    assert cookie.http_only is True
+    assert cookie.same_site == "Lax"
+
+
+def test_browser_cookie_defaults_omit_none_fields() -> None:
+    cookie = BrowserCookie(name="simple", value="v", domain="example.com")
+    dumped = cookie.model_dump(exclude_none=True, by_alias=True)
+
+    assert "sameSite" not in dumped
+    assert dumped.get("httpOnly") is False or "httpOnly" not in dumped
+
+
+def test_runtime_rejects_symlinked_artifacts_directory(tmp_path: Path) -> None:
+    real_dir = tmp_path / "real_artifacts"
+    real_dir.mkdir()
+    symlink_target = tmp_path / "breqy-browser-artifacts"
+    symlink_target.symlink_to(real_dir)
+
+    import tempfile
+    from unittest.mock import patch
+
+    with patch.object(tempfile, "gettempdir", return_value=str(tmp_path)):
+        with pytest.raises(ValueError, match="symlinked"):
+            PlaywrightBrowserRuntime._resolve_screenshot_output_path(None)
