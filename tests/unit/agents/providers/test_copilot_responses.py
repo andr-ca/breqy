@@ -322,7 +322,6 @@ class TestStreamResponsesReasoningItem:
         return lines
 
     def test_reasoning_output_item_emits_reasoning_started_then_done(self) -> None:
-        from unittest.mock import MagicMock, patch
         from breqy.agents.providers.base import ProviderEvent, ProviderRequest
         from pathlib import Path
 
@@ -338,13 +337,6 @@ class TestStreamResponsesReasoningItem:
         }
         text_delta = {"type": "response.output_text.delta", "delta": "Hello"}
         completed = {"type": "response.completed", "response": {"status": "completed"}}
-
-        lines = self._make_sse(reasoning_added, reasoning_done, text_delta, completed, "[DONE]")
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.iter_lines.return_value = iter(lines)
-        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-        mock_resp.__exit__ = MagicMock(return_value=False)
 
         provider = self._make_provider()
         provider._client.stream_responses.return_value = iter(

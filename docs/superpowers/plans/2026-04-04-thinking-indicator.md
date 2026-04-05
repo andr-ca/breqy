@@ -319,11 +319,11 @@ No new files are needed.
   In `breqy/domain/enums.py`, after line 58 (`MODEL_SWITCH_REQUESTED = "model.switch.requested"`), add:
 
   ```python
-      REASONING_STARTED = "reasoning_started"
-      REASONING_DONE = "reasoning_done"
+      REASONING_STARTED = "reasoning.started"
+      REASONING_DONE = "reasoning.done"
   ```
 
-  **Note:** Use underscores (`reasoning_started`), not dots. The rest of the system uses dot-notation for compound names (e.g. `message.chunk`) but this feature uses underscores to match the `ProviderEvent.kind` literals added in Task 1. The two layers (provider event kinds vs. domain `EventType` string values) are separate namespaces — the string values just need to be consistent within `EventType` and its serialized form.
+  **Note:** Use dot-delimited values (`reasoning.started`, `reasoning.done`) to match the established `EventType` convention (e.g. `message.sent`, `tool.invocation.started`). The `ProviderEvent.kind` strings (`"reasoning_started"`, `"reasoning_done"`) are a separate internal namespace in the provider layer and do not need to match.
 
 - [ ] **Step 4: Add event models**
 

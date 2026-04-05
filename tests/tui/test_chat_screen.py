@@ -282,6 +282,42 @@ class TestChatScreenToolStarted:
             tool_panel = screen.query_one(ToolPanel)
             assert "inv_001" in tool_panel._entries
 
+    @pytest.mark.asyncio
+    async def test_handle_tool_started_hides_thinking_indicator(self) -> None:
+        """Thinking indicator must be hidden when a tool call starts.
+
+        If the model reasons and then calls a tool (no text), ``MessageChunkEvent``
+        never fires, so we hide the indicator here to prevent it from lingering.
+        """
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            from breqy.domain.events import ReasoningStartedEvent
+
+            # Show the indicator first
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            await pilot.pause()
+            chat_view = screen.query_one(ChatView)
+            assert chat_view.query("#thinking-indicator"), (
+                "Indicator should be visible after reasoning_started"
+            )
+
+            # Now a tool call arrives — indicator must be hidden
+            event = ToolInvocationStartedEvent(
+                session_id=SESSION_ID,
+                invocation_id="inv_001",
+                tool_name="shell",
+                arguments={"command": "ls"},
+                summary="List files",
+            )
+            screen.handle_tool_started(event)
+            await pilot.pause()
+            assert not chat_view.query("#thinking-indicator"), (
+                "Indicator should be hidden after tool call starts"
+            )
+
 
 # --------------------------------------------------------------------------- #
 # Event routing tests — ToolInvocationCompletedEvent

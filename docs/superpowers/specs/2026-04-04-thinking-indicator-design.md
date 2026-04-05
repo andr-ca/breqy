@@ -60,8 +60,8 @@ Show a lightweight "Thinking..." status label in the chat view while the model's
 
 Add to `EventType` enum:
 ```python
-REASONING_STARTED = "reasoning_started"
-REASONING_DONE = "reasoning_done"
+REASONING_STARTED = "reasoning.started"
+REASONING_DONE = "reasoning.done"
 ```
 
 **File:** `breqy/domain/events.py`
@@ -69,15 +69,15 @@ REASONING_DONE = "reasoning_done"
 Add two new event models following the `MessageChunkEvent` pattern:
 
 ```python
-class ReasoningStartedEvent(BaseModel):
-    type: Literal[EventType.REASONING_STARTED] = EventType.REASONING_STARTED
-    conversation_id: ConversationId
-    agent_id: AgentId
+class ReasoningStartedEvent(FixedEventTypeEvent):
+    event_type: EventType = EventType.REASONING_STARTED
+    session_id: str
+    agent_id: str
 
-class ReasoningDoneEvent(BaseModel):
-    type: Literal[EventType.REASONING_DONE] = EventType.REASONING_DONE
-    conversation_id: ConversationId
-    agent_id: AgentId
+class ReasoningDoneEvent(FixedEventTypeEvent):
+    event_type: EventType = EventType.REASONING_DONE
+    session_id: str
+    agent_id: str
 ```
 
 ---
@@ -91,12 +91,12 @@ Add two new branches alongside the existing `"chunk"` handler:
 ```python
 elif provider_event.kind == "reasoning_started":
     await bus.publish(ReasoningStartedEvent(
-        conversation_id=conversation_id,
+        session_id=session_id,
         agent_id=agent_id,
     ))
 elif provider_event.kind == "reasoning_done":
     await bus.publish(ReasoningDoneEvent(
-        conversation_id=conversation_id,
+        session_id=session_id,
         agent_id=agent_id,
     ))
 ```

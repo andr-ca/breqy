@@ -193,7 +193,13 @@ class ChatScreen(Screen[None]):
         )
 
     def handle_tool_started(self, event: ToolInvocationStartedEvent) -> None:
-        """Route a ``ToolInvocationStartedEvent`` to the ``ToolPanel``."""
+        """Route a ``ToolInvocationStartedEvent`` to the ``ToolPanel``.
+
+        Also hides the thinking indicator — when the model decides to call a
+        tool instead of emitting text, ``MessageChunkEvent`` never fires so the
+        indicator would otherwise remain visible indefinitely.
+        """
+        self.query_one(ChatView).hide_thinking_indicator()
         tool_panel = self.query_one(ToolPanel)
         tool_panel.tool_started(
             invocation_id=event.invocation_id,
