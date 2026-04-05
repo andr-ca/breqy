@@ -1,37 +1,38 @@
 # Thinking Indicator — Design Spec
 
 **Date:** 2026-04-04  
-**Status:** Approved  
-**Feature:** Show a "Thinking..." indicator in the TUI chat view when a reasoning-capable model is processing.
+**Status:** Superseded by reasoning-text-display (2026-04-05)  
+**Feature:** Show a "Thinking..." indicator in the TUI chat view when a reasoning-capable model is processing, and display the actual reasoning summary text as a dim italic block.
 
 ---
 
 ## Background
 
-GitHub Copilot's Responses API emits a `response.output_item.added` event with `item.type == "reasoning"` before the model begins streaming its answer. The actual reasoning content is not exposed (`summary: []`). We can detect that reasoning is in progress, but cannot display its content.
+GitHub Copilot's Responses API emits a `response.output_item.added` event with `item.type == "reasoning"` before the model begins streaming its answer.
 
-**Probe findings** (2026-04-04):
-- Responses-API models (gpt-5-mini, gpt-5.1, gpt-5.4, etc.): emit `reasoning` output item with empty summary. No `response.reasoning_summary_text.delta` events observed.
+**Initial probe findings** (2026-04-04): Responses-API models (gpt-5-mini, gpt-5.1, gpt-5.4, etc.) emitted `reasoning` output items with empty summaries (`summary: []`). No `response.reasoning_summary_text.delta` events were observed at that point.
+
+**Updated findings** (2026-04-05): Requesting `reasoning: {"summary": "auto"}` in the API request body causes the API to stream the reasoning summary text via `response.reasoning_summary_text.delta` events. These are now captured and displayed. See the implementation in `breqy/agents/providers/copilot.py`.
+
 - Chat-Completions-API models (all Claude models, older GPT): no reasoning events at all.
 
 ---
 
 ## Goal
 
-Show a lightweight "Thinking..." status label in the chat view while the model's reasoning item is active. Remove it automatically once text streaming begins (or when reasoning finishes).
+Show a lightweight "Thinking..." status label in the chat view while the model's reasoning item is active, then replace it with the streamed reasoning summary as a dim italic block once reasoning completes.
 
 ---
 
 ## Scope
 
 ### In scope
-- Provider layer: detect `reasoning` output items in `_do_stream_responses` and emit new provider events.
-- Domain layer: two new `EventType` values and two new event models.
+- Provider layer: detect `reasoning` output items in `_do_stream_responses` and emit new provider events; stream `reasoning_summary_text.delta` as `reasoning_text` provider events.
+- Domain layer: three new `EventType` values (`reasoning.started`, `reasoning.done`, `reasoning.text.chunk`) and three new event models.
 - Runtime: dispatch the new events through the event bus.
-- TUI: show and hide a "Thinking..." indicator in the chat view.
+- TUI: show and hide a "Thinking..." indicator in the chat view; buffer reasoning chunks and flush as dim italic block on `REASONING_DONE`.
 
 ### Out of scope
-- Displaying actual thinking content (not available from API).
 - Configuring the indicator appearance via env var or slash command (YAGNI).
 - Extending the Chat Completions path (no reasoning events emitted there).
 

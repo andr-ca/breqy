@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `CopilotProvider.stream()` now catches `CopilotAuthError` from `get_copilot_token()` (e.g. HTTP 404 on token exchange when OAuth token is expired/revoked) and triggers device flow re-authentication instead of crashing with an unrecoverable error message. Both the initial token fetch and the 401 retry path are covered.
+- `EngineServer._handle_user_message` now fetches prior session messages **before** persisting the current user message. Previously, the current user turn was already in storage by the time `session_context` was built, causing it to appear twice in the Responses API request body and producing HTTP 400 errors.
 
 ### Changed
 - Replaced `RichLog` with `SelectableRichLog` in all four TUI widgets that display scrollable log content: `ChatView` (chat-log), `TaskPanel` (task-log), `ToolPanel` (tool-log), and `LogsScreen` (logs-display). Enables mouse-drag text selection and clipboard copy across all log panels.

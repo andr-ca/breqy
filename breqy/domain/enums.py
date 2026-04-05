@@ -57,9 +57,9 @@ class EventType(StrEnum):
     MODEL_LIST_REQUESTED = "model.list.requested"
     MODEL_LIST_RESPONSE = "model.list.response"
     MODEL_SWITCH_REQUESTED = "model.switch.requested"
-    REASONING_STARTED = "reasoning_started"
-    REASONING_DONE = "reasoning_done"
-    REASONING_TEXT_CHUNK = "reasoning.text_chunk"
+    REASONING_STARTED = "reasoning.started"
+    REASONING_DONE = "reasoning.done"
+    REASONING_TEXT_CHUNK = "reasoning.text.chunk"
 
 
 class MessageRole(StrEnum):

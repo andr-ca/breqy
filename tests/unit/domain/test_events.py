@@ -1082,7 +1082,7 @@ class TestReasoningEvents:
 
         started = deserialize_event(
             {
-                "event_type": "reasoning_started",
+                "event_type": "reasoning.started",
                 "session_id": "ses_1",
             }
         )
@@ -1090,7 +1090,7 @@ class TestReasoningEvents:
 
         done = deserialize_event(
             {
-                "event_type": "reasoning_done",
+                "event_type": "reasoning.done",
                 "session_id": "ses_1",
             }
         )
@@ -1128,7 +1128,7 @@ class TestReasoningTextChunkEvent:
 
         event = deserialize_event(
             {
-                "event_type": "reasoning.text_chunk",
+                "event_type": "reasoning.text.chunk",
                 "session_id": "ses_1",
                 "chunk": "some thought text",
             }
