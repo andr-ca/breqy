@@ -2030,3 +2030,55 @@ class TestRuntimeReasoningEventDispatch:
         started_idx = sent_types.index(EventType.REASONING_STARTED)
         done_idx = sent_types.index(EventType.REASONING_DONE)
         assert started_idx < done_idx
+
+
+class TestRuntimeReasoningTextChunkDispatch:
+    """Runtime dispatches ReasoningTextChunkEvent for reasoning_text provider events."""
+
+    @pytest.mark.asyncio
+    async def test_reasoning_text_chunk_published_to_client(self, make_runtime) -> None:
+        """reasoning_text provider event → ReasoningTextChunkEvent sent to client."""
+        from breqy.domain.events import ReasoningTextChunkEvent
+        from breqy.domain.enums import EventType
+
+        runtime = make_runtime(
+            provider_events=[
+                ProviderEvent(kind="reasoning_started"),
+                ProviderEvent(kind="reasoning_text", text="Some thought"),
+                ProviderEvent(kind="reasoning_done"),
+                ProviderEvent(kind="text", text="Hello"),
+                _complete_event(),
+            ]
+        )
+        await runtime.handle_work(_sample_work_event())
+
+        reasoning_chunk_events = [
+            e for e in runtime._client.sent_events if e.event_type == EventType.REASONING_TEXT_CHUNK
+        ]
+        assert len(reasoning_chunk_events) == 1
+        assert isinstance(reasoning_chunk_events[0], ReasoningTextChunkEvent)
+        assert reasoning_chunk_events[0].chunk == "Some thought"
+
+    @pytest.mark.asyncio
+    async def test_multiple_reasoning_text_chunks_all_published(self, make_runtime) -> None:
+        """Multiple reasoning_text provider events each become a ReasoningTextChunkEvent."""
+        from breqy.domain.enums import EventType
+
+        runtime = make_runtime(
+            provider_events=[
+                ProviderEvent(kind="reasoning_started"),
+                ProviderEvent(kind="reasoning_text", text="First chunk"),
+                ProviderEvent(kind="reasoning_text", text=" second chunk"),
+                ProviderEvent(kind="reasoning_done"),
+                ProviderEvent(kind="text", text="Answer"),
+                _complete_event(),
+            ]
+        )
+        await runtime.handle_work(_sample_work_event())
+
+        reasoning_chunk_events = [
+            e for e in runtime._client.sent_events if e.event_type == EventType.REASONING_TEXT_CHUNK
+        ]
+        assert len(reasoning_chunk_events) == 2
+        chunks = [e.chunk for e in reasoning_chunk_events]
+        assert chunks == ["First chunk", " second chunk"]
