@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from breqy.domain.enums import (
     ApprovalStatus,
+    ApprovalGrantScope,
     AutonomyLevel,
     FilesystemOperation,
     MemoryPromotionStatus,
@@ -115,6 +116,7 @@ class ApprovalRequest(BaseModel):
     agent_id: str
     tool_invocation_id: str
     description: str
+    grant_key: str = ""
     status: ApprovalStatus = ApprovalStatus.PENDING
     created_at: datetime = Field(default_factory=_now)
     expires_at: datetime | None = None
@@ -124,9 +126,30 @@ class ApprovalDecision(BaseModel):
     id: str = Field(default_factory=lambda: generate_prefixed_id("apd"))
     request_id: str
     granted: bool
-    extend_to_session: bool = False
+    grant_scope: ApprovalGrantScope = ApprovalGrantScope.ONCE
     reason: str = ""
     decided_at: datetime = Field(default_factory=_now)
+
+    @model_validator(mode="before")
+    @classmethod
+    def upgrade_extend_to_session(cls, value: object) -> object:
+        if isinstance(value, dict) and "grant_scope" not in value and value.get("extend_to_session"):
+            upgraded = dict(value)
+            upgraded["grant_scope"] = ApprovalGrantScope.SESSION
+            return upgraded
+        return value
+
+    @property
+    def extend_to_session(self) -> bool:
+        return self.grant_scope == ApprovalGrantScope.SESSION
+
+
+class ApprovalGrant(BaseModel):
+    id: str = Field(default_factory=lambda: generate_prefixed_id("apg"))
+    session_id: str | None = None
+    grant_key: str
+    scope: ApprovalGrantScope
+    created_at: datetime = Field(default_factory=_now)
 
 
 class PolicyRule(BaseModel):

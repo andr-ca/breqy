@@ -8,8 +8,9 @@ import structlog
 
 from breqy.a2a.envelope import Envelope
 from breqy.a2a.server import A2AServer
-from breqy.domain.enums import EventType, MessageRole
+from breqy.domain.enums import ApprovalStatus, EventType, MessageRole
 from breqy.domain.events import (
+    ApprovalDecidedEvent,
     AgentLifecycleEvent,
     AgentWorkRequestedEvent,
     ControlEvent,
@@ -17,7 +18,6 @@ from breqy.domain.events import (
     ModelListRequestedEvent,
     ModelSwitchRequestedEvent,
     PrivateMemoryOperationRequestedEvent,
-    PrivateMemoryOperationResultEvent,
     SessionCreateRequestedEvent,
     SessionCreatedEvent,
     ToolExecutionRequestedEvent,
@@ -52,6 +52,7 @@ from breqy.storage.interfaces import (
 )
 from breqy.tools.executor import ToolResult
 from breqy.tools import (
+    BrowserTool,
     FilesystemTool,
     MemoryPromoteTool,
     MemorySearchTool,
@@ -139,6 +140,8 @@ class EngineServer:
     async def stop(self) -> None:
         """Stop all subsystems cleanly."""
         self.agent_spawner.kill_all()
+        if self.tool_service is not None:
+            await self.tool_service.close()
         await self.a2a_server.stop()
         await self.event_writer.stop()
         logger.info("Engine server stopped")
@@ -178,6 +181,10 @@ class EngineServer:
 
         if isinstance(event, ToolExecutionRequestedEvent):
             await self._handle_tool_execution_request(event)
+            return
+
+        if isinstance(event, ApprovalDecidedEvent):
+            await self._handle_approval_decision(event, client_id=client_id)
             return
 
         if isinstance(event, PrivateMemoryOperationRequestedEvent):
@@ -342,6 +349,31 @@ class EngineServer:
             )
         await self.a2a_server.send_to(agent_info.client_id, Envelope.from_event(response))
 
+    async def _handle_approval_decision(
+        self,
+        event: ApprovalDecidedEvent,
+        *,
+        client_id: str,
+    ) -> None:
+        try:
+            await self.approval_service.decide(
+                event.approval_id,
+                granted=event.decision == ApprovalStatus.GRANTED,
+                grant_scope=event.grant_scope,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "Ignoring invalid approval decision",
+                approval_id=event.approval_id,
+                session_id=event.session_id,
+                client_id=client_id,
+                decision=event.decision.value,
+                error=str(exc),
+            )
+            return
+        await self.event_bus.publish(event)
+        await self.a2a_server.broadcast(Envelope.from_event(event), exclude_client=client_id)
+
     async def _route_private_memory_request(
         self, event: PrivateMemoryOperationRequestedEvent
     ) -> None:
@@ -473,6 +505,7 @@ class EngineServer:
 
     def _build_default_tool_registry(self) -> ToolRegistry:
         registry = ToolRegistry()
+        registry.register(BrowserTool())
         registry.register(ShellTool())
         registry.register(FilesystemTool())
         if self.memory_service is not None:

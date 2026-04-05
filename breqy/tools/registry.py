@@ -21,6 +21,9 @@ class ToolRegistry:
     def list_tools(self) -> list[str]:
         return list(self._tools.keys())
 
+    def iter_tools(self) -> list[ToolExecutor]:
+        return list(self._tools.values())
+
     def to_definitions(self, *, names: list[str] | None = None) -> list[ToolDefinition]:
         """Convert registered tools to ToolDefinition objects for LLM providers.
 

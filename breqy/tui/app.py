@@ -17,11 +17,11 @@ from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import Static
 
-from breqy.domain.enums import EventType, MessageRole
+from breqy.domain.enums import ApprovalStatus, EventType, MessageRole
 from breqy.domain.events import (
+    ApprovalDecidedEvent,
     Event,
     MessageSentEvent,
-    ModelInfoEvent,
     ModelListRequestedEvent,
     ModelListResponseEvent,
     ModelSwitchRequestedEvent,
@@ -37,6 +37,7 @@ from breqy.tui.screens.agent_logs import AgentLogsScreen, resolve_agent_log_path
 from breqy.tui.screens.logs import LogEntry, LogsScreen
 from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
+from breqy.tui.widgets.approval_prompt import ApprovalPrompt
 from breqy.tui.widgets.message_input import CommandExecuted, MessageSubmitted
 
 logger = structlog.get_logger(__name__)
@@ -515,6 +516,41 @@ class BreqyApp(App):
         )
         # Local echo: show the user message in ChatView immediately
         self._route_to_chat("handle_message_sent", event)
+        self.run_worker(self.send_event(event), exclusive=False)
+
+    def on_approval_prompt_approved(self, message: ApprovalPrompt.Approved) -> None:
+        chat_screen: ChatScreen | None = None
+        for screen in reversed(self.screen_stack):
+            if isinstance(screen, ChatScreen):
+                chat_screen = screen
+                break
+        if chat_screen is None:
+            return
+
+        event = ApprovalDecidedEvent(
+            session_id=chat_screen.session_id,
+            approval_id=message.approval_id,
+            event_type=EventType.APPROVAL_GRANTED,
+            decision=ApprovalStatus.GRANTED,
+            grant_scope=message.grant_scope,
+        )
+        self.run_worker(self.send_event(event), exclusive=False)
+
+    def on_approval_prompt_denied(self, message: ApprovalPrompt.Denied) -> None:
+        chat_screen: ChatScreen | None = None
+        for screen in reversed(self.screen_stack):
+            if isinstance(screen, ChatScreen):
+                chat_screen = screen
+                break
+        if chat_screen is None:
+            return
+
+        event = ApprovalDecidedEvent(
+            session_id=chat_screen.session_id,
+            approval_id=message.approval_id,
+            event_type=EventType.APPROVAL_DENIED,
+            decision=ApprovalStatus.DENIED,
+        )
         self.run_worker(self.send_event(event), exclusive=False)
 
     def on_command_executed(self, message: CommandExecuted) -> None:

@@ -14,7 +14,7 @@ from breqy.domain.events import (
 )
 from breqy.domain.models import ToolInvocation
 from breqy.policy.models import PolicyDecision
-from breqy.tools.executor import ToolExecutor, ToolResult
+from breqy.tools.executor import ApprovalRequestSpec, ToolExecutor, ToolResult
 from breqy.tools.service import ToolService
 
 
@@ -33,6 +33,7 @@ class RecordingTool(ToolExecutor):
         self._error = error
         self._log = log if log is not None else []
         self.calls: list[dict[str, Any]] = []
+        self.closed = False
 
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:
         self.calls.append(arguments)
@@ -41,6 +42,26 @@ class RecordingTool(ToolExecutor):
             raise self._error
         return self._result
 
+    async def close(self) -> None:
+        self.closed = True
+
+
+class FailingCloseTool(RecordingTool):
+    async def close(self) -> None:
+        self.closed = True
+        raise RuntimeError(f"{self.name} close failed")
+
+
+class ApprovalAwareTool(RecordingTool):
+    def __init__(self, *, name: str = "browser", log: list[str] | None = None) -> None:
+        super().__init__(name=name, log=log)
+
+    def approval_request_spec(self, arguments: dict[str, Any]) -> ApprovalRequestSpec:
+        return ApprovalRequestSpec(
+            description="Browser submit on google.com",
+            grant_key="browser:submit:google.com",
+        )
+
 
 class RecordingToolRegistry:
     def __init__(self, tools: dict[str, ToolExecutor] | None = None) -> None:
@@ -48,6 +69,9 @@ class RecordingToolRegistry:
 
     def get(self, name: str) -> ToolExecutor | None:
         return self._tools.get(name)
+
+    def iter_tools(self) -> list[ToolExecutor]:
+        return list(self._tools.values())
 
 
 class StubPolicyEvaluator:
@@ -81,8 +105,9 @@ class RecordingApprovalService:
         self.decision = decision
         self.request_id = request_id
         self._log = log if log is not None else []
-        self.request_calls: list[tuple[str, str, str, str]] = []
+        self.request_calls: list[tuple[str, str, str, str, str]] = []
         self.wait_calls: list[tuple[str, float]] = []
+        self.grants: set[tuple[str, str]] = set()
 
     async def request_approval(
         self,
@@ -90,8 +115,9 @@ class RecordingApprovalService:
         agent_id: str,
         tool_invocation_id: str,
         description: str,
+        grant_key: str = "",
     ) -> str:
-        self.request_calls.append((session_id, agent_id, tool_invocation_id, description))
+        self.request_calls.append((session_id, agent_id, tool_invocation_id, description, grant_key))
         self._log.append("approval.request")
         return self.request_id
 
@@ -103,6 +129,12 @@ class RecordingApprovalService:
         self.wait_calls.append((request_id, timeout))
         self._log.append("approval.wait")
         return self.decision
+
+    def has_grant(self, session_id: str, grant_key: str) -> bool:
+        return (session_id, grant_key) in self.grants
+
+    async def ensure_grants_loaded(self, session_id: str) -> None:
+        self._log.append(f"approval.ensure:{session_id}")
 
 
 class RecordingInvocationRepository:
@@ -299,6 +331,7 @@ async def test_service_requests_approval_before_execution() -> None:
     assert repo.updates[0]["approval_id"] == "apr_test"
     assert log == [
         "repo.create",
+        "approval.ensure:ses_123",
         "approval.request",
         "event.approval_requested",
         "repo.update:pending",
@@ -309,6 +342,113 @@ async def test_service_requests_approval_before_execution() -> None:
         "repo.update:completed",
         "event.completed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_service_uses_tool_specific_approval_metadata() -> None:
+    tool = ApprovalAwareTool()
+    service, _repo, approval_service, _event_bus, _ = build_service(
+        tool=tool,
+        tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_browser",
+        agent_id="agt_browser",
+        tool_name="browser",
+        arguments={"action": "submit", "url": "https://google.com"},
+    )
+
+    assert result.success is True
+    assert approval_service.request_calls == [
+        (
+            "ses_browser",
+            "agt_browser",
+            approval_service.request_calls[0][2],
+            "Browser submit on google.com",
+            "browser:submit:google.com",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_service_loads_persisted_grants_before_checking() -> None:
+    class LazyGrantApprovalService(RecordingApprovalService):
+        async def ensure_grants_loaded(self, session_id: str) -> None:
+            await super().ensure_grants_loaded(session_id)
+            self.grants.add((session_id, "browser:submit:google.com"))
+
+    tool = ApprovalAwareTool()
+    log: list[str] = []
+    service = ToolService(
+        registry=cast(Any, RecordingToolRegistry({tool.name: tool})),
+        policy_evaluator=cast(Any, StubPolicyEvaluator(PolicyAction.REQUIRE_APPROVAL)),
+        filesystem_policy_checker=cast(Any, RecordingFilesystemPolicyChecker()),
+        approval_service=cast(Any, LazyGrantApprovalService(log=log)),
+        invocation_repo=cast(Any, RecordingInvocationRepository(log=log)),
+        event_bus=RecordingEventBus(log=log),
+        approval_timeout=12.5,
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_browser",
+        agent_id="agt_browser",
+        tool_name="browser",
+        arguments={"action": "submit", "url": "https://google.com"},
+    )
+
+    assert result.success is True
+    assert log[0:2] == ["repo.create", "approval.ensure:ses_browser"]
+
+
+@pytest.mark.asyncio
+async def test_service_close_closes_registered_tools() -> None:
+    tool = RecordingTool(name="browser")
+    service, _, _, _, _ = build_service(tool=tool)
+
+    await service.close()
+
+    assert tool.closed is True
+
+
+@pytest.mark.asyncio
+async def test_service_close_continues_when_tool_close_fails() -> None:
+    failing = FailingCloseTool(name="browser")
+    healthy = RecordingTool(name="shell")
+    service = ToolService(
+        registry=cast(Any, RecordingToolRegistry({failing.name: failing, healthy.name: healthy})),
+        policy_evaluator=cast(Any, StubPolicyEvaluator(PolicyAction.ALLOW)),
+        filesystem_policy_checker=cast(Any, RecordingFilesystemPolicyChecker()),
+        approval_service=cast(Any, RecordingApprovalService()),
+        invocation_repo=cast(Any, RecordingInvocationRepository()),
+        event_bus=RecordingEventBus(),
+    )
+
+    await service.close()
+
+    assert failing.closed is True
+    assert healthy.closed is True
+
+
+@pytest.mark.asyncio
+async def test_service_skips_approval_when_matching_grant_exists() -> None:
+    tool = ApprovalAwareTool()
+    service, _repo, approval_service, _event_bus, _ = build_service(
+        tool=tool,
+        tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
+    )
+    approval_service.grants.add(("ses_browser", "browser:submit:google.com"))
+
+    result = await service.execute_tool(
+        session_id="ses_browser",
+        agent_id="agt_browser",
+        tool_name="browser",
+        arguments={"action": "submit", "url": "https://google.com"},
+    )
+
+    assert result.success is True
+    assert approval_service.request_calls == []
+    assert approval_service.wait_calls == []
 
 
 @pytest.mark.asyncio

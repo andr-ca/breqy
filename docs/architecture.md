@@ -70,6 +70,9 @@ The architecture must:
 - `ToolService` creates a durable `ToolInvocation` record before execution, updates lifecycle state in storage, and emits typed tool events onto the engine event bus
 - the engine `EventWriter` subscribes to the event bus and persists tool lifecycle events through the same sequential writer used for all other runtime events
 - native Slice 1 tools are local shell and filesystem tools; remote MCP tools are adapted into the same registry interface so callers do not need a separate execution path
+- browser automation now follows the same native path via a single `browser` tool, with typed internal action handlers behind the public tool surface
+- approval decisions may be cached as structured grants (once/session/forever) keyed by action type + domain rather than only ad-hoc prompt text
+- large browser outputs such as screenshots should travel as compact references/metadata in tool results instead of oversized inline payloads on the event bus
 
 ## 4. Communication model
 

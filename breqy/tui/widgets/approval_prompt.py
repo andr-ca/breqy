@@ -15,6 +15,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
+from breqy.domain.enums import ApprovalGrantScope
 from breqy.domain.models import ApprovalRequest
 
 
@@ -33,6 +34,7 @@ class ApprovalPrompt(Widget):
     BINDINGS = [
         Binding("a", "approve", "Approve", show=False),
         Binding("s", "approve_session", "Approve for Session", show=False),
+        Binding("f", "approve_forever", "Approve Forever", show=False),
         Binding("d", "deny", "Deny", show=False),
     ]
 
@@ -43,10 +45,18 @@ class ApprovalPrompt(Widget):
     class Approved(Message):
         """Posted when the user approves a request."""
 
-        def __init__(self, approval_id: str, extend_to_session: bool = False) -> None:
+        def __init__(
+            self,
+            approval_id: str,
+            grant_scope: ApprovalGrantScope = ApprovalGrantScope.ONCE,
+        ) -> None:
             super().__init__()
             self.approval_id = approval_id
-            self.extend_to_session = extend_to_session
+            self.grant_scope = grant_scope
+
+        @property
+        def extend_to_session(self) -> bool:
+            return self.grant_scope == ApprovalGrantScope.SESSION
 
     class Denied(Message):
         """Posted when the user denies a request."""
@@ -90,11 +100,15 @@ class ApprovalPrompt(Widget):
 
     def action_approve(self) -> None:
         """Approve the current request."""
-        self._decide_approve(extend_to_session=False)
+        self._decide_approve(grant_scope=ApprovalGrantScope.ONCE)
 
     def action_approve_session(self) -> None:
         """Approve the current request for the entire session."""
-        self._decide_approve(extend_to_session=True)
+        self._decide_approve(grant_scope=ApprovalGrantScope.SESSION)
+
+    def action_approve_forever(self) -> None:
+        """Approve the current request permanently."""
+        self._decide_approve(grant_scope=ApprovalGrantScope.FOREVER)
 
     def action_deny(self) -> None:
         """Deny the current request."""
@@ -116,6 +130,8 @@ class ApprovalPrompt(Widget):
             self.action_approve()
         elif button_id == "btn-approve-session":
             self.action_approve_session()
+        elif button_id == "btn-approve-forever":
+            self.action_approve_forever()
         elif button_id == "btn-deny":
             self.action_deny()
 
@@ -123,7 +139,7 @@ class ApprovalPrompt(Widget):
     # Internal helpers
     # ------------------------------------------------------------------ #
 
-    def _decide_approve(self, *, extend_to_session: bool) -> None:
+    def _decide_approve(self, *, grant_scope: ApprovalGrantScope) -> None:
         """Common logic for approve / approve-for-session."""
         request = self.current_request
         if request is None:
@@ -132,7 +148,7 @@ class ApprovalPrompt(Widget):
         self.post_message(
             self.Approved(
                 approval_id=request.id,
-                extend_to_session=extend_to_session,
+                grant_scope=grant_scope,
             )
         )
         self._advance()
@@ -165,9 +181,14 @@ class ApprovalPrompt(Widget):
             id="btn-approve-session",
             variant="warning",
         )
+        forever_btn = Button(
+            "Approve Forever (F)",
+            id="btn-approve-forever",
+            variant="primary",
+        )
         deny_btn = Button("Deny (D)", id="btn-deny", variant="error")
         self._button_bar = Horizontal(
-            approve_btn, session_btn, deny_btn, id="approval-buttons"
+            approve_btn, session_btn, forever_btn, deny_btn, id="approval-buttons"
         )
         self.mount(self._description_widget, self._button_bar)
 

@@ -81,6 +81,12 @@ class ApprovalStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class ApprovalGrantScope(StrEnum):
+    ONCE = "once"
+    SESSION = "session"
+    FOREVER = "forever"
+
+
 class PolicyScope(StrEnum):
     GLOBAL = "global"
     SESSION = "session"

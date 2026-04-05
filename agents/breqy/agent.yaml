@@ -9,6 +9,7 @@ tool_permissions:
   - shell
   - fs
   - memory
+  - browser
 skill_permissions:
   - plan
   - review
