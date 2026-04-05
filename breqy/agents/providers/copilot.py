@@ -473,6 +473,12 @@ class CopilotProvider(ModelProvider):
                 if delta:
                     yield ProviderEvent(kind="text", text=delta)
 
+            # Reasoning summary text chunk
+            elif event_type == "response.reasoning_summary_text.delta":
+                delta = event.get("delta", "")
+                if delta:
+                    yield ProviderEvent(kind="reasoning_text", text=delta)
+
             # Reasoning item started
             elif event_type == "response.output_item.added":
                 item = event.get("item", {})

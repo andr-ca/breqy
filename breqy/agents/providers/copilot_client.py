@@ -120,6 +120,7 @@ class CopilotApiClient:
             "model": model,
             "input": input_messages,
             "stream": True,
+            "reasoning": {"summary": "auto"},
         }
         if tools is not None:
             body["tools"] = tools

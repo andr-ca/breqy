@@ -238,6 +238,34 @@ class TestStreamResponsesErrors:
         assert exc_info.value.status_code == 400
 
 
+class TestStreamResponsesReasoningParam:
+    """stream_responses must send reasoning: {summary: auto} in the request body."""
+
+    def test_stream_responses_sends_reasoning_summary_auto(self) -> None:
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(
+            client.stream_responses(
+                token="gho_test",
+                model="gpt-5.4-mini",
+                input_messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+
+        call_args = mock_client.stream.call_args
+        body = call_args[1].get("json", {})
+        assert "reasoning" in body, "reasoning key missing from request body"
+        assert body["reasoning"] == {"summary": "auto"}, (
+            f"Expected reasoning={{summary: auto}}, got {body['reasoning']}"
+        )
+
+
 class TestStreamResponsesTools:
     def test_tools_included_in_request(self) -> None:
         from breqy.agents.providers.copilot_client import CopilotApiClient
@@ -366,6 +394,67 @@ class TestStreamResponsesReasoningItem:
         kinds = [e.kind for e in events]
         assert "reasoning_started" not in kinds
         assert "reasoning_done" not in kinds
+
+
+class TestStreamResponsesReasoningTextDelta:
+    """_do_stream_responses emits reasoning_text events for response.reasoning_summary_text.delta."""
+
+    def _make_provider(self):
+        from breqy.agents.providers.copilot import CopilotProvider
+        from unittest.mock import MagicMock
+
+        authenticator = MagicMock()
+        authenticator.get_copilot_token.return_value = "tok"
+        return CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=authenticator, client=MagicMock()
+        )
+
+    def test_reasoning_summary_text_delta_yields_reasoning_text_event(self) -> None:
+        from breqy.agents.providers.base import ProviderRequest
+        from pathlib import Path
+
+        reasoning_delta_1 = {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "First thought",
+        }
+        reasoning_delta_2 = {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": " continues here",
+        }
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter(
+            [reasoning_delta_1, reasoning_delta_2, completed]
+        )
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        reasoning_text_events = [e for e in events if e.kind == "reasoning_text"]
+        assert len(reasoning_text_events) == 2
+        assert reasoning_text_events[0].text == "First thought"
+        assert reasoning_text_events[1].text == " continues here"
+
+    def test_empty_reasoning_delta_is_not_yielded(self) -> None:
+        """Empty or missing delta strings must not produce reasoning_text events."""
+        from breqy.agents.providers.base import ProviderRequest
+        from pathlib import Path
+
+        reasoning_delta_empty = {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "",
+        }
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter([reasoning_delta_empty, completed])
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        reasoning_text_events = [e for e in events if e.kind == "reasoning_text"]
+        assert reasoning_text_events == []
 
 
 # --------------------------------------------------------------------------- #
