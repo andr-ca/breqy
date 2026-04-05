@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 
 from breqy.a2a.envelope import Envelope
 from breqy.domain.events import (
+    ApprovalDecidedEvent,
     AgentLifecycleEvent,
     AgentWorkRequestedEvent,
     ControlEvent,
@@ -16,7 +18,15 @@ from breqy.domain.events import (
     TaskUpdatedEvent,
     ToolExecutionRequestedEvent,
 )
-from breqy.domain.enums import EventType, MemoryScope, MessageRole, TaskStatus, ToolStatus
+from breqy.domain.enums import (
+    ApprovalGrantScope,
+    ApprovalStatus,
+    EventType,
+    MemoryScope,
+    MessageRole,
+    TaskStatus,
+    ToolStatus,
+)
 from breqy.domain.models import Session, SessionContextBundle
 from breqy.engine.server import EngineServer
 from breqy.memory.service import MemoryService
@@ -31,6 +41,7 @@ from breqy.storage.sqlite.participant_repo import SqliteParticipantRepository
 from breqy.storage.sqlite.session_repo import SqliteSessionRepository
 from breqy.storage.sqlite.task_repo import SqliteTaskRepository
 from breqy.storage.sqlite.tool_invocation_repo import SqliteToolInvocationRepository
+from breqy.tools.executor import ToolExecutor, ToolResult
 from breqy.tools.registry import ToolRegistry
 from breqy.tools.shell import ShellTool
 
@@ -45,7 +56,6 @@ async def test_engine_server_composes_tool_service_and_persists_tool_events(
     event_repo = SqliteEventRepository(db_connection)
     task_repo = SqliteTaskRepository(db_connection)
     approval_repo = SqliteApprovalRepository(db_connection)
-    memory_repo = SqliteMemoryRepository(db_connection)
     invocation_repo = SqliteToolInvocationRepository(db_connection)
 
     session = Session(primary_agent_id="agent_breqy")
@@ -76,23 +86,69 @@ async def test_engine_server_composes_tool_service_and_persists_tool_events(
             tool_name="shell",
             arguments={"command": "printf hello"},
         )
+        assert result.success is True
+        assert result.output == {"stdout": "hello", "stderr": "", "return_code": 0}
+
+        invocations = await invocation_repo.list_by_session(session.id)
+        assert len(invocations) == 1
+        assert invocations[0].tool_name == "shell"
+        assert invocations[0].status == ToolStatus.COMPLETED
+        assert invocations[0].result == result.output
+
+        events = await event_repo.list_by_session(session.id, limit=10)
+        assert [event.event_type for event in events] == [
+            EventType.TOOL_INVOCATION_STARTED,
+            EventType.TOOL_INVOCATION_COMPLETED,
+        ]
     finally:
         await server.stop()
 
-    assert result.success is True
-    assert result.output == {"stdout": "hello", "stderr": "", "return_code": 0}
 
-    invocations = await invocation_repo.list_by_session(session.id)
-    assert len(invocations) == 1
-    assert invocations[0].tool_name == "shell"
-    assert invocations[0].status == ToolStatus.COMPLETED
-    assert invocations[0].result == result.output
+@pytest.mark.asyncio
+async def test_engine_server_stop_closes_registered_tools(
+    db_connection,
+    socket_path,
+) -> None:
+    class ClosableTool(ToolExecutor):
+        name = "closable"
+        description = "Closable tool"
+        input_schema = {"type": "object", "properties": {}}
 
-    events = await event_repo.list_by_session(session.id, limit=10)
-    assert [event.event_type for event in events] == [
-        EventType.TOOL_INVOCATION_STARTED,
-        EventType.TOOL_INVOCATION_COMPLETED,
-    ]
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def execute(self, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(success=True)
+
+        async def close(self) -> None:
+            self.closed = True
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    invocation_repo = SqliteToolInvocationRepository(db_connection)
+
+    registry = ToolRegistry()
+    tool = ClosableTool()
+    registry.register(tool)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+        tool_invocation_repo=invocation_repo,
+        tool_registry=registry,
+    )
+
+    await server.start()
+    await server.stop()
+
+    assert tool.closed is True
 
 
 @pytest.mark.asyncio
@@ -495,6 +551,7 @@ async def test_engine_server_work_request_includes_available_tools_from_registry
     socket_path,
 ) -> None:
     """When EngineServer has a tool registry, AgentWorkRequestedEvent carries available_tools."""
+    from breqy.tools.browser import BrowserTool
     from breqy.tools.filesystem import FilesystemTool
 
     session_repo = SqliteSessionRepository(db_connection)
@@ -507,6 +564,7 @@ async def test_engine_server_work_request_includes_available_tools_from_registry
     await session_repo.create(session)
 
     registry = ToolRegistry()
+    registry.register(BrowserTool())
     registry.register(ShellTool())
     registry.register(FilesystemTool())
 
@@ -544,9 +602,9 @@ async def test_engine_server_work_request_includes_available_tools_from_registry
     assert len(sent) == 1
     routed_event = sent[0][1].to_event()
     assert isinstance(routed_event, AgentWorkRequestedEvent)
-    assert len(routed_event.available_tools) == 2
+    assert len(routed_event.available_tools) == 3
     tool_names = {t.name for t in routed_event.available_tools}
-    assert tool_names == {"shell", "filesystem"}
+    assert tool_names == {"browser", "shell", "filesystem"}
     # Each tool definition must have a non-empty input_schema
     for tool_def in routed_event.available_tools:
         assert tool_def.input_schema, f"{tool_def.name} should have a non-empty input_schema"
@@ -596,6 +654,86 @@ async def test_engine_server_work_request_has_empty_tools_when_no_registry(
     routed_event = sent[0][1].to_event()
     assert isinstance(routed_event, AgentWorkRequestedEvent)
     assert routed_event.available_tools == []
+
+
+@pytest.mark.asyncio
+async def test_engine_server_routes_approval_decision_to_approval_service(
+    db_connection,
+    socket_path,
+) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.approval_service.decide = AsyncMock()  # type: ignore[method-assign]
+
+    event = ApprovalDecidedEvent(
+        session_id=session.id,
+        approval_id="apr_browser",
+        event_type=EventType.APPROVAL_GRANTED,
+        decision=ApprovalStatus.GRANTED,
+        grant_scope=ApprovalGrantScope.FOREVER,
+    )
+
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_tui")
+
+    server.approval_service.decide.assert_awaited_once_with(
+        "apr_browser",
+        granted=True,
+        grant_scope=ApprovalGrantScope.FOREVER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_engine_server_ignores_invalid_approval_decision_without_disconnect(
+    db_connection,
+    socket_path,
+) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.approval_service.decide = AsyncMock(side_effect=ValueError("No pending approval"))  # type: ignore[method-assign]
+    server.event_bus.publish = AsyncMock()  # type: ignore[method-assign]
+    server.a2a_server.broadcast = AsyncMock()  # type: ignore[method-assign]
+
+    event = ApprovalDecidedEvent(
+        session_id=session.id,
+        approval_id="apr_missing",
+        event_type=EventType.APPROVAL_GRANTED,
+        decision=ApprovalStatus.GRANTED,
+        grant_scope=ApprovalGrantScope.ONCE,
+    )
+
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_tui")
+
+    server.approval_service.decide.assert_awaited_once()
+    server.event_bus.publish.assert_not_called()
+    server.a2a_server.broadcast.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1452,7 +1590,7 @@ async def test_engine_server_session_create_preserves_explicit_agent_id(
     socket_path,
 ) -> None:
     """Session created with an explicit agent_id (not 'default') preserves it."""
-    from breqy.domain.events import SessionCreateRequestedEvent, SessionCreatedEvent
+    from breqy.domain.events import SessionCreateRequestedEvent
 
     session_repo = SqliteSessionRepository(db_connection)
     message_repo = SqliteMessageRepository(db_connection)

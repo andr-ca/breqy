@@ -40,6 +40,15 @@ from breqy.utils.logging import default_log_file, setup_logging
 
 logger = structlog.get_logger(__name__)
 
+_TOOL_PERMISSION_ALIASES: dict[str, set[str]] = {
+    "fs": {"filesystem"},
+    "memory": {
+        "mcp.memory.n--search",
+        "mcp.memory.n--write",
+        "mcp.memory.n--promote",
+    },
+}
+
 
 class ToolResultWaiter(Protocol):
     async def wait_for(self, invocation_id: str) -> ToolExecutionResultEvent: ...
@@ -637,8 +646,16 @@ class AgentRuntime:
         permissions = self._config.tool_permissions
         if not permissions:
             return list(available_tools)
-        allowed = set(permissions)
+        allowed = self._expand_tool_permissions(permissions)
         return [t for t in available_tools if t.name in allowed]
+
+    @staticmethod
+    def _expand_tool_permissions(permissions: list[str]) -> set[str]:
+        allowed = set(permissions)
+        for alias, expanded_names in _TOOL_PERMISSION_ALIASES.items():
+            if alias in allowed:
+                allowed.update(expanded_names)
+        return allowed
 
     async def _emit_skill_failure(
         self,

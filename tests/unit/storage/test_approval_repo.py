@@ -2,8 +2,8 @@
 
 import pytest
 
-from breqy.domain.enums import ApprovalStatus
-from breqy.domain.models import ApprovalDecision, ApprovalRequest, Session
+from breqy.domain.enums import ApprovalGrantScope, ApprovalStatus
+from breqy.domain.models import ApprovalDecision, ApprovalGrant, ApprovalRequest, Session
 from breqy.storage.sqlite.session_repo import SqliteSessionRepository
 from breqy.storage.sqlite.approval_repo import SqliteApprovalRepository
 
@@ -27,6 +27,27 @@ async def test_create_and_get_approval_request(db_connection) -> None:
     assert result is not None
     assert result.description == "Execute: rm /tmp/file"
     assert result.status == ApprovalStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_create_and_get_approval_request_persists_grant_key(db_connection) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    session = Session(primary_agent_id="agent_breqy")
+    await session_repo.create(session)
+
+    repo = SqliteApprovalRepository(db_connection)
+    req = ApprovalRequest(
+        session_id=session.id,
+        agent_id="agent_breqy",
+        tool_invocation_id="inv_browser",
+        description="Browser submit on google.com",
+        grant_key="browser:submit:google.com",
+    )
+    await repo.create_request(req)
+
+    result = await repo.get_request(req.id)
+    assert result is not None
+    assert result.grant_key == "browser:submit:google.com"
 
 
 @pytest.mark.asyncio
@@ -101,12 +122,69 @@ async def test_create_decision_and_get_grants(db_connection) -> None:
     decision = ApprovalDecision(
         request_id=req.id,
         granted=True,
-        extend_to_session=True,
+        grant_scope=ApprovalGrantScope.SESSION,
     )
     await repo.create_decision(decision)
     await repo.update_request_status(req.id, ApprovalStatus.GRANTED)
 
     grants = await repo.get_session_grants(session.id)
     assert len(grants) == 1
-    assert grants[0].extend_to_session is True
+    assert grants[0].grant_scope == ApprovalGrantScope.SESSION
     assert grants[0].granted is True
+
+
+@pytest.mark.asyncio
+async def test_create_and_query_persistent_approval_grants(db_connection) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    session = Session(primary_agent_id="agent_breqy")
+    await session_repo.create(session)
+
+    repo = SqliteApprovalRepository(db_connection)
+    session_grant = ApprovalGrant(
+        session_id=session.id,
+        grant_key="browser:submit:google.com",
+        scope=ApprovalGrantScope.SESSION,
+    )
+    forever_grant = ApprovalGrant(
+        session_id=None,
+        grant_key="browser:extract:google.com",
+        scope=ApprovalGrantScope.FOREVER,
+    )
+
+    await repo.create_grant(session_grant)
+    await repo.create_grant(forever_grant)
+
+    assert await repo.has_grant(session_id=session.id, grant_key="browser:submit:google.com") is True
+    assert await repo.has_grant(session_id=session.id, grant_key="browser:extract:google.com") is True
+    assert await repo.has_grant(session_id="ses_other", grant_key="browser:submit:google.com") is False
+
+
+@pytest.mark.asyncio
+async def test_create_grant_ignores_duplicate_scope_key_rows(db_connection) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    session = Session(primary_agent_id="agent_breqy")
+    await session_repo.create(session)
+
+    repo = SqliteApprovalRepository(db_connection)
+    first = ApprovalGrant(
+        session_id=session.id,
+        grant_key="browser:submit:google.com",
+        scope=ApprovalGrantScope.SESSION,
+    )
+    second = ApprovalGrant(
+        session_id=session.id,
+        grant_key="browser:submit:google.com",
+        scope=ApprovalGrantScope.SESSION,
+    )
+
+    await repo.create_grant(first)
+    await repo.create_grant(second)
+
+    grants = await repo.get_grants(session.id)
+    matching = [
+        grant for grant in grants
+        if grant.session_id == session.id
+        and grant.grant_key == "browser:submit:google.com"
+        and grant.scope == ApprovalGrantScope.SESSION
+    ]
+    assert len(matching) == 1

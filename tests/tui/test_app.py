@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from breqy.domain.enums import ApprovalGrantScope
 from breqy.tui.app import BreqyApp
+from breqy.tui.widgets.approval_prompt import ApprovalPrompt
 
 
 # ============================================================================ #
@@ -94,7 +96,7 @@ class TestBreqyAppMount:
     @pytest.mark.asyncio
     async def test_app_mounts_without_error(self) -> None:
         app = BreqyApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Verify it mounted without crashing
             assert app.is_running
 
@@ -104,13 +106,13 @@ class TestBreqyAppMount:
         from breqy.tui.screens.session_list import SessionListScreen
 
         app = BreqyApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             assert isinstance(app.screen, SessionListScreen)
 
     @pytest.mark.asyncio
     async def test_pop_screen_safe_pops_pushed_screen(self) -> None:
         app = BreqyApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # SessionListScreen was pushed on mount (stack = 2)
             assert len(app.screen_stack) == 2
             app.action_pop_screen_safe()
@@ -120,7 +122,7 @@ class TestBreqyAppMount:
     @pytest.mark.asyncio
     async def test_pop_screen_safe_does_not_pop_last_screen(self) -> None:
         app = BreqyApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Pop pushed screen first, leaving only default
             app.action_pop_screen_safe()
             assert len(app.screen_stack) == 1
@@ -132,7 +134,7 @@ class TestBreqyAppMount:
     async def test_no_worker_started_when_no_socket(self) -> None:
         """When socket_path is empty, no A2A listener worker is started."""
         app = BreqyApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Workers list should be empty — no listener started
             assert len(app.workers) == 0
 
@@ -179,6 +181,37 @@ class TestDispatcherSetup:
 
         app = BreqyApp()
         assert app._dispatcher.has_handler(EventType.APPROVAL_REQUESTED)
+
+
+class TestApprovalDecisionHandlers:
+    @pytest.mark.asyncio
+    async def test_approval_prompt_approved_sends_approval_decided_event(self) -> None:
+        from breqy.domain.enums import ApprovalStatus, EventType
+        from breqy.domain.events import ApprovalDecidedEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+        app.send_event = AsyncMock()  # type: ignore[method-assign]
+
+        async with app.run_test() as pilot:
+            app.push_screen(ChatScreen(session_id="ses_approval"))
+            await pilot.pause()
+
+            app.on_approval_prompt_approved(
+                ApprovalPrompt.Approved(
+                    approval_id="apr_123",
+                    grant_scope=ApprovalGrantScope.FOREVER,
+                )
+            )
+            await pilot.pause()
+
+        sent_event = app.send_event.await_args.args[0]
+        assert isinstance(sent_event, ApprovalDecidedEvent)
+        assert sent_event.session_id == "ses_approval"
+        assert sent_event.approval_id == "apr_123"
+        assert sent_event.decision == ApprovalStatus.GRANTED
+        assert sent_event.event_type == EventType.APPROVAL_GRANTED
+        assert sent_event.grant_scope == ApprovalGrantScope.FOREVER
 
     def test_dispatcher_has_handlers_for_agent_lifecycle(self) -> None:
         from breqy.domain.enums import EventType
@@ -280,7 +313,7 @@ class TestEventRouting:
     @pytest.mark.asyncio
     async def test_route_to_chat_calls_handler(self) -> None:
         """When a ChatScreen is on the stack, dispatch calls its handler."""
-        from breqy.domain.enums import EventType, MessageRole
+        from breqy.domain.enums import MessageRole
         from breqy.domain.events import MessageSentEvent
         from breqy.tui.screens.chat import ChatScreen
 
@@ -306,11 +339,11 @@ class TestEventRouting:
     @pytest.mark.asyncio
     async def test_route_to_chat_noop_without_chat_screen(self) -> None:
         """When no ChatScreen is on the stack, dispatch is a silent no-op."""
-        from breqy.domain.enums import EventType, MessageRole
+        from breqy.domain.enums import MessageRole
         from breqy.domain.events import MessageSentEvent
 
         app = BreqyApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             # Only SessionListScreen on stack, no ChatScreen
             event = MessageSentEvent(
                 session_id="ses_test",
@@ -629,8 +662,6 @@ class TestNewSessionCreation:
 
         app = BreqyApp(socket_path="/tmp/test.sock")
 
-        original_send = app.send_event
-
         async def capture_send(event):
             sent_events.append(event)
 
@@ -649,7 +680,6 @@ class TestNewSessionCreation:
     @pytest.mark.asyncio
     async def test_session_created_event_pushes_chat_screen(self) -> None:
         """When a SessionCreatedEvent is dispatched, app pushes ChatScreen."""
-        from breqy.domain.enums import EventType
         from breqy.domain.events import SessionCreatedEvent
         from breqy.tui.screens.chat import ChatScreen
 
@@ -707,7 +737,6 @@ class TestUserMessageSend:
         from breqy.domain.enums import MessageRole
         from breqy.domain.events import MessageSentEvent
         from breqy.tui.screens.chat import ChatScreen
-        from breqy.tui.screens.session_list import SessionListScreen
 
         sent_events: list = []
 
@@ -859,7 +888,7 @@ class TestLogBuffer:
 
     def test_route_to_logs_appends_to_buffer(self) -> None:
         """_route_to_logs should always append to _log_buffer, even without LogsScreen."""
-        from breqy.domain.enums import EventType, MessageRole
+        from breqy.domain.enums import MessageRole
         from breqy.domain.events import MessageSentEvent
 
         app = BreqyApp()
@@ -1020,7 +1049,6 @@ class TestModelListResponseDispatcher:
     async def test_model_list_response_clears_pending_flag(self) -> None:
         """MODEL_LIST_RESPONSE should clear the _model_list_pending flag."""
         from breqy.domain.events import ModelListResponseEvent
-        from breqy.domain.models import ModelEntry
         from breqy.tui.screens.chat import ChatScreen
 
         app = BreqyApp()
@@ -1186,7 +1214,6 @@ class TestCtrlMModelList:
     async def test_ctrl_m_does_not_push_model_select_directly(self) -> None:
         """ctrl+m should NOT immediately push ModelSelectScreen (waits for response)."""
         from breqy.tui.screens.chat import ChatScreen
-        from breqy.tui.screens.model_select import ModelSelectScreen
 
         app = BreqyApp()
 
@@ -1265,7 +1292,6 @@ class TestModelSelectedHandler:
     @pytest.mark.asyncio
     async def test_model_selected_uses_correct_session_id(self) -> None:
         """ModelSwitchRequestedEvent should use the ChatScreen's session_id."""
-        from breqy.domain.events import ModelSwitchRequestedEvent
         from breqy.tui.screens.chat import ChatScreen
         from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
 
@@ -1499,7 +1525,6 @@ class TestModelListPendingDeadlockPrevention:
         from breqy.domain.events import ModelListResponseEvent
         from breqy.domain.models import ModelEntry
         from breqy.tui.screens.chat import ChatScreen
-        from breqy.tui.screens.model_select import ModelSelectScreen
 
         app = BreqyApp()
 
@@ -2052,7 +2077,6 @@ class TestAutoCopyOnTextSelected:
     @pytest.mark.asyncio
     async def test_text_selected_copies_to_clipboard(self) -> None:
         """on_text_selected should call copy_to_clipboard with the selected text."""
-        from unittest.mock import patch
 
         from breqy.tui.screens.chat import ChatScreen
 
@@ -2098,7 +2122,6 @@ class TestAutoCopyOnTextSelected:
     @pytest.mark.asyncio
     async def test_text_selected_noop_when_no_selection(self) -> None:
         """on_text_selected should not copy when there is no active selection."""
-        from unittest.mock import patch
 
         app = BreqyApp()
         copied: list[str] = []

@@ -598,7 +598,6 @@ def test_build_provider_falls_back_to_file_secret_when_keyring_fails(monkeypatch
     """_build_provider() tries FileSecretProvider when KeyringSecretProvider fails."""
     from breqy.agents.runtime import _build_provider, _NullProvider
     from breqy.config.models import AgentConfig
-    from breqy.secrets.provider import FileSecretProvider
 
     config = AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o")
 
@@ -976,7 +975,6 @@ async def test_handle_work_sends_notice_as_complete_message():
 
     Subsequent text events should use a NEW message_id.
     """
-    from breqy.domain.events import MessageChunkEvent
 
     events = [
         ProviderEvent(kind="notice", text="Please authenticate at https://example.com"),
@@ -1200,6 +1198,11 @@ async def test_handle_work_filters_tools_by_agent_tool_permissions() -> None:
         description="Filesystem operations",
         input_schema={"type": "object", "properties": {"operation": {"type": "string"}}},
     )
+    browser_def = ToolDefinition(
+        name="browser",
+        description="Browser automation",
+        input_schema={"type": "object", "properties": {"action": {"type": "string"}}},
+    )
     memory_def = ToolDefinition(
         name="memory",
         description="Memory search",
@@ -1224,7 +1227,7 @@ async def test_handle_work_filters_tools_by_agent_tool_permissions() -> None:
         name="Breqy",
         provider="copilot",
         model="gpt-4o",
-        tool_permissions=["shell", "filesystem"],
+        tool_permissions=["shell", "filesystem", "browser"],
     )
     from breqy.agents.runtime import AgentRuntime
 
@@ -1245,16 +1248,109 @@ async def test_handle_work_filters_tools_by_agent_tool_permissions() -> None:
         message_id="msg_user",
         user_message_content="search memory",
         session_context=SessionContextBundle(messages=[]),
-        available_tools=[shell_def, fs_def, memory_def],
+        available_tools=[shell_def, fs_def, browser_def, memory_def],
     )
 
     await runtime.handle_work(work)
 
     assert len(provider.requests) == 1
     request = provider.requests[0]
-    # Only shell and filesystem should be passed, not memory
+    # Only shell, filesystem, and browser should be passed, not memory
     tool_names = {t.name for t in request.tools}
-    assert tool_names == {"shell", "filesystem"}
+    assert tool_names == {"shell", "filesystem", "browser"}
+
+
+@pytest.mark.asyncio
+async def test_handle_work_normalizes_tool_permission_aliases() -> None:
+    """Runtime expands legacy alias permissions like fs/memory to canonical tool names."""
+    from breqy.agents.providers.base import ToolDefinition
+    from breqy.config.models import AgentConfig
+
+    shell_def = ToolDefinition(
+        name="shell",
+        description="Execute shell commands",
+        input_schema={"type": "object", "properties": {"command": {"type": "string"}}},
+    )
+    fs_def = ToolDefinition(
+        name="filesystem",
+        description="Filesystem operations",
+        input_schema={"type": "object", "properties": {"operation": {"type": "string"}}},
+    )
+    browser_def = ToolDefinition(
+        name="browser",
+        description="Browser automation",
+        input_schema={"type": "object", "properties": {"action": {"type": "string"}}},
+    )
+    memory_defs = [
+        ToolDefinition(
+            name="mcp.memory.n--search",
+            description="Search memory",
+            input_schema={"type": "object", "properties": {"query": {"type": "string"}}},
+        ),
+        ToolDefinition(
+            name="mcp.memory.n--write",
+            description="Write memory",
+            input_schema={"type": "object", "properties": {"content": {"type": "string"}}},
+        ),
+        ToolDefinition(
+            name="mcp.memory.n--promote",
+            description="Promote memory",
+            input_schema={"type": "object", "properties": {"record_id": {"type": "string"}}},
+        ),
+    ]
+
+    provider = FakeProvider(
+        events=[
+            ProviderEvent(
+                kind="complete",
+                metadata=CompletionMetadata(
+                    provider_id="copilot",
+                    model_id="gpt-4o",
+                    exit_code=0,
+                ),
+            )
+        ]
+    )
+    config = AgentConfig(
+        id="breqy",
+        name="Breqy",
+        provider="copilot",
+        model="gpt-4o",
+        tool_permissions=["shell", "fs", "memory", "browser"],
+    )
+    from breqy.agents.runtime import AgentRuntime
+
+    runtime = AgentRuntime(
+        config=config,
+        agent_dir=Path("."),
+        client=cast(Any, FakeA2AClient()),
+        provider=cast(Any, provider),
+        skill_loader=None,
+        private_memory_runtime=None,
+        tool_result_waiter=None,
+    )
+
+    work = AgentWorkRequestedEvent(
+        session_id="ses_123",
+        agent_id="breqy",
+        correlation_id="corr_alias",
+        message_id="msg_alias",
+        user_message_content="use tools",
+        session_context=SessionContextBundle(messages=[]),
+        available_tools=[shell_def, fs_def, browser_def, *memory_defs],
+    )
+
+    await runtime.handle_work(work)
+
+    tool_names = {t.name for t in provider.requests[0].tools}
+    assert tool_names == {
+        "shell",
+        "filesystem",
+        "browser",
+        "mcp.memory.n--search",
+        "mcp.memory.n--write",
+        "mcp.memory.n--promote",
+    }
 
 
 @pytest.mark.asyncio
@@ -1559,7 +1655,7 @@ class TestRunDeliverToolResults:
         """run() must call broker.deliver() when ToolExecutionResultEvent arrives
         while handle_work is running as a task."""
         import asyncio
-        from breqy.agents.runtime import AgentRuntime, ToolResultBroker
+        from breqy.agents.runtime import AgentRuntime
         from breqy.config.loader import load_agent_config
 
         # Provider: round 1 = tool call, round 2 = text
@@ -1598,10 +1694,6 @@ class TestRunDeliverToolResults:
             private_memory_runtime=None,
             tool_result_waiter=None,  # run() will install its own broker
         )
-
-        # Patch listen to yield work then pause, deliver tool result, end
-        events_to_yield = [work_event, tool_result]
-        yielded = []
 
         async def fake_listen():
             # yield work event first
@@ -1726,8 +1818,8 @@ class TestSessionContextInConversationHistory:
         with structlog.testing.capture_logs() as logs:
             await runtime.handle_work(work)
 
-        info_logs = [l for l in logs if l.get("log_level") == "info"]
-        assert any("session" in str(l).lower() for l in info_logs), (
+        info_logs = [entry for entry in logs if entry.get("log_level") == "info"]
+        assert any("session" in str(entry).lower() for entry in info_logs), (
             f"Expected an INFO structlog entry referencing session context; got: {info_logs}"
         )
 

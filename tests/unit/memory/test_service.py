@@ -733,11 +733,40 @@ async def test_promote_record_supports_approval_and_autonomous_flows() -> None:
     assert isinstance(event_bus.events[0], ApprovalRequestedEvent)
     assert isinstance(event_bus.events[1], MemoryPromotionRequestedEvent)
     assert isinstance(event_bus.events[2], ApprovalDecidedEvent)
-    assert isinstance(event_bus.events[3], MemoryRecordCreatedEvent)
-    assert isinstance(event_bus.events[4], MemoryPromotionApprovedEvent)
-    assert isinstance(event_bus.events[5], MemoryPromotionRequestedEvent)
-    assert isinstance(event_bus.events[6], MemoryRecordCreatedEvent)
-    assert isinstance(event_bus.events[7], MemoryPromotionApprovedEvent)
+
+
+@pytest.mark.asyncio
+async def test_promote_record_uses_description_based_session_grant_when_no_grant_key() -> None:
+    source = MemoryRecord(
+        id="mem_source",
+        scope=MemoryScope.SESSION,
+        session_id="ses_123",
+        agent_id="agt_123",
+        kind=MemoryRecordKind.LESSON,
+        source="tool:memory.write",
+        content="Keep this promoted.",
+    )
+    service, repository, _policy_evaluator, approval_service, _, event_bus = build_service(
+        records=[source],
+    )
+    approval_service.session_grants.add(("ses_123", "Promote memory record 'mem_source' to global scope"))
+
+    promotion = await service.promote_record(
+        record_id="mem_source",
+        session_id="ses_123",
+        agent_id="agt_123",
+        autonomy_level=AutonomyLevel.SUPERVISED,
+    )
+
+    assert promotion.approval_id is None
+    assert approval_service.request_calls == []
+    global_records = [
+        record for record in repository.records.values() if record.scope == MemoryScope.GLOBAL
+    ]
+    assert len(global_records) == 1
+    assert isinstance(event_bus.events[0], MemoryPromotionRequestedEvent)
+    assert isinstance(event_bus.events[1], MemoryRecordCreatedEvent)
+    assert isinstance(event_bus.events[2], MemoryPromotionApprovedEvent)
 
 
 @pytest.mark.asyncio

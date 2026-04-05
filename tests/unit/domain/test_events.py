@@ -104,6 +104,20 @@ def test_approval_requested_event():
     assert e.approval_id == "apr_test"
 
 
+def test_approval_decided_event_tracks_grant_scope():
+    from breqy.domain.events import ApprovalDecidedEvent
+    from breqy.domain.enums import ApprovalGrantScope, ApprovalStatus, EventType
+
+    e = ApprovalDecidedEvent(
+        session_id="ses_test",
+        approval_id="apr_test",
+        event_type=EventType.APPROVAL_GRANTED,
+        decision=ApprovalStatus.GRANTED,
+        grant_scope=ApprovalGrantScope.FOREVER,
+    )
+    assert e.grant_scope == ApprovalGrantScope.FOREVER
+
+
 def test_control_event_stop():
     from pydantic import ValidationError
 

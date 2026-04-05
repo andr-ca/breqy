@@ -121,6 +121,25 @@ If thresholds are not met: stop and add tests before commit/PR.
 
 ---
 
+## 🧪 MIGRATION DISCIPLINE (MANDATORY FOR SCHEMA/PERSISTENCE CHANGES)
+
+When changing database schema, persistence models, migration code, or durable approval/state formats:
+
+1. Write at least one failing test against a **pre-migration schema snapshot**.
+2. Cover both:
+   - **fresh database creation**
+   - **upgrade from an older schema**
+3. For upgrade tests, explicitly cover:
+   - legacy-row backfill behavior
+   - duplicate-row handling / deduplication
+   - idempotent re-runs of the migration
+4. Never create a uniqueness constraint or unique index **before** dedup/backfill logic has run.
+5. If a migration changes scope or ownership semantics (for example session vs forever), add a test for each scope outcome.
+
+Rule: a migration is incomplete until both fresh-install and upgrade-path tests pass.
+
+---
+
 ## 📌 GITIGNORE CHECK (BEFORE FIRST COMMIT)
 
 Always verify `.gitignore` exists and is correct before committing.
@@ -152,6 +171,35 @@ Key safety rules:
 - Never bypass branch safety checks.
 - Prefer worktrees for larger feature work when appropriate.
 - Never commit directly to protected trunk branches.
+
+### PR scope hygiene (mandatory before push / PR update)
+
+Before pushing a branch or updating a PR, run both:
+
+```bash
+git log --oneline <base>..HEAD
+git diff --name-only <base>...HEAD
+```
+
+Where `<base>` means the intended PR target branch on the remote, normally `origin/main`
+(or another explicitly chosen PR base branch).
+
+Example:
+
+```bash
+git log --oneline origin/main..HEAD
+git diff --name-only origin/main...HEAD
+```
+
+Confirm:
+- every commit belongs to the intended PR scope
+- every changed file belongs to the intended PR scope
+
+If unrelated commits or files are present:
+- rebase, cherry-pick, or otherwise clean the branch **before** requesting review
+- do not leave reviewers to sort out mixed scope
+
+Rule: every PR must have a clean, reviewable scope.
 
 ---
 
@@ -228,6 +276,31 @@ Confirm all answers are “yes”:
 4. Did I update `CHANGES.md`?
 
 If any answer is “no”: stop and update docs.
+
+---
+
+## 🔎 REVIEW-COMMENT HANDLING (MANDATORY)
+
+When review feedback arrives:
+
+1. Classify each comment before changing code:
+   - invariant / correctness bug
+   - security / hardening concern
+   - UX/backend contract mismatch
+   - PR hygiene / scope issue
+   - non-actionable / not applicable
+2. For invariant, security, or migration comments:
+   - add a failing test first
+   - then implement the fix
+3. For UX/backend mismatches:
+   - fix the **contract** first, not just the wording or UI, unless the contract is intentionally unsupported
+4. For PR hygiene comments:
+   - clean branch history or diff scope instead of explaining away unrelated changes
+5. When replying:
+   - say whether the concern was technically valid
+   - say what changed, or why no change was needed
+
+Rule: do not treat review comments as purely social artifacts; treat them as testable engineering claims.
 
 ---
 

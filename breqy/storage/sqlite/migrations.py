@@ -5,7 +5,7 @@ All tables use IF NOT EXISTS so running migrations is idempotent.
 
 import aiosqlite
 
-SCHEMA_V2 = """
+SCHEMA_V3 = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'active',
@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     agent_id TEXT NOT NULL,
     tool_invocation_id TEXT NOT NULL,
     description TEXT NOT NULL,
+    grant_key TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL
 );
@@ -79,10 +80,20 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
     id TEXT PRIMARY KEY,
     request_id TEXT NOT NULL REFERENCES approval_requests(id),
     granted INTEGER NOT NULL,
-    extend_to_session INTEGER NOT NULL DEFAULT 0,
+    grant_scope TEXT NOT NULL DEFAULT 'once',
     reason TEXT NOT NULL DEFAULT '',
     decided_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS approval_grants (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    grant_key TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_approval_grants_session_key ON approval_grants(session_id, grant_key);
+CREATE INDEX IF NOT EXISTS idx_approval_grants_scope_key ON approval_grants(scope, grant_key);
 
 CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY,
@@ -148,10 +159,104 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 async def run_migrations(conn: aiosqlite.Connection) -> None:
     """Run schema migrations. Safe to call multiple times (idempotent)."""
-    await conn.executescript(SCHEMA_V2)
+    await conn.executescript(SCHEMA_V3)
+    await _upgrade_approval_tables(conn)
     await conn.execute(
         "INSERT INTO schema_version (version) VALUES (?) ON CONFLICT(version) DO NOTHING",
-        (2,),
+        (3,),
     )
-    await conn.execute("DELETE FROM schema_version WHERE version <> ?", (2,))
+    await conn.execute("DELETE FROM schema_version WHERE version <> ?", (3,))
     await conn.commit()
+
+
+async def _upgrade_approval_tables(conn: aiosqlite.Connection) -> None:
+    legacy_has_extend_to_session = await _has_column(
+        conn,
+        table_name="approval_decisions",
+        column_name="extend_to_session",
+    )
+    await _ensure_column(
+        conn,
+        table_name="approval_requests",
+        column_name="grant_key",
+        ddl="ALTER TABLE approval_requests ADD COLUMN grant_key TEXT NOT NULL DEFAULT ''",
+    )
+    await _ensure_column(
+        conn,
+        table_name="approval_decisions",
+        column_name="grant_scope",
+        ddl="ALTER TABLE approval_decisions ADD COLUMN grant_scope TEXT NOT NULL DEFAULT 'once'",
+    )
+    await conn.execute(
+        "UPDATE approval_requests SET grant_key = description WHERE grant_key = ''"
+    )
+    if legacy_has_extend_to_session:
+        await conn.execute(
+            """
+            UPDATE approval_decisions
+            SET grant_scope = 'session'
+            WHERE extend_to_session = 1
+            """
+        )
+    await conn.execute(
+        """
+        INSERT INTO approval_grants (id, session_id, grant_key, scope, created_at)
+        SELECT
+            'apg_' || lower(hex(randomblob(12))),
+            CASE WHEN d.grant_scope = 'forever' THEN NULL ELSE r.session_id END,
+            COALESCE(NULLIF(r.grant_key, ''), r.description),
+            d.grant_scope,
+            d.decided_at
+        FROM approval_decisions d
+        JOIN approval_requests r ON r.id = d.request_id
+        WHERE d.granted = 1
+          AND d.grant_scope IN ('session', 'forever')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM approval_grants g
+              WHERE g.session_id IS CASE WHEN d.grant_scope = 'forever' THEN NULL ELSE r.session_id END
+                AND g.grant_key = COALESCE(NULLIF(r.grant_key, ''), r.description)
+                AND g.scope = d.grant_scope
+          )
+        """
+    )
+    await conn.execute(
+        """
+        DELETE FROM approval_grants
+        WHERE rowid NOT IN (
+            SELECT MIN(rowid)
+            FROM approval_grants
+            GROUP BY COALESCE(session_id, ''), grant_key, scope
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_grants_unique
+        ON approval_grants(COALESCE(session_id, ''), grant_key, scope)
+        """
+    )
+
+
+async def _ensure_column(
+    conn: aiosqlite.Connection,
+    *,
+    table_name: str,
+    column_name: str,
+    ddl: str,
+) -> None:
+    cursor = await conn.execute(f"PRAGMA table_info({table_name})")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if column_name not in columns:
+        await conn.execute(ddl)
+
+
+async def _has_column(
+    conn: aiosqlite.Connection,
+    *,
+    table_name: str,
+    column_name: str,
+) -> bool:
+    cursor = await conn.execute(f"PRAGMA table_info({table_name})")
+    columns = {row[1] for row in await cursor.fetchall()}
+    return column_name in columns

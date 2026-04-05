@@ -107,6 +107,34 @@ class DiskStorage(Readable, Writable):
     def write(self): ...
 ```
 
+### External Surface Hardening
+
+For any user-controlled external surface — especially URLs, file paths, cookies, headers, browser options, or serialized payloads:
+
+- Prefer **allowlists** over deny-lists
+- Validate inputs **before** execution
+- Normalize to the exact external schema expected by the downstream library/API
+- Reject unsafe schemes, traversal, symlinks, or ambiguous fallback identities
+- Add tests for malformed and adversarial inputs, not just happy paths
+
+Examples:
+- allow only `http` / `https` instead of trying to block dangerous URL schemes one by one
+- use explicit serialization aliases when an external API expects camelCase keys
+- ensure writable output paths stay inside a trusted directory boundary
+
+### Third-Party Schema Compatibility
+
+When adapting Python models to third-party libraries or APIs:
+
+- Never assume internal field names match external wire/schema names
+- Use explicit adapters, aliases, or transformation functions
+- Add tests for:
+  - accepted input aliases
+  - emitted output schema
+  - omitted/default fields
+
+Rule: compatibility with third-party schema must be explicit and tested.
+
 ---
 
 ## Project Structure

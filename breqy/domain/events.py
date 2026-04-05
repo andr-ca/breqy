@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 from breqy.domain.enums import (
+    ApprovalGrantScope,
     ApprovalStatus,
     EventType,
     MemoryPromotionStatus,
@@ -274,6 +275,7 @@ class ApprovalDecidedEvent(FixedEventTypeEvent):
     event_type: EventType = EventType.APPROVAL_GRANTED
     approval_id: str
     decision: ApprovalStatus = ApprovalStatus.GRANTED
+    grant_scope: ApprovalGrantScope = ApprovalGrantScope.ONCE
 
     @classmethod
     def expected_event_types(cls) -> tuple[EventType, ...]:
