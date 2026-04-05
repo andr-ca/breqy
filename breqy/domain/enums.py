@@ -59,6 +59,7 @@ class EventType(StrEnum):
     MODEL_SWITCH_REQUESTED = "model.switch.requested"
     REASONING_STARTED = "reasoning_started"
     REASONING_DONE = "reasoning_done"
+    REASONING_TEXT_CHUNK = "reasoning.text_chunk"
 
 
 class MessageRole(StrEnum):

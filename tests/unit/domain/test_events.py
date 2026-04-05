@@ -1095,3 +1095,43 @@ class TestReasoningEvents:
             }
         )
         assert isinstance(done, ReasoningDoneEvent)
+
+
+class TestReasoningTextChunkEvent:
+    def test_reasoning_text_chunk_event_has_correct_type(self) -> None:
+        from breqy.domain.events import ReasoningTextChunkEvent
+        from breqy.domain.enums import EventType
+
+        e = ReasoningTextChunkEvent(session_id="ses_1", agent_id="ag_1", chunk="Hello thinking")
+        assert e.event_type == EventType.REASONING_TEXT_CHUNK
+
+    def test_reasoning_text_chunk_event_stores_chunk(self) -> None:
+        from breqy.domain.events import ReasoningTextChunkEvent
+
+        e = ReasoningTextChunkEvent(session_id="ses_1", agent_id="ag_1", chunk="some thought")
+        assert e.chunk == "some thought"
+
+    def test_reasoning_text_chunk_event_rejects_wrong_type(self) -> None:
+        from pydantic import ValidationError
+        from breqy.domain.events import ReasoningTextChunkEvent
+        from breqy.domain.enums import EventType
+
+        with pytest.raises(ValidationError):
+            ReasoningTextChunkEvent(
+                session_id="ses_1",
+                event_type=EventType.MESSAGE_CHUNK,
+                chunk="x",
+            )
+
+    def test_reasoning_text_chunk_event_registered_in_deserializer(self) -> None:
+        from breqy.domain.events import deserialize_event, ReasoningTextChunkEvent
+
+        event = deserialize_event(
+            {
+                "event_type": "reasoning.text_chunk",
+                "session_id": "ses_1",
+                "chunk": "some thought text",
+            }
+        )
+        assert isinstance(event, ReasoningTextChunkEvent)
+        assert event.chunk == "some thought text"
