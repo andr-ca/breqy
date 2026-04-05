@@ -113,7 +113,9 @@ class BrowserTool(ToolExecutor):
         action = arguments.get("action")
         if not isinstance(action, str) or not action:
             return None
-        hostname = urlparse(str(arguments.get("url", ""))).hostname or "unknown"
+        hostname = urlparse(str(arguments.get("url", ""))).hostname
+        if not hostname:
+            return None
         return ApprovalRequestSpec(
             description=f"Browser {action} on {hostname}",
             grant_key=f"browser:{action}:{hostname}",

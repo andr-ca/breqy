@@ -91,7 +91,7 @@ class SqliteApprovalRepository(ApprovalRepository):
 
     async def create_grant(self, grant: ApprovalGrant) -> None:
         await self._conn.execute(
-            """INSERT INTO approval_grants
+            """INSERT OR IGNORE INTO approval_grants
                (id, session_id, grant_key, scope, created_at)
                VALUES (?, ?, ?, ?, ?)""",
             (

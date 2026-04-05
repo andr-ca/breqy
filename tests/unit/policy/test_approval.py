@@ -169,6 +169,26 @@ async def test_forever_grant_persists_and_applies_across_sessions():
     repo.create_grant.assert_awaited()
 
 
+@pytest.mark.asyncio
+async def test_decide_prunes_unawaited_request_after_grace_period():
+    repo = _make_repo()
+    service = ApprovalService(repo, decided_request_ttl_seconds=0.01)
+    request_id = await service.request_approval(
+        session_id="ses_prune",
+        agent_id="agt_1",
+        tool_invocation_id="inv_prune",
+        description="Browser submit on google.com",
+        grant_key="browser:submit:google.com",
+    )
+
+    await service.decide(request_id, granted=True)
+    assert request_id in service._pending
+
+    await asyncio.sleep(0.05)
+
+    assert request_id not in service._pending
+
+
 def test_has_session_grant_returns_false_when_not_granted():
     """has_session_grant returns False when no session grant exists."""
     repo = _make_repo()

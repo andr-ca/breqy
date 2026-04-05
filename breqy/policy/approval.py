@@ -28,6 +28,7 @@ class _PendingApproval:
         self.decided = asyncio.Event()
         self.status: ApprovalStatus = ApprovalStatus.PENDING
         self.grant_scope: ApprovalGrantScope = ApprovalGrantScope.ONCE
+        self.cleanup_task: asyncio.Task[None] | None = None
 
 
 class ApprovalService:
@@ -36,8 +37,14 @@ class ApprovalService:
     Thread-safety: designed for single-thread asyncio use only.
     """
 
-    def __init__(self, repo: ApprovalRepository) -> None:
+    def __init__(
+        self,
+        repo: ApprovalRepository,
+        *,
+        decided_request_ttl_seconds: float = 300.0,
+    ) -> None:
         self._repo = repo
+        self._decided_request_ttl_seconds = decided_request_ttl_seconds
         self._pending: dict[str, _PendingApproval] = {}
         # session_id -> set of granted keys/descriptions (in-memory cache)
         self._session_grants: dict[str, set[str]] = {}
@@ -104,8 +111,8 @@ class ApprovalService:
         status = pending.status
         await self._repo.update_request_status(request_id, status)
 
-        grant_key = pending.request.grant_key or pending.request.description
-        if granted and resolved_grant_scope == ApprovalGrantScope.SESSION:
+        grant_key = pending.request.grant_key
+        if granted and grant_key and resolved_grant_scope == ApprovalGrantScope.SESSION:
             grants = self._session_grants.setdefault(pending.request.session_id, set())
             grants.add(grant_key)
             await self._repo.create_grant(
@@ -115,7 +122,7 @@ class ApprovalService:
                     scope=ApprovalGrantScope.SESSION,
                 )
             )
-        if granted and resolved_grant_scope == ApprovalGrantScope.FOREVER:
+        if granted and grant_key and resolved_grant_scope == ApprovalGrantScope.FOREVER:
             self._forever_grants.add(grant_key)
             await self._repo.create_grant(
                 ApprovalGrant(
@@ -126,6 +133,9 @@ class ApprovalService:
             )
 
         pending.decided.set()
+        pending.cleanup_task = asyncio.create_task(
+            self._prune_decided_request(request_id, delay_seconds=self._decided_request_ttl_seconds)
+        )
         logger.info(
             "Approval %s: %s (scope=%s)",
             "granted" if granted else "denied",
@@ -151,6 +161,8 @@ class ApprovalService:
             await self._repo.update_request_status(request_id, ApprovalStatus.EXPIRED)
             return ApprovalStatus.EXPIRED
 
+        if pending.cleanup_task is not None:
+            pending.cleanup_task.cancel()
         self._pending.pop(request_id, None)
         return pending.status
 
@@ -177,3 +189,10 @@ class ApprovalService:
     async def load_session_grants(self, session_id: str) -> None:
         """Populate in-memory session grant cache from DB (call on resume)."""
         await self.ensure_grants_loaded(session_id)
+
+    async def _prune_decided_request(self, request_id: str, *, delay_seconds: float) -> None:
+        try:
+            await asyncio.sleep(delay_seconds)
+        except asyncio.CancelledError:
+            return
+        self._pending.pop(request_id, None)

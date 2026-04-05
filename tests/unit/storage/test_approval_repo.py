@@ -157,3 +157,34 @@ async def test_create_and_query_persistent_approval_grants(db_connection) -> Non
     assert await repo.has_grant(session_id=session.id, grant_key="browser:submit:google.com") is True
     assert await repo.has_grant(session_id=session.id, grant_key="browser:extract:google.com") is True
     assert await repo.has_grant(session_id="ses_other", grant_key="browser:submit:google.com") is False
+
+
+@pytest.mark.asyncio
+async def test_create_grant_ignores_duplicate_scope_key_rows(db_connection) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    session = Session(primary_agent_id="agent_breqy")
+    await session_repo.create(session)
+
+    repo = SqliteApprovalRepository(db_connection)
+    first = ApprovalGrant(
+        session_id=session.id,
+        grant_key="browser:submit:google.com",
+        scope=ApprovalGrantScope.SESSION,
+    )
+    second = ApprovalGrant(
+        session_id=session.id,
+        grant_key="browser:submit:google.com",
+        scope=ApprovalGrantScope.SESSION,
+    )
+
+    await repo.create_grant(first)
+    await repo.create_grant(second)
+
+    grants = await repo.get_grants(session.id)
+    matching = [
+        grant for grant in grants
+        if grant.session_id == session.id
+        and grant.grant_key == "browser:submit:google.com"
+        and grant.scope == ApprovalGrantScope.SESSION
+    ]
+    assert len(matching) == 1

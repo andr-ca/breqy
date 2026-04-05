@@ -103,11 +103,7 @@ class ToolService:
             if approval_spec is not None
             else self._build_approval_description(tool_name, arguments)
         )
-        approval_grant_key = (
-            approval_spec.grant_key
-            if approval_spec is not None and approval_spec.grant_key
-            else approval_description
-        )
+        approval_grant_key = approval_spec.grant_key if approval_spec is not None else ""
         if decision.action == PolicyAction.REQUIRE_APPROVAL:
             await self._approval_service.ensure_grants_loaded(session_id)
             if not self._approval_service.has_grant(session_id, approval_grant_key):

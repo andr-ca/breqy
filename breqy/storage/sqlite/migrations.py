@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS approval_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_approval_grants_session_key ON approval_grants(session_id, grant_key);
 CREATE INDEX IF NOT EXISTS idx_approval_grants_scope_key ON approval_grants(scope, grant_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_grants_unique
+ON approval_grants(COALESCE(session_id, ''), grant_key, scope);
 
 CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY,
@@ -218,6 +220,22 @@ async def _upgrade_approval_tables(conn: aiosqlite.Connection) -> None:
                 AND g.grant_key = COALESCE(NULLIF(r.grant_key, ''), r.description)
                 AND g.scope = d.grant_scope
           )
+        """
+    )
+    await conn.execute(
+        """
+        DELETE FROM approval_grants
+        WHERE rowid NOT IN (
+            SELECT MIN(rowid)
+            FROM approval_grants
+            GROUP BY COALESCE(session_id, ''), grant_key, scope
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_approval_grants_unique
+        ON approval_grants(COALESCE(session_id, ''), grant_key, scope)
         """
     )
 

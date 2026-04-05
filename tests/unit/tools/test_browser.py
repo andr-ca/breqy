@@ -79,6 +79,14 @@ def test_browser_tool_has_required_input_schema() -> None:
     assert "headers" in tool.input_schema["properties"]
 
 
+def test_browser_tool_approval_request_spec_requires_url_for_stable_grant_key() -> None:
+    tool = BrowserTool(runtime=FakeBrowserRuntime())
+
+    spec = tool.approval_request_spec({"action": "click", "session_id": "browser-1"})
+
+    assert spec is None
+
+
 @pytest.mark.asyncio
 async def test_browser_tool_dispatches_navigate_action() -> None:
     runtime = FakeBrowserRuntime()
