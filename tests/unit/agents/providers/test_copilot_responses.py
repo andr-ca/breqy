@@ -366,3 +366,162 @@ class TestStreamResponsesReasoningItem:
         kinds = [e.kind for e in events]
         assert "reasoning_started" not in kinds
         assert "reasoning_done" not in kinds
+
+
+# --------------------------------------------------------------------------- #
+# _build_responses_input: multi-turn tool history translation
+# --------------------------------------------------------------------------- #
+
+
+class TestBuildResponsesInputToolHistory:
+    """Verify _build_responses_input translates Chat Completions tool history to Responses API format.
+
+    The runtime builds conversation_history in Chat Completions format:
+      {"role": "assistant", "content": None, "tool_calls": [{...}]}
+      {"role": "tool", "tool_call_id": "...", "name": "...", "content": "..."}
+
+    The Responses API rejects content: null and does not understand "role: tool".
+    _build_responses_input must translate to:
+      {"type": "function_call", "call_id": "...", "name": "...", "arguments": "..."}
+      {"type": "function_call_output", "call_id": "...", "output": "..."}
+    """
+
+    def _make_provider(self):
+        from unittest.mock import MagicMock
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        return CopilotProvider(
+            model_id="gpt-5.4-mini",
+            authenticator=MagicMock(),
+            client=MagicMock(),
+        )
+
+    def test_plain_user_message_becomes_single_input_item(self) -> None:
+        """With no conversation_history, input is a single user message."""
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        provider = self._make_provider()
+        request = ProviderRequest(prompt="hello", work_dir=Path("/tmp"))
+        input_messages, _ = provider._build_responses_input(request)
+
+        assert input_messages == [{"role": "user", "content": "hello"}]
+
+    def test_assistant_tool_call_with_null_content_is_translated(self) -> None:
+        """Chat Completions assistant tool-call item (content=None) becomes function_call type."""
+        import json
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        history = [
+            {"role": "user", "content": "run ls"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "ls"}'},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_abc",
+                "name": "shell",
+                "content": "file1.txt\nfile2.txt",
+            },
+        ]
+        provider = self._make_provider()
+        request = ProviderRequest(
+            prompt="run ls", work_dir=Path("/tmp"), conversation_history=history
+        )
+        input_messages, _ = provider._build_responses_input(request)
+
+        # The assistant tool-call message must NOT appear with content=null
+        for msg in input_messages:
+            assert msg.get("content") is not None or msg.get("type") in (
+                "function_call",
+                "function_call_output",
+            ), f"Found null content in non-translated message: {msg}"
+
+        # Must contain a function_call item
+        fc_items = [m for m in input_messages if m.get("type") == "function_call"]
+        assert len(fc_items) == 1
+        assert fc_items[0]["call_id"] == "call_abc"
+        assert fc_items[0]["name"] == "shell"
+        assert json.loads(fc_items[0]["arguments"]) == {"command": "ls"}
+
+        # Must contain a function_call_output item
+        fco_items = [m for m in input_messages if m.get("type") == "function_call_output"]
+        assert len(fco_items) == 1
+        assert fco_items[0]["call_id"] == "call_abc"
+        assert fco_items[0]["output"] == "file1.txt\nfile2.txt"
+
+    def test_regular_user_and_assistant_messages_are_preserved(self) -> None:
+        """User and assistant text messages in history are preserved as-is."""
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        history = [
+            {"role": "user", "content": "First question."},
+            {"role": "assistant", "content": "First answer."},
+            {"role": "user", "content": "Second question."},
+        ]
+        provider = self._make_provider()
+        request = ProviderRequest(
+            prompt="Second question.", work_dir=Path("/tmp"), conversation_history=history
+        )
+        input_messages, _ = provider._build_responses_input(request)
+
+        assert input_messages == history
+
+    def test_multiple_tool_calls_in_one_round_are_all_translated(self) -> None:
+        """When there are multiple tool_calls in one assistant message, each becomes a function_call."""
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        history = [
+            {"role": "user", "content": "do two things"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "ls"}'},
+                    },
+                    {
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "pwd"}'},
+                    },
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "name": "shell",
+                "content": "file.txt",
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_2",
+                "name": "shell",
+                "content": "/home/user",
+            },
+        ]
+        provider = self._make_provider()
+        request = ProviderRequest(
+            prompt="do two things", work_dir=Path("/tmp"), conversation_history=history
+        )
+        input_messages, _ = provider._build_responses_input(request)
+
+        fc_items = [m for m in input_messages if m.get("type") == "function_call"]
+        fco_items = [m for m in input_messages if m.get("type") == "function_call_output"]
+        assert len(fc_items) == 2
+        assert len(fco_items) == 2
+        assert {m["call_id"] for m in fc_items} == {"call_1", "call_2"}
+        assert {m["call_id"] for m in fco_items} == {"call_1", "call_2"}
