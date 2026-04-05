@@ -12,6 +12,7 @@ responsibility (Task 15).
 
 from __future__ import annotations
 
+import structlog
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
@@ -42,6 +43,8 @@ from breqy.tui.widgets.control_bar import ControlBar
 from breqy.tui.widgets.message_input import MessageInput
 from breqy.tui.widgets.task_panel import TaskPanel
 from breqy.tui.widgets.tool_panel import ToolPanel
+
+logger = structlog.get_logger(__name__)
 
 
 class ChatScreen(Screen[None]):
@@ -165,6 +168,7 @@ class ChatScreen(Screen[None]):
 
     def handle_reasoning_text_chunk(self, event: ReasoningTextChunkEvent) -> None:
         """Buffer a reasoning text chunk in the ChatView."""
+        logger.debug("handle_reasoning_text_chunk", chunk_len=len(event.chunk))
         self.query_one(ChatView).add_reasoning_chunk(event.chunk)
 
     def handle_reasoning_done(self, event: ReasoningDoneEvent) -> None:
@@ -176,6 +180,7 @@ class ChatScreen(Screen[None]):
         is rendered. The indicator is instead hidden by ``handle_message_chunk``
         when the first text chunk arrives.
         """
+        logger.debug("handle_reasoning_done_flushing")
         self.query_one(ChatView).flush_reasoning_block()
 
     def handle_task_updated(self, event: TaskUpdatedEvent) -> None:
