@@ -235,4 +235,66 @@ async def test_run_migrations_upgrades_existing_approval_tables(db_path: Path) -
     )
     backfill_row = await backfill_cursor.fetchone()
     assert tuple(backfill_row) == ("ses_1", "Browser submit on google.com", "session")
+
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_run_migrations_backfills_forever_grants_with_null_session_id(db_path: Path) -> None:
+    conn = await create_connection(str(db_path))
+    await conn.executescript(
+        """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY
+        );
+        CREATE TABLE approval_requests (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
+            agent_id TEXT NOT NULL,
+            tool_invocation_id TEXT NOT NULL,
+            description TEXT NOT NULL,
+            grant_key TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE approval_decisions (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            granted INTEGER NOT NULL,
+            grant_scope TEXT NOT NULL DEFAULT 'once',
+            reason TEXT NOT NULL DEFAULT '',
+            decided_at TEXT NOT NULL
+        );
+        """
+    )
+    await conn.execute("INSERT INTO sessions (id) VALUES ('ses_1')")
+    await conn.execute(
+        """
+        INSERT INTO approval_requests
+            (id, session_id, agent_id, tool_invocation_id, description, grant_key, status, created_at)
+        VALUES
+            ('apr_forever', 'ses_1', 'agt_1', 'inv_2', 'Browser extract on google.com', 'browser:extract:google.com', 'granted', '2026-01-01T00:00:00+00:00')
+        """
+    )
+    await conn.execute(
+        """
+        INSERT INTO approval_decisions
+            (id, request_id, granted, grant_scope, reason, decided_at)
+        VALUES
+            ('apd_forever', 'apr_forever', 1, 'forever', '', '2026-01-01T00:00:00+00:00')
+        """
+    )
+    await conn.commit()
+
+    await run_migrations(conn)
+
+    forever_cursor = await conn.execute(
+        """
+        SELECT session_id, grant_key, scope
+        FROM approval_grants
+        WHERE grant_key = 'browser:extract:google.com'
+        """
+    )
+    forever_row = await forever_cursor.fetchone()
+    assert tuple(forever_row) == (None, "browser:extract:google.com", "forever")
     await conn.close()

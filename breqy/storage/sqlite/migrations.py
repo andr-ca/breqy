@@ -205,7 +205,7 @@ async def _upgrade_approval_tables(conn: aiosqlite.Connection) -> None:
         INSERT INTO approval_grants (id, session_id, grant_key, scope, created_at)
         SELECT
             'apg_' || lower(hex(randomblob(12))),
-            r.session_id,
+            CASE WHEN d.grant_scope = 'forever' THEN NULL ELSE r.session_id END,
             COALESCE(NULLIF(r.grant_key, ''), r.description),
             d.grant_scope,
             d.decided_at
@@ -216,7 +216,7 @@ async def _upgrade_approval_tables(conn: aiosqlite.Connection) -> None:
           AND NOT EXISTS (
               SELECT 1
               FROM approval_grants g
-              WHERE g.session_id IS r.session_id
+              WHERE g.session_id IS CASE WHEN d.grant_scope = 'forever' THEN NULL ELSE r.session_id END
                 AND g.grant_key = COALESCE(NULLIF(r.grant_key, ''), r.description)
                 AND g.scope = d.grant_scope
           )
