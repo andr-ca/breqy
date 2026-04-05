@@ -199,6 +199,12 @@ class TestDispatcherSetup:
         app = BreqyApp()
         assert app._dispatcher.has_handler(EventType.REASONING_DONE)
 
+    def test_dispatcher_has_handler_for_reasoning_text_chunk(self) -> None:
+        from breqy.domain.enums import EventType
+
+        app = BreqyApp()
+        assert app._dispatcher.has_handler(EventType.REASONING_TEXT_CHUNK)
+
 
 # ============================================================================ #
 # Task 5: Reasoning event routing to ChatScreen
@@ -243,6 +249,24 @@ class TestReasoningEventRouting:
             event = ReasoningDoneEvent(session_id="ses_test")
             app._dispatcher.dispatch(event)
             chat.handle_reasoning_done.assert_called_once_with(event)
+
+    @pytest.mark.asyncio
+    async def test_reasoning_text_chunk_routes_to_chat_screen(self) -> None:
+        """REASONING_TEXT_CHUNK dispatched routes to ChatScreen.handle_reasoning_text_chunk()."""
+        from breqy.domain.events import ReasoningTextChunkEvent
+        from breqy.tui.screens.chat import ChatScreen
+
+        app = BreqyApp()
+        async with app.run_test() as pilot:
+            chat = ChatScreen(session_id="ses_test")
+            app.push_screen(chat)
+            await pilot.pause()
+
+            chat.handle_reasoning_text_chunk = MagicMock()  # type: ignore[assignment]
+
+            event = ReasoningTextChunkEvent(session_id="ses_test", chunk="Hello thinking")
+            app._dispatcher.dispatch(event)
+            chat.handle_reasoning_text_chunk.assert_called_once_with(event)
 
 
 # ============================================================================ #
