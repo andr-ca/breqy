@@ -110,6 +110,17 @@ These are hard constraints, not preferences.
 - `PolicyEvaluator` must validate tool access independently of skill metadata — skills never grant permissions
 - Filesystem policy uses exact paths and directory-prefix rules only (no globs in v1)
 
+### Approval contract discipline
+- Any feature that offers reusable approvals must define an explicit **grant identity contract**:
+  - what key is reused
+  - when reuse is allowed
+  - what session vs forever mean
+  - what the UI is allowed to promise
+- If reusable approval is impossible for a request, either:
+  - define the fallback reusable key explicitly, or
+  - disable / hide reusable-grant UX for that request
+- Approval persistence, runtime checks, and TUI affordances must stay aligned; do not let the UI promise a reusable grant the backend cannot actually honor.
+
 ### Secrets
 - All secrets behind `SecretProvider` interface
 - Keyring-backed by default; no plain YAML/env secrets in normal config files
@@ -225,6 +236,16 @@ A `ToolInvocationEvent` must include at minimum: event_id, session_id, task_id (
 - **Agent process sprawl**: enforce session-level and runtime-level process limits from the start
 - **TUI responsiveness**: input handling must remain responsive during streaming; treat this as a hard constraint
 - **SQLite write contention**: WAL mode + centralized `EventWriter` from day one; agents must not compete for DB writes
+- **Cleanup cascades**: shutdown and resource-release paths must be best-effort so one failing close does not prevent remaining cleanup
+
+### Best-effort shutdown rule
+- Cleanup / shutdown logic must continue across per-resource failures.
+- If one context, browser, tool, or connection fails to close:
+  - log it
+  - continue closing the rest
+  - re-raise the first meaningful error only after best-effort cleanup completes, when appropriate
+
+Rule: resource cleanup must minimize leaks even in partial-failure scenarios.
 
 ---
 

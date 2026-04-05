@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CopilotProvider.stream()` now catches `CopilotAuthError` from `get_copilot_token()` (e.g. HTTP 404 on token exchange when OAuth token is expired/revoked) and triggers device flow re-authentication instead of crashing with an unrecoverable error message. Both the initial token fetch and the 401 retry path are covered.
 
 ### Changed
+- `agents/core.instructions.md`, `agents/project.instructions.md`, and `agents/python.instructions.md` now include stronger guidance for migration discipline, PR scope hygiene, review-comment handling, approval-contract alignment, best-effort shutdown cleanup, external-surface hardening, and third-party schema compatibility based on lessons from the browser-tool PR review cycle.
 - `breqy/tools/service.py` now honors tool-specific approval metadata and skips repeat approval prompts when a matching session/forever grant already exists.
 - `breqy/agents/runtime.py` now expands legacy tool permission aliases (`fs`, `memory`) to canonical native/MCP tool names, while adding browser permission support for the default agent manifest.
 - `breqy/engine/server.py` default registry now advertises the native `browser` tool and routes typed approval decisions back into `ApprovalService`.
