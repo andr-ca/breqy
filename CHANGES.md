@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `breqy/tools/browser.py` and `breqy/tools/browser_runtime.py`: native Playwright-backed `browser` tool with typed action validation for navigate/click/fill/select/wait/extract/screenshot/history/tab/session/header/cookie operations, plus safe blocked-flow handling for CAPTCHA/MFA/blocked access.
+- `tests/unit/tools/test_browser.py` and `tests/unit/tools/test_browser_registry.py`: browser-tool contract coverage for schema validation, blocked/error behavior, transport-safe artifact output, and registry exposure.
+- `approval_grants` persistence plus structured approval grant support: once/session/forever scopes, durable `grant_key` matching, and browser-ready action+domain grant semantics across `breqy/domain/`, `breqy/storage/`, and `breqy/policy/approval.py`.
+- `ApprovalPrompt` forever approval UX (`F`) and app/engine approval-decision routing so TUI approval choices now produce typed `ApprovalDecidedEvent` messages.
 - `AgentLogsScreen` now has a live-filtering search bar (`f` to focus, `c` to clear). Typing a substring instantly shows only matching lines from the ring buffer. A new `filter_lines(lines, filter_str)` pure helper handles case-insensitive filtering. `_lines: deque[str]` (maxlen=1000) buffers all lines since the screen opened; new lines from polls extend the buffer first before any display update.
 - `breqy/tui/screens/agent_logs.py`: `AgentLogsScreen` overlay screen that live-tails the agent subprocess log file (e.g. `~/.breqy/data/logs/agent-breqy.log`). Exposes three pure helper utilities: `resolve_agent_log_path()` (respects `BREQY_DATA_DIR`), `read_tail(path, n)` (last 200 lines on open), and `read_new_lines(path, offset)` (incremental 0.5 s poll). Handles missing file (waiting placeholder), `OSError` on poll (silent resume), and agent restart (offset preserved). Close with `q` or `Escape`.
 - `/logs` slash command: registered in `ChatScreen._build_command_registry()`, routed in `BreqyApp.on_command_executed` to push `AgentLogsScreen`. App now tracks `_current_agent_id` from `AgentLifecycleEvent` to resolve the correct log file path.
@@ -39,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CopilotProvider.stream()` now catches `CopilotAuthError` from `get_copilot_token()` (e.g. HTTP 404 on token exchange when OAuth token is expired/revoked) and triggers device flow re-authentication instead of crashing with an unrecoverable error message. Both the initial token fetch and the 401 retry path are covered.
 
 ### Changed
+- `breqy/tools/service.py` now honors tool-specific approval metadata and skips repeat approval prompts when a matching session/forever grant already exists.
+- `breqy/agents/runtime.py` now expands legacy tool permission aliases (`fs`, `memory`) to canonical native/MCP tool names, while adding browser permission support for the default agent manifest.
+- `breqy/engine/server.py` default registry now advertises the native `browser` tool and routes typed approval decisions back into `ApprovalService`.
+- `docs/architecture.md` now documents the browser tool, structured approval grants, and transport-safe browser artifact handling.
 - Replaced `RichLog` with `SelectableRichLog` in all four TUI widgets that display scrollable log content: `ChatView` (chat-log), `TaskPanel` (task-log), `ToolPanel` (tool-log), and `LogsScreen` (logs-display). Enables mouse-drag text selection and clipboard copy across all log panels.
 - Refined `GEMINI.md` with full technology stack, correct coverage thresholds, and fixed table formatting.
 - Narrowed `.geminiignore` to ensure `.env.sample` is unignored by removing the leading space in the negation pattern.

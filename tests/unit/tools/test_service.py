@@ -14,7 +14,7 @@ from breqy.domain.events import (
 )
 from breqy.domain.models import ToolInvocation
 from breqy.policy.models import PolicyDecision
-from breqy.tools.executor import ToolExecutor, ToolResult
+from breqy.tools.executor import ApprovalRequestSpec, ToolExecutor, ToolResult
 from breqy.tools.service import ToolService
 
 
@@ -40,6 +40,17 @@ class RecordingTool(ToolExecutor):
         if self._error is not None:
             raise self._error
         return self._result
+
+
+class ApprovalAwareTool(RecordingTool):
+    def __init__(self, *, name: str = "browser", log: list[str] | None = None) -> None:
+        super().__init__(name=name, log=log)
+
+    def approval_request_spec(self, arguments: dict[str, Any]) -> ApprovalRequestSpec:
+        return ApprovalRequestSpec(
+            description="Browser submit on google.com",
+            grant_key="browser:submit:google.com",
+        )
 
 
 class RecordingToolRegistry:
@@ -81,8 +92,9 @@ class RecordingApprovalService:
         self.decision = decision
         self.request_id = request_id
         self._log = log if log is not None else []
-        self.request_calls: list[tuple[str, str, str, str]] = []
+        self.request_calls: list[tuple[str, str, str, str, str]] = []
         self.wait_calls: list[tuple[str, float]] = []
+        self.grants: set[tuple[str, str]] = set()
 
     async def request_approval(
         self,
@@ -90,8 +102,9 @@ class RecordingApprovalService:
         agent_id: str,
         tool_invocation_id: str,
         description: str,
+        grant_key: str = "",
     ) -> str:
-        self.request_calls.append((session_id, agent_id, tool_invocation_id, description))
+        self.request_calls.append((session_id, agent_id, tool_invocation_id, description, grant_key))
         self._log.append("approval.request")
         return self.request_id
 
@@ -103,6 +116,9 @@ class RecordingApprovalService:
         self.wait_calls.append((request_id, timeout))
         self._log.append("approval.wait")
         return self.decision
+
+    def has_grant(self, session_id: str, grant_key: str) -> bool:
+        return (session_id, grant_key) in self.grants
 
 
 class RecordingInvocationRepository:
@@ -309,6 +325,54 @@ async def test_service_requests_approval_before_execution() -> None:
         "repo.update:completed",
         "event.completed",
     ]
+
+
+@pytest.mark.asyncio
+async def test_service_uses_tool_specific_approval_metadata() -> None:
+    tool = ApprovalAwareTool()
+    service, _repo, approval_service, _event_bus, _ = build_service(
+        tool=tool,
+        tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
+    )
+
+    result = await service.execute_tool(
+        session_id="ses_browser",
+        agent_id="agt_browser",
+        tool_name="browser",
+        arguments={"action": "submit", "url": "https://google.com"},
+    )
+
+    assert result.success is True
+    assert approval_service.request_calls == [
+        (
+            "ses_browser",
+            "agt_browser",
+            approval_service.request_calls[0][2],
+            "Browser submit on google.com",
+            "browser:submit:google.com",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_service_skips_approval_when_matching_grant_exists() -> None:
+    tool = ApprovalAwareTool()
+    service, _repo, approval_service, _event_bus, _ = build_service(
+        tool=tool,
+        tool_policy_action=PolicyAction.REQUIRE_APPROVAL,
+    )
+    approval_service.grants.add(("ses_browser", "browser:submit:google.com"))
+
+    result = await service.execute_tool(
+        session_id="ses_browser",
+        agent_id="agt_browser",
+        tool_name="browser",
+        arguments={"action": "submit", "url": "https://google.com"},
+    )
+
+    assert result.success is True
+    assert approval_service.request_calls == []
+    assert approval_service.wait_calls == []
 
 
 @pytest.mark.asyncio

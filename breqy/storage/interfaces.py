@@ -19,6 +19,7 @@ from breqy.domain.enums import (
 )
 from breqy.domain.events import Event
 from breqy.domain.models import (
+    ApprovalGrant,
     ApprovalDecision,
     ApprovalRequest,
     MemoryPromotion,
@@ -131,6 +132,15 @@ class ApprovalRepository(ABC):
 
     @abstractmethod
     async def get_session_grants(self, session_id: str) -> list[ApprovalDecision]: ...
+
+    @abstractmethod
+    async def create_grant(self, grant: ApprovalGrant) -> None: ...
+
+    @abstractmethod
+    async def has_grant(self, *, session_id: str, grant_key: str) -> bool: ...
+
+    @abstractmethod
+    async def get_grants(self, session_id: str | None = None) -> list[ApprovalGrant]: ...
 
 
 class ToolInvocationRepository(ABC):

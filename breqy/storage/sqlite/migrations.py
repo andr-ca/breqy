@@ -5,7 +5,7 @@ All tables use IF NOT EXISTS so running migrations is idempotent.
 
 import aiosqlite
 
-SCHEMA_V2 = """
+SCHEMA_V3 = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'active',
@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     agent_id TEXT NOT NULL,
     tool_invocation_id TEXT NOT NULL,
     description TEXT NOT NULL,
+    grant_key TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL
 );
@@ -79,10 +80,20 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
     id TEXT PRIMARY KEY,
     request_id TEXT NOT NULL REFERENCES approval_requests(id),
     granted INTEGER NOT NULL,
-    extend_to_session INTEGER NOT NULL DEFAULT 0,
+    grant_scope TEXT NOT NULL DEFAULT 'once',
     reason TEXT NOT NULL DEFAULT '',
     decided_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS approval_grants (
+    id TEXT PRIMARY KEY,
+    session_id TEXT REFERENCES sessions(id),
+    grant_key TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_approval_grants_session_key ON approval_grants(session_id, grant_key);
+CREATE INDEX IF NOT EXISTS idx_approval_grants_scope_key ON approval_grants(scope, grant_key);
 
 CREATE TABLE IF NOT EXISTS events (
     event_id TEXT PRIMARY KEY,
@@ -148,10 +159,39 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 async def run_migrations(conn: aiosqlite.Connection) -> None:
     """Run schema migrations. Safe to call multiple times (idempotent)."""
-    await conn.executescript(SCHEMA_V2)
+    await conn.executescript(SCHEMA_V3)
+    await _upgrade_approval_tables(conn)
     await conn.execute(
         "INSERT INTO schema_version (version) VALUES (?) ON CONFLICT(version) DO NOTHING",
-        (2,),
+        (3,),
     )
-    await conn.execute("DELETE FROM schema_version WHERE version <> ?", (2,))
+    await conn.execute("DELETE FROM schema_version WHERE version <> ?", (3,))
     await conn.commit()
+
+
+async def _upgrade_approval_tables(conn: aiosqlite.Connection) -> None:
+    await _ensure_column(
+        conn,
+        table_name="approval_requests",
+        column_name="grant_key",
+        ddl="ALTER TABLE approval_requests ADD COLUMN grant_key TEXT NOT NULL DEFAULT ''",
+    )
+    await _ensure_column(
+        conn,
+        table_name="approval_decisions",
+        column_name="grant_scope",
+        ddl="ALTER TABLE approval_decisions ADD COLUMN grant_scope TEXT NOT NULL DEFAULT 'once'",
+    )
+
+
+async def _ensure_column(
+    conn: aiosqlite.Connection,
+    *,
+    table_name: str,
+    column_name: str,
+    ddl: str,
+) -> None:
+    cursor = await conn.execute(f"PRAGMA table_info({table_name})")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if column_name not in columns:
+        await conn.execute(ddl)

@@ -13,6 +13,11 @@ class ToolResult(BaseModel):
     summary: str = ""
 
 
+class ApprovalRequestSpec(BaseModel):
+    description: str
+    grant_key: str = ""
+
+
 class ToolExecutor(ABC):
     name: str = ""
     description: str = ""
@@ -21,3 +26,6 @@ class ToolExecutor(ABC):
     @abstractmethod
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:
         raise NotImplementedError
+
+    def approval_request_spec(self, arguments: dict[str, Any]) -> ApprovalRequestSpec | None:
+        return None

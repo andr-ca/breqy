@@ -225,6 +225,7 @@ Approvals:
 - low-friction by default
 - per action
 - with option to approve for the rest of the session
+- with optional structured grant scopes such as once / session / forever when a tool exposes stable approval keys
 
 Autonomy:
 - configurable from assistant-like to highly privileged

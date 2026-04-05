@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from breqy.domain.enums import ApprovalStatus
-from breqy.domain.models import ApprovalDecision, ApprovalRequest
+from breqy.domain.enums import ApprovalGrantScope, ApprovalStatus
+from breqy.domain.models import ApprovalDecision, ApprovalGrant, ApprovalRequest
 from breqy.policy.approval import ApprovalService
 
 
@@ -15,6 +15,9 @@ def _make_repo():
     """Create a mock ApprovalRepository."""
     repo = AsyncMock()
     repo.get_session_grants = AsyncMock(return_value=[])
+    repo.get_grants = AsyncMock(return_value=[])
+    repo.has_grant = AsyncMock(return_value=False)
+    repo.create_grant = AsyncMock()
     repo.create_request = AsyncMock()
     repo.create_decision = AsyncMock()
     repo.update_request_status = AsyncMock()
@@ -34,6 +37,22 @@ async def test_request_approval_returns_request_id():
     )
     assert request_id.startswith("apr_")
     repo.create_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_request_approval_persists_grant_key():
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_1",
+        agent_id="agt_1",
+        tool_invocation_id="inv_1",
+        description="Browser submit on google.com",
+        grant_key="browser:submit:google.com",
+    )
+    assert request_id.startswith("apr_")
+    created_request = repo.create_request.await_args.args[0]
+    assert created_request.grant_key == "browser:submit:google.com"
 
 
 @pytest.mark.asyncio
@@ -107,9 +126,29 @@ async def test_extend_to_session_caches_grant():
         agent_id="agt_1",
         tool_invocation_id="inv_5",
         description="Run shell",
+        grant_key="tool:shell",
     )
-    await service.decide(request_id, granted=True, extend_to_session=True)
-    assert service.has_session_grant("ses_5", "Run shell") is True
+    await service.decide(request_id, granted=True, grant_scope=ApprovalGrantScope.SESSION)
+    assert service.has_grant("ses_5", "tool:shell") is True
+
+
+@pytest.mark.asyncio
+async def test_forever_grant_persists_and_applies_across_sessions():
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_forever",
+        agent_id="agt_1",
+        tool_invocation_id="inv_forever",
+        description="Browser submit on google.com",
+        grant_key="browser:submit:google.com",
+    )
+
+    await service.decide(request_id, granted=True, grant_scope=ApprovalGrantScope.FOREVER)
+
+    assert service.has_grant("ses_forever", "browser:submit:google.com") is True
+    assert service.has_grant("ses_other", "browser:submit:google.com") is True
+    repo.create_grant.assert_awaited()
 
 
 def test_has_session_grant_returns_false_when_not_granted():
@@ -146,7 +185,7 @@ async def test_load_session_grants_populates_cache():
     decision = ApprovalDecision(
         request_id="apr_existing",
         granted=True,
-        extend_to_session=True,
+        grant_scope=ApprovalGrantScope.SESSION,
     )
     request = ApprovalRequest(
         id="apr_existing",
@@ -154,9 +193,29 @@ async def test_load_session_grants_populates_cache():
         agent_id="agt_1",
         tool_invocation_id="inv_existing",
         description="Run shell",
+        grant_key="tool:shell",
     )
     repo.get_session_grants = AsyncMock(return_value=[decision])
     repo.get_request = AsyncMock(return_value=request)
+    repo.get_grants = AsyncMock(
+        side_effect=lambda session_id=None: (
+            [
+                ApprovalGrant(
+                    session_id="ses_reload",
+                    grant_key="tool:shell",
+                    scope=ApprovalGrantScope.SESSION,
+                )
+            ]
+            if session_id == "ses_reload"
+            else [
+                ApprovalGrant(
+                    session_id=None,
+                    grant_key="browser:extract:google.com",
+                    scope=ApprovalGrantScope.FOREVER,
+                )
+            ]
+        )
+    )
 
     service = ApprovalService(repo)
     # Cache is empty before load
@@ -165,7 +224,7 @@ async def test_load_session_grants_populates_cache():
     await service.load_session_grants("ses_reload")
 
     # Cache is populated after load
-    assert service.has_session_grant("ses_reload", "Run shell") is True
+    assert service.has_grant("ses_reload", "tool:shell") is True
 
 
 @pytest.mark.asyncio
@@ -178,9 +237,10 @@ async def test_denied_with_extend_to_session_does_not_cache():
         agent_id="agt_1",
         tool_invocation_id="inv_6",
         description="Run shell",
+        grant_key="tool:shell",
     )
-    await service.decide(request_id, granted=False, extend_to_session=True)
-    assert service.has_session_grant("ses_6", "Run shell") is False
+    await service.decide(request_id, granted=False, grant_scope=ApprovalGrantScope.SESSION)
+    assert service.has_grant("ses_6", "tool:shell") is False
 
 
 @pytest.mark.asyncio

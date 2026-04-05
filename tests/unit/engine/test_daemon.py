@@ -99,6 +99,7 @@ async def test_daemon_default_tool_service_registers_native_tools(tmp_dir: Path)
     try:
         assert daemon.server is not None
         assert daemon.server.tool_service is not None
+        assert daemon.server.tool_service._registry.get("browser") is not None
         assert daemon.server.tool_service._registry.get("shell") is not None
         assert daemon.server.tool_service._registry.get("filesystem") is not None
         assert daemon.server.tool_service._registry.get("mcp.memory.n--search") is not None
@@ -369,7 +370,6 @@ async def test_daemon_restores_active_sessions_and_respawns_agents_on_start(
 
         # Track spawn calls
         spawned: list[tuple[str, str]] = []
-        original_spawn = daemon.server.agent_spawner.spawn
 
         def tracking_spawn(agent_dir: str, *, session_id: str = "") -> int:
             spawned.append((agent_dir, session_id))
@@ -460,7 +460,6 @@ def test_daemon_module_entrypoint_invokes_main(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.asyncio
 async def test_daemon_start_passes_log_file_to_setup_logging(tmp_dir: Path) -> None:
     """EngineDaemon.start() should call setup_logging with log_file and context."""
-    from unittest.mock import patch, MagicMock
 
     config = EngineConfig(
         socket_path=str(tmp_dir / "engine.sock"),
@@ -477,7 +476,6 @@ async def test_daemon_start_passes_log_file_to_setup_logging(tmp_dir: Path) -> N
         # Since the daemon already ran, we can inspect the produced log_file path.
         # The convention is data_dir / "logs" / "engine.log".
         expected_log_dir = tmp_dir / "logs"
-        expected_log_file = expected_log_dir / "engine.log"
         assert expected_log_dir.exists(), "log directory should have been created"
     finally:
         await daemon.stop()

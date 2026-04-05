@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "tool_invocations",
     "approval_requests",
     "approval_decisions",
+    "approval_grants",
     "events",
     "memory_records",
     "memory_promotions",
@@ -51,7 +52,7 @@ async def test_schema_version_recorded(db_path: Path) -> None:
     cursor = await conn.execute("SELECT version FROM schema_version")
     row = await cursor.fetchone()
     assert row is not None
-    assert row[0] == 2
+    assert row[0] == 3
     await conn.close()
 
 
@@ -147,4 +148,47 @@ async def test_memory_filter_indexes_exist(db_path: Path) -> None:
         "idx_memory_records_linked_event",
         "idx_memory_records_promotion",
     }.issubset(indexes)
+    await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_run_migrations_upgrades_existing_approval_tables(db_path: Path) -> None:
+    conn = await create_connection(str(db_path))
+    await conn.executescript(
+        """
+        CREATE TABLE approval_requests (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            tool_invocation_id TEXT NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE approval_decisions (
+            id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL,
+            granted INTEGER NOT NULL,
+            extend_to_session INTEGER NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT '',
+            decided_at TEXT NOT NULL
+        );
+        """
+    )
+    await conn.commit()
+
+    await run_migrations(conn)
+
+    requests_cursor = await conn.execute("PRAGMA table_info(approval_requests)")
+    request_columns = {row[1] for row in await requests_cursor.fetchall()}
+    assert "grant_key" in request_columns
+
+    decisions_cursor = await conn.execute("PRAGMA table_info(approval_decisions)")
+    decision_columns = {row[1] for row in await decisions_cursor.fetchall()}
+    assert "grant_scope" in decision_columns
+
+    grants_cursor = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='approval_grants'"
+    )
+    assert await grants_cursor.fetchone() is not None
     await conn.close()

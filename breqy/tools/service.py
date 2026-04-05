@@ -93,50 +93,62 @@ class ToolService:
                 return denied_result
 
         approval_id: str | None = None
+        approval_spec = tool.approval_request_spec(arguments)
+        approval_description = (
+            approval_spec.description
+            if approval_spec is not None
+            else self._build_approval_description(tool_name, arguments)
+        )
+        approval_grant_key = (
+            approval_spec.grant_key
+            if approval_spec is not None and approval_spec.grant_key
+            else approval_description
+        )
         if decision.action == PolicyAction.REQUIRE_APPROVAL:
-            description = self._build_approval_description(tool_name, arguments)
-            approval_id = await self._approval_service.request_approval(
-                session_id=session_id,
-                agent_id=agent_id,
-                tool_invocation_id=invocation.id,
-                description=description,
-            )
-            await self._event_bus.publish(
-                ApprovalRequestedEvent(
+            if not self._approval_service.has_grant(session_id, approval_grant_key):
+                approval_id = await self._approval_service.request_approval(
                     session_id=session_id,
                     agent_id=agent_id,
-                    approval_id=approval_id,
+                    tool_invocation_id=invocation.id,
+                    description=approval_description,
+                    grant_key=approval_grant_key,
+                )
+                await self._event_bus.publish(
+                    ApprovalRequestedEvent(
+                        session_id=session_id,
+                        agent_id=agent_id,
+                        approval_id=approval_id,
+                        invocation_id=invocation.id,
+                        description=approval_description,
+                    )
+                )
+                await self._invocation_repo.update_result(
                     invocation_id=invocation.id,
-                    description=description,
+                    status=ToolStatus.PENDING,
+                    result=None,
+                    error="",
+                    summary="Waiting for approval",
+                    approval_id=approval_id,
                 )
-            )
-            await self._invocation_repo.update_result(
-                invocation_id=invocation.id,
-                status=ToolStatus.PENDING,
-                result=None,
-                error="",
-                summary="Waiting for approval",
-                approval_id=approval_id,
-            )
 
-            approval_status = await self._approval_service.wait_for_decision(
-                approval_id,
-                timeout=self._approval_timeout,
-            )
-            if approval_status == ApprovalStatus.DENIED:
-                return await self._finalize_denied(
-                    invocation=invocation,
-                    error=f"Approval denied for tool '{tool_name}'",
-                    summary="Tool execution denied during approval",
-                    approval_id=approval_id,
+                approval_status = await self._approval_service.wait_for_decision(
+                    approval_id,
+                    timeout=self._approval_timeout,
                 )
-            if approval_status == ApprovalStatus.EXPIRED:
-                return await self._finalize_failed(
-                    invocation=invocation,
-                    error=f"Approval timed out for tool '{tool_name}'",
-                    summary="Tool execution timed out waiting for approval",
-                    approval_id=approval_id,
-                )
+                if approval_status == ApprovalStatus.DENIED:
+                    return await self._finalize_denied(
+                        invocation=invocation,
+                        error=f"Approval denied for tool '{tool_name}'",
+                        summary="Tool execution denied during approval",
+                        approval_id=approval_id,
+                    )
+                if approval_status == ApprovalStatus.EXPIRED:
+                    return await self._finalize_failed(
+                        invocation=invocation,
+                        error=f"Approval timed out for tool '{tool_name}'",
+                        summary="Tool execution timed out waiting for approval",
+                        approval_id=approval_id,
+                    )
 
         started_at = datetime.now(timezone.utc)
         await self._invocation_repo.update_result(

@@ -4,9 +4,9 @@ from __future__ import annotations
 import pytest
 
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Static
+from textual.widgets import Button
 
-from breqy.domain.enums import ApprovalStatus
+from breqy.domain.enums import ApprovalGrantScope, ApprovalStatus
 from breqy.domain.models import ApprovalRequest
 from breqy.tui.widgets.approval_prompt import ApprovalPrompt
 
@@ -62,7 +62,7 @@ class TestApprovalPromptShowsDetails:
             prompt.add_request(sample_approval_request)
             await pilot.pause()
             buttons = prompt.query(Button)
-            assert len(buttons) == 3
+            assert len(buttons) == 4
 
 
 class TestApprovalPromptApprove:
@@ -94,7 +94,7 @@ class TestApprovalPromptApprove:
             await pilot.pause()
             assert len(messages) == 1
             assert messages[0].approval_id == "apr_001"
-            assert messages[0].extend_to_session is False
+            assert messages[0].grant_scope == ApprovalGrantScope.ONCE
 
 
 class TestApprovalPromptDeny:
@@ -157,7 +157,37 @@ class TestApprovalPromptApproveForSession:
             await pilot.pause()
             assert len(messages) == 1
             assert messages[0].approval_id == "apr_001"
-            assert messages[0].extend_to_session is True
+            assert messages[0].grant_scope == ApprovalGrantScope.SESSION
+
+
+class TestApprovalPromptApproveForever:
+    """Test that Approve-forever button sends Approved with forever scope."""
+
+    @pytest.mark.asyncio
+    async def test_approve_forever_posts_forever_scope(
+        self, sample_approval_request: ApprovalRequest
+    ) -> None:
+        messages: list[ApprovalPrompt.Approved] = []
+
+        class CapturingApp(App[None]):
+            def compose(self) -> ComposeResult:
+                yield ApprovalPrompt()
+
+            def on_approval_prompt_approved(
+                self, message: ApprovalPrompt.Approved
+            ) -> None:
+                messages.append(message)
+
+        app = CapturingApp()
+        async with app.run_test() as pilot:
+            prompt = app.query_one(ApprovalPrompt)
+            prompt.add_request(sample_approval_request)
+            await pilot.pause()
+            forever_btn = prompt.query_one("#btn-approve-forever", Button)
+            forever_btn.press()
+            await pilot.pause()
+            assert len(messages) == 1
+            assert messages[0].grant_scope == ApprovalGrantScope.FOREVER
 
 
 class TestApprovalPromptDismissedAfterDecision:
@@ -266,7 +296,7 @@ class TestApprovalPromptKeyBindings:
             await pilot.pause()
             assert len(messages) == 1
             assert messages[0].approval_id == "apr_001"
-            assert messages[0].extend_to_session is False
+            assert messages[0].grant_scope == ApprovalGrantScope.ONCE
 
     @pytest.mark.asyncio
     async def test_key_d_denies(
@@ -319,7 +349,33 @@ class TestApprovalPromptKeyBindings:
             await pilot.pause()
             assert len(messages) == 1
             assert messages[0].approval_id == "apr_001"
-            assert messages[0].extend_to_session is True
+            assert messages[0].grant_scope == ApprovalGrantScope.SESSION
+
+    @pytest.mark.asyncio
+    async def test_key_f_approves_forever(
+        self, sample_approval_request: ApprovalRequest
+    ) -> None:
+        messages: list[ApprovalPrompt.Approved] = []
+
+        class CapturingApp(App[None]):
+            def compose(self) -> ComposeResult:
+                yield ApprovalPrompt()
+
+            def on_approval_prompt_approved(
+                self, message: ApprovalPrompt.Approved
+            ) -> None:
+                messages.append(message)
+
+        app = CapturingApp()
+        async with app.run_test() as pilot:
+            prompt = app.query_one(ApprovalPrompt)
+            prompt.add_request(sample_approval_request)
+            await pilot.pause()
+            prompt.focus()
+            await pilot.press("f")
+            await pilot.pause()
+            assert len(messages) == 1
+            assert messages[0].grant_scope == ApprovalGrantScope.FOREVER
 
 
 class TestApprovalPromptEmptyState:
@@ -337,7 +393,7 @@ class TestApprovalPromptEmptyState:
     @pytest.mark.asyncio
     async def test_current_request_is_none_when_empty(self) -> None:
         app = ApprovalPromptApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             prompt = app.query_one(ApprovalPrompt)
             assert prompt.current_request is None
 
