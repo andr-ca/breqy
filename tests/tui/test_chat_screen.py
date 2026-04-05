@@ -815,7 +815,13 @@ class TestChatScreenReasoningHandlers:
             assert len(screen.query("#thinking-indicator")) == 1
 
     @pytest.mark.asyncio
-    async def test_handle_reasoning_done_hides_indicator(self) -> None:
+    async def test_handle_reasoning_done_does_not_hide_indicator(self) -> None:
+        """reasoning_done must NOT hide the indicator.
+
+        The Responses API emits reasoning_started + reasoning_done back-to-back
+        before any text arrives. Hiding on reasoning_done would remove the indicator
+        before a single frame is rendered — users would never see it.
+        """
         from breqy.domain.events import ReasoningStartedEvent, ReasoningDoneEvent
 
         app = ChatScreenApp()
@@ -827,7 +833,8 @@ class TestChatScreenReasoningHandlers:
             await pilot.pause()
             screen.handle_reasoning_done(ReasoningDoneEvent(session_id=SESSION_ID, agent_id="ag_1"))
             await pilot.pause()
-            assert len(screen.query("#thinking-indicator")) == 0
+            # Indicator must still be visible — only the first text chunk hides it
+            assert len(screen.query("#thinking-indicator")) == 1
 
     @pytest.mark.asyncio
     async def test_handle_message_chunk_hides_indicator(self) -> None:
@@ -841,6 +848,50 @@ class TestChatScreenReasoningHandlers:
                 ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
             )
             await pilot.pause()
+            screen.handle_message_chunk(
+                MessageChunkEvent(
+                    session_id=SESSION_ID,
+                    agent_id="ag_1",
+                    message_id="msg_1",
+                    chunk="Hello",
+                    chunk_index=0,
+                )
+            )
+            await pilot.pause()
+            assert len(screen.query("#thinking-indicator")) == 0
+
+    @pytest.mark.asyncio
+    async def test_indicator_stays_visible_after_reasoning_done(self) -> None:
+        """Indicator must remain visible after reasoning_done — it only hides on first text chunk.
+
+        Root cause: the API sends reasoning_started + reasoning_done back-to-back before any
+        text delta. If handle_reasoning_done hides the indicator immediately, users never see it
+        because no screen frame is rendered between show and hide.
+        """
+        from breqy.domain.events import (
+            ReasoningStartedEvent,
+            ReasoningDoneEvent,
+            MessageChunkEvent,
+        )
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+
+            # Simulate the real API sequence: reasoning_started → reasoning_done → text chunk
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            screen.handle_reasoning_done(ReasoningDoneEvent(session_id=SESSION_ID, agent_id="ag_1"))
+            await pilot.pause()
+
+            # Indicator must still be visible — reasoning_done must NOT hide it
+            assert len(screen.query("#thinking-indicator")) == 1, (
+                "Thinking indicator was hidden by reasoning_done before any text arrived. "
+                "The indicator should persist until the first text chunk."
+            )
+
+            # Only the first text chunk should hide the indicator
             screen.handle_message_chunk(
                 MessageChunkEvent(
                     session_id=SESSION_ID,

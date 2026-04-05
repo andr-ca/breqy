@@ -163,8 +163,14 @@ class ChatScreen(Screen[None]):
         self.query_one(ChatView).show_thinking_indicator()
 
     def handle_reasoning_done(self, event: ReasoningDoneEvent) -> None:
-        """Remove the 'Thinking...' indicator when the reasoning phase ends."""
-        self.query_one(ChatView).hide_thinking_indicator()
+        """No-op: do NOT hide the indicator when the reasoning phase ends.
+
+        The Responses API sends ``reasoning_started`` and ``reasoning_done``
+        back-to-back (before any text delta), so hiding on ``reasoning_done``
+        would remove the indicator before a single frame is rendered.
+        The indicator is instead hidden by ``handle_message_chunk`` when the
+        first text chunk arrives.
+        """
 
     def handle_task_updated(self, event: TaskUpdatedEvent) -> None:
         """Route a ``TaskUpdatedEvent`` to the ``TaskPanel``."""
