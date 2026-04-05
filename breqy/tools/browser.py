@@ -113,7 +113,12 @@ class BrowserTool(ToolExecutor):
         action = arguments.get("action")
         if not isinstance(action, str) or not action:
             return None
-        hostname = urlparse(str(arguments.get("url", ""))).hostname
+        if action not in _SUPPORTED_ACTIONS:
+            return None
+        parsed_url = urlparse(str(arguments.get("url", "")))
+        if parsed_url.scheme not in {"http", "https"}:
+            return None
+        hostname = parsed_url.hostname
         if not hostname:
             return None
         return ApprovalRequestSpec(

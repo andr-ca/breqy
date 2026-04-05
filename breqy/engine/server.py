@@ -355,11 +355,22 @@ class EngineServer:
         *,
         client_id: str,
     ) -> None:
-        await self.approval_service.decide(
-            event.approval_id,
-            granted=event.decision == ApprovalStatus.GRANTED,
-            grant_scope=event.grant_scope,
-        )
+        try:
+            await self.approval_service.decide(
+                event.approval_id,
+                granted=event.decision == ApprovalStatus.GRANTED,
+                grant_scope=event.grant_scope,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "Ignoring invalid approval decision",
+                approval_id=event.approval_id,
+                session_id=event.session_id,
+                client_id=client_id,
+                decision=event.decision.value,
+                error=str(exc),
+            )
+            return
         await self.event_bus.publish(event)
         await self.a2a_server.broadcast(Envelope.from_event(event), exclude_client=client_id)
 

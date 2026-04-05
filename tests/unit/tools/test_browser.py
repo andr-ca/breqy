@@ -87,6 +87,22 @@ def test_browser_tool_approval_request_spec_requires_url_for_stable_grant_key() 
     assert spec is None
 
 
+def test_browser_tool_approval_request_spec_ignores_blocked_actions() -> None:
+    tool = BrowserTool(runtime=FakeBrowserRuntime())
+
+    spec = tool.approval_request_spec({"action": "download", "url": "https://example.com/file"})
+
+    assert spec is None
+
+
+def test_browser_tool_approval_request_spec_ignores_non_http_urls() -> None:
+    tool = BrowserTool(runtime=FakeBrowserRuntime())
+
+    spec = tool.approval_request_spec({"action": "navigate", "url": "file:///etc/passwd"})
+
+    assert spec is None
+
+
 @pytest.mark.asyncio
 async def test_browser_tool_dispatches_navigate_action() -> None:
     runtime = FakeBrowserRuntime()

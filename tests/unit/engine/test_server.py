@@ -695,6 +695,46 @@ async def test_engine_server_routes_approval_decision_to_approval_service(
 
 
 @pytest.mark.asyncio
+async def test_engine_server_ignores_invalid_approval_decision_without_disconnect(
+    db_connection,
+    socket_path,
+) -> None:
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.approval_service.decide = AsyncMock(side_effect=ValueError("No pending approval"))  # type: ignore[method-assign]
+    server.event_bus.publish = AsyncMock()  # type: ignore[method-assign]
+    server.a2a_server.broadcast = AsyncMock()  # type: ignore[method-assign]
+
+    event = ApprovalDecidedEvent(
+        session_id=session.id,
+        approval_id="apr_missing",
+        event_type=EventType.APPROVAL_GRANTED,
+        decision=ApprovalStatus.GRANTED,
+        grant_scope=ApprovalGrantScope.ONCE,
+    )
+
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_tui")
+
+    server.approval_service.decide.assert_awaited_once()
+    server.event_bus.publish.assert_not_called()
+    server.a2a_server.broadcast.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_engine_server_routes_tool_execution_request_directly_without_persisting_transport_event(
     db_connection,
     socket_path,
