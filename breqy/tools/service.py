@@ -46,6 +46,10 @@ class ToolService:
         self._approval_timeout = approval_timeout
         self._session_manager = session_manager
 
+    async def close(self) -> None:
+        for tool in self._registry.iter_tools():
+            await tool.close()
+
     async def execute_tool(
         self,
         session_id: str,
@@ -105,6 +109,7 @@ class ToolService:
             else approval_description
         )
         if decision.action == PolicyAction.REQUIRE_APPROVAL:
+            await self._approval_service.ensure_grants_loaded(session_id)
             if not self._approval_service.has_grant(session_id, approval_grant_key):
                 approval_id = await self._approval_service.request_approval(
                     session_id=session_id,

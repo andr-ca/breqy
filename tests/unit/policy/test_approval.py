@@ -101,6 +101,24 @@ async def test_decide_denied_resolves_wait():
 
 
 @pytest.mark.asyncio
+async def test_wait_for_decision_succeeds_when_decision_arrives_before_wait_starts():
+    repo = _make_repo()
+    service = ApprovalService(repo)
+    request_id = await service.request_approval(
+        session_id="ses_early",
+        agent_id="agt_1",
+        tool_invocation_id="inv_early",
+        description="Run shell",
+    )
+
+    await service.decide(request_id, granted=True)
+
+    result = await service.wait_for_decision(request_id, timeout=0.1)
+
+    assert result == ApprovalStatus.GRANTED
+
+
+@pytest.mark.asyncio
 async def test_wait_for_decision_times_out():
     """wait_for_decision returns EXPIRED on timeout without raising."""
     repo = _make_repo()

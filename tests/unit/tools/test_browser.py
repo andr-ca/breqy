@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from breqy.tools.browser import BrowserInterventionRequired, BrowserTool
+from breqy.tools.browser_runtime import PlaywrightBrowserRuntime, _BrowserSession
 
 
 class FakeBrowserRuntime:
@@ -147,6 +148,16 @@ async def test_browser_tool_accepts_mode_alias() -> None:
 
 
 @pytest.mark.asyncio
+async def test_browser_tool_rejects_non_http_urls() -> None:
+    tool = BrowserTool(runtime=FakeBrowserRuntime())
+
+    result = await tool.execute({"action": "navigate", "url": "file:///etc/passwd"})
+
+    assert result.success is False
+    assert "http or https" in result.error
+
+
+@pytest.mark.asyncio
 async def test_browser_tool_requires_page_context_for_dom_actions() -> None:
     tool = BrowserTool(runtime=FakeBrowserRuntime())
 
@@ -264,3 +275,65 @@ async def test_browser_tool_returns_transport_safe_screenshot_reference(tmp_path
     assert artifact_ref["kind"] == "screenshot"
     assert artifact_ref["path"] == str(screenshot_path)
     assert "bytes" not in artifact_ref
+
+
+def test_runtime_resolves_relative_screenshot_paths_inside_artifacts_dir() -> None:
+    path = PlaywrightBrowserRuntime._resolve_screenshot_output_path("screens/shot.png")
+
+    assert "breqy-browser-artifacts" in str(path)
+    assert path.name == "shot.png"
+    assert path.parent.name == "screens"
+
+
+def test_runtime_rejects_absolute_screenshot_paths() -> None:
+    with pytest.raises(ValueError, match="relative"):
+        PlaywrightBrowserRuntime._resolve_screenshot_output_path("/tmp/evil.png")
+
+
+def test_runtime_rejects_traversing_screenshot_paths() -> None:
+    with pytest.raises(ValueError, match="within the artifacts directory"):
+        PlaywrightBrowserRuntime._resolve_screenshot_output_path("../evil.png")
+
+
+@pytest.mark.asyncio
+async def test_runtime_close_cleans_up_browser_processes() -> None:
+    class FakeContext:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class FakeBrowser:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class FakePlaywright:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+    runtime = PlaywrightBrowserRuntime()
+    context = FakeContext()
+    browser = FakeBrowser()
+    playwright = FakePlaywright()
+    runtime._sessions["browser-1"] = _BrowserSession(
+        browser_mode="headless",
+        browser=browser,
+        context=context,
+        tabs={},
+        current_tab_id="tab-1",
+    )
+    runtime._playwright = playwright
+
+    await runtime.close()
+
+    assert browser.closed is True
+    assert context.closed is True
+    assert playwright.stopped is True
+    assert runtime._sessions == {}

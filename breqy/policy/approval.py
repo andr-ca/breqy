@@ -42,6 +42,8 @@ class ApprovalService:
         # session_id -> set of granted keys/descriptions (in-memory cache)
         self._session_grants: dict[str, set[str]] = {}
         self._forever_grants: set[str] = set()
+        self._loaded_sessions: set[str] = set()
+        self._forever_loaded = False
 
     async def request_approval(
         self,
@@ -124,8 +126,6 @@ class ApprovalService:
             )
 
         pending.decided.set()
-        # Prune here so decide()-without-wait doesn't leak _PendingApproval
-        self._pending.pop(request_id, None)
         logger.info(
             "Approval %s: %s (scope=%s)",
             "granted" if granted else "denied",
@@ -162,11 +162,18 @@ class ApprovalService:
         session_grants = self._session_grants.get(session_id, set())
         return grant_key in session_grants or grant_key in self._forever_grants
 
+    async def ensure_grants_loaded(self, session_id: str) -> None:
+        if session_id not in self._loaded_sessions:
+            for grant in await self._repo.get_grants(session_id):
+                session_grants = self._session_grants.setdefault(session_id, set())
+                session_grants.add(grant.grant_key)
+            self._loaded_sessions.add(session_id)
+        if not self._forever_loaded:
+            for grant in await self._repo.get_grants():
+                if grant.scope == ApprovalGrantScope.FOREVER:
+                    self._forever_grants.add(grant.grant_key)
+            self._forever_loaded = True
+
     async def load_session_grants(self, session_id: str) -> None:
         """Populate in-memory session grant cache from DB (call on resume)."""
-        for grant in await self._repo.get_grants(session_id):
-            session_grants = self._session_grants.setdefault(session_id, set())
-            session_grants.add(grant.grant_key)
-        for grant in await self._repo.get_grants():
-            if grant.scope == ApprovalGrantScope.FOREVER:
-                self._forever_grants.add(grant.grant_key)
+        await self.ensure_grants_loaded(session_id)

@@ -170,6 +170,11 @@ async def run_migrations(conn: aiosqlite.Connection) -> None:
 
 
 async def _upgrade_approval_tables(conn: aiosqlite.Connection) -> None:
+    legacy_has_extend_to_session = await _has_column(
+        conn,
+        table_name="approval_decisions",
+        column_name="extend_to_session",
+    )
     await _ensure_column(
         conn,
         table_name="approval_requests",
@@ -181,6 +186,39 @@ async def _upgrade_approval_tables(conn: aiosqlite.Connection) -> None:
         table_name="approval_decisions",
         column_name="grant_scope",
         ddl="ALTER TABLE approval_decisions ADD COLUMN grant_scope TEXT NOT NULL DEFAULT 'once'",
+    )
+    await conn.execute(
+        "UPDATE approval_requests SET grant_key = description WHERE grant_key = ''"
+    )
+    if legacy_has_extend_to_session:
+        await conn.execute(
+            """
+            UPDATE approval_decisions
+            SET grant_scope = 'session'
+            WHERE extend_to_session = 1
+            """
+        )
+    await conn.execute(
+        """
+        INSERT INTO approval_grants (id, session_id, grant_key, scope, created_at)
+        SELECT
+            'apg_' || lower(hex(randomblob(12))),
+            r.session_id,
+            COALESCE(NULLIF(r.grant_key, ''), r.description),
+            d.grant_scope,
+            d.decided_at
+        FROM approval_decisions d
+        JOIN approval_requests r ON r.id = d.request_id
+        WHERE d.granted = 1
+          AND d.grant_scope IN ('session', 'forever')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM approval_grants g
+              WHERE g.session_id IS r.session_id
+                AND g.grant_key = COALESCE(NULLIF(r.grant_key, ''), r.description)
+                AND g.scope = d.grant_scope
+          )
+        """
     )
 
 
@@ -195,3 +233,14 @@ async def _ensure_column(
     columns = {row[1] for row in await cursor.fetchall()}
     if column_name not in columns:
         await conn.execute(ddl)
+
+
+async def _has_column(
+    conn: aiosqlite.Connection,
+    *,
+    table_name: str,
+    column_name: str,
+) -> bool:
+    cursor = await conn.execute(f"PRAGMA table_info({table_name})")
+    columns = {row[1] for row in await cursor.fetchall()}
+    return column_name in columns

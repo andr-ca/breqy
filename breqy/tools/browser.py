@@ -215,3 +215,6 @@ class BrowserTool(ToolExecutor):
         session_id = execution_context.get("session_id")
         if isinstance(session_id, str) and session_id:
             arguments["session_id"] = f"{session_id}:browser"
+
+    async def close(self) -> None:
+        await self._runtime.close()

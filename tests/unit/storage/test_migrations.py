@@ -156,9 +156,12 @@ async def test_run_migrations_upgrades_existing_approval_tables(db_path: Path) -
     conn = await create_connection(str(db_path))
     await conn.executescript(
         """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY
+        );
         CREATE TABLE approval_requests (
             id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
+            session_id TEXT NOT NULL REFERENCES sessions(id),
             agent_id TEXT NOT NULL,
             tool_invocation_id TEXT NOT NULL,
             description TEXT NOT NULL,
@@ -175,6 +178,23 @@ async def test_run_migrations_upgrades_existing_approval_tables(db_path: Path) -
         );
         """
     )
+    await conn.execute("INSERT INTO sessions (id) VALUES ('ses_1')")
+    await conn.execute(
+        """
+        INSERT INTO approval_requests
+            (id, session_id, agent_id, tool_invocation_id, description, status, created_at)
+        VALUES
+            ('apr_old', 'ses_1', 'agt_1', 'inv_1', 'Browser submit on google.com', 'granted', '2026-01-01T00:00:00+00:00')
+        """
+    )
+    await conn.execute(
+        """
+        INSERT INTO approval_decisions
+            (id, request_id, granted, extend_to_session, reason, decided_at)
+        VALUES
+            ('apd_old', 'apr_old', 1, 1, '', '2026-01-01T00:00:00+00:00')
+        """
+    )
     await conn.commit()
 
     await run_migrations(conn)
@@ -187,8 +207,32 @@ async def test_run_migrations_upgrades_existing_approval_tables(db_path: Path) -
     decision_columns = {row[1] for row in await decisions_cursor.fetchall()}
     assert "grant_scope" in decision_columns
 
+    decision_cursor = await conn.execute(
+        "SELECT grant_scope FROM approval_decisions WHERE id = 'apd_old'"
+    )
+    decision_row = await decision_cursor.fetchone()
+    assert decision_row is not None
+    assert decision_row[0] == "session"
+
+    request_cursor = await conn.execute(
+        "SELECT grant_key FROM approval_requests WHERE id = 'apr_old'"
+    )
+    request_row = await request_cursor.fetchone()
+    assert request_row is not None
+    assert request_row[0] == "Browser submit on google.com"
+
     grants_cursor = await conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='approval_grants'"
     )
     assert await grants_cursor.fetchone() is not None
+
+    backfill_cursor = await conn.execute(
+        """
+        SELECT session_id, grant_key, scope
+        FROM approval_grants
+        WHERE session_id = 'ses_1'
+        """
+    )
+    backfill_row = await backfill_cursor.fetchone()
+    assert tuple(backfill_row) == ("ses_1", "Browser submit on google.com", "session")
     await conn.close()

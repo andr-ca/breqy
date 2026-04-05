@@ -4,6 +4,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, TypeAdapter, model_validator
@@ -39,12 +40,18 @@ class BrowserPageAction(BrowserActionBase):
     def validate_page_context(self) -> "BrowserPageAction":
         if not self.url and not self.session_id:
             raise ValueError("browser page actions require session_id or url")
+        _validate_allowed_url(self.url)
         return self
 
 
 class NavigateAction(BrowserActionBase):
     action: Literal["navigate"] = "navigate"
     url: str
+
+    @model_validator(mode="after")
+    def validate_url(self) -> "NavigateAction":
+        _validate_allowed_url(self.url)
+        return self
 
 
 class ClickAction(BrowserPageAction):
@@ -129,6 +136,11 @@ class NewTabAction(BrowserActionBase):
     action: Literal["new_tab"] = "new_tab"
     url: str | None = None
 
+    @model_validator(mode="after")
+    def validate_url(self) -> "NewTabAction":
+        _validate_allowed_url(self.url)
+        return self
+
 
 class SwitchTabAction(BrowserActionBase):
     action: Literal["switch_tab"] = "switch_tab"
@@ -190,6 +202,14 @@ BrowserAction = Annotated[
 browser_action_adapter = TypeAdapter(BrowserAction)
 
 
+def _validate_allowed_url(raw_url: str | None) -> None:
+    if raw_url is None:
+        return
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("browser url must use http or https")
+
+
 @dataclass(slots=True)
 class BrowserInterventionRequired(Exception):
     reason: Literal["captcha", "mfa", "blocked_access"]
@@ -230,6 +250,8 @@ class BrowserRuntime(Protocol):
     async def set_cookies(self, action: SetCookiesAction) -> dict[str, Any]: ...
 
     async def set_headers(self, action: SetHeadersAction) -> dict[str, Any]: ...
+
+    async def close(self) -> None: ...
 
 
 @dataclass
@@ -294,17 +316,15 @@ class PlaywrightBrowserRuntime:
 
     async def screenshot(self, action: ScreenshotAction) -> dict[str, Any]:
         page = await self._page_for_action(action)
-        output_path = action.output_path or str(
-            Path(tempfile.gettempdir()) / f"breqy-browser-{uuid4().hex}.png"
-        )
+        output_path = self._resolve_screenshot_output_path(action.output_path)
         if action.selector:
-            await page.locator(action.selector).screenshot(path=output_path)
+            await page.locator(action.selector).screenshot(path=str(output_path))
         else:
-            await page.screenshot(path=output_path)
+            await page.screenshot(path=str(output_path))
         return {
             "artifact_ref": {
                 "kind": "screenshot",
-                "path": output_path,
+                "path": str(output_path),
                 "mime_type": "image/png",
             }
         }
@@ -429,3 +449,32 @@ class PlaywrightBrowserRuntime:
                 ) from exc
             self._playwright = await async_playwright().start()
         return self._playwright
+
+    async def close(self) -> None:
+        for session in list(self._sessions.values()):
+            await session.context.close()
+            await session.browser.close()
+        self._sessions.clear()
+        if self._playwright is not None:
+            await self._playwright.stop()
+            self._playwright = None
+
+    @staticmethod
+    def _resolve_screenshot_output_path(output_path: str | None) -> Path:
+        artifacts_dir = (Path(tempfile.gettempdir()) / "breqy-browser-artifacts").resolve()
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        if output_path is None:
+            return artifacts_dir / f"breqy-browser-{uuid4().hex}.png"
+
+        requested_path = Path(output_path)
+        if requested_path.is_absolute():
+            raise ValueError("Screenshot output_path must be relative to the artifacts directory")
+
+        safe_path = (artifacts_dir / requested_path).resolve()
+        try:
+            safe_path.relative_to(artifacts_dir)
+        except ValueError as exc:
+            raise ValueError("Screenshot output_path must stay within the artifacts directory") from exc
+
+        safe_path.parent.mkdir(parents=True, exist_ok=True)
+        return safe_path

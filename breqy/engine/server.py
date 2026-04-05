@@ -140,6 +140,8 @@ class EngineServer:
     async def stop(self) -> None:
         """Stop all subsystems cleanly."""
         self.agent_spawner.kill_all()
+        if self.tool_service is not None:
+            await self.tool_service.close()
         await self.a2a_server.stop()
         await self.event_writer.stop()
         logger.info("Engine server stopped")

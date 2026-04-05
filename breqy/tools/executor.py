@@ -29,3 +29,6 @@ class ToolExecutor(ABC):
 
     def approval_request_spec(self, arguments: dict[str, Any]) -> ApprovalRequestSpec | None:
         return None
+
+    async def close(self) -> None:
+        return None

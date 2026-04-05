@@ -41,6 +41,7 @@ from breqy.storage.sqlite.participant_repo import SqliteParticipantRepository
 from breqy.storage.sqlite.session_repo import SqliteSessionRepository
 from breqy.storage.sqlite.task_repo import SqliteTaskRepository
 from breqy.storage.sqlite.tool_invocation_repo import SqliteToolInvocationRepository
+from breqy.tools.executor import ToolExecutor, ToolResult
 from breqy.tools.registry import ToolRegistry
 from breqy.tools.shell import ShellTool
 
@@ -85,23 +86,69 @@ async def test_engine_server_composes_tool_service_and_persists_tool_events(
             tool_name="shell",
             arguments={"command": "printf hello"},
         )
+        assert result.success is True
+        assert result.output == {"stdout": "hello", "stderr": "", "return_code": 0}
+
+        invocations = await invocation_repo.list_by_session(session.id)
+        assert len(invocations) == 1
+        assert invocations[0].tool_name == "shell"
+        assert invocations[0].status == ToolStatus.COMPLETED
+        assert invocations[0].result == result.output
+
+        events = await event_repo.list_by_session(session.id, limit=10)
+        assert [event.event_type for event in events] == [
+            EventType.TOOL_INVOCATION_STARTED,
+            EventType.TOOL_INVOCATION_COMPLETED,
+        ]
     finally:
         await server.stop()
 
-    assert result.success is True
-    assert result.output == {"stdout": "hello", "stderr": "", "return_code": 0}
 
-    invocations = await invocation_repo.list_by_session(session.id)
-    assert len(invocations) == 1
-    assert invocations[0].tool_name == "shell"
-    assert invocations[0].status == ToolStatus.COMPLETED
-    assert invocations[0].result == result.output
+@pytest.mark.asyncio
+async def test_engine_server_stop_closes_registered_tools(
+    db_connection,
+    socket_path,
+) -> None:
+    class ClosableTool(ToolExecutor):
+        name = "closable"
+        description = "Closable tool"
+        input_schema = {"type": "object", "properties": {}}
 
-    events = await event_repo.list_by_session(session.id, limit=10)
-    assert [event.event_type for event in events] == [
-        EventType.TOOL_INVOCATION_STARTED,
-        EventType.TOOL_INVOCATION_COMPLETED,
-    ]
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def execute(self, arguments: dict[str, Any]) -> ToolResult:
+            return ToolResult(success=True)
+
+        async def close(self) -> None:
+            self.closed = True
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    invocation_repo = SqliteToolInvocationRepository(db_connection)
+
+    registry = ToolRegistry()
+    tool = ClosableTool()
+    registry.register(tool)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+        tool_invocation_repo=invocation_repo,
+        tool_registry=registry,
+    )
+
+    await server.start()
+    await server.stop()
+
+    assert tool.closed is True
 
 
 @pytest.mark.asyncio
