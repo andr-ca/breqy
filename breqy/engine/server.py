@@ -247,15 +247,11 @@ class EngineServer:
         await self.a2a_server.broadcast(Envelope.from_event(created_event))
 
     async def _handle_user_message(self, event: MessageSentEvent) -> None:
-        message = await self.session_manager.add_message(
-            session_id=event.session_id,
-            role=event.role,
-            content=event.content,
-            agent_id=event.agent_id or None,
-        )
-        logger.debug("Message persisted", session_id=event.session_id, message_id=message.id)
-        await self.event_bus.publish(event)
-
+        # Fetch prior messages BEFORE persisting the current message so that
+        # session_context.messages contains only the conversation history.
+        # The runtime appends the current user message explicitly via
+        # user_message_content; including it here would create a duplicate that
+        # causes HTTP 400 from the Responses API.
         session = await self.session_manager.get_session(event.session_id)
         if session is None:
             return
@@ -264,6 +260,15 @@ class EngineServer:
             return
 
         messages = await self.session_manager.get_messages(event.session_id)
+
+        message = await self.session_manager.add_message(
+            session_id=event.session_id,
+            role=event.role,
+            content=event.content,
+            agent_id=event.agent_id or None,
+        )
+        logger.debug("Message persisted", session_id=event.session_id, message_id=message.id)
+        await self.event_bus.publish(event)
         available_tools = (
             self.tool_service._registry.to_definitions() if self.tool_service is not None else []
         )
