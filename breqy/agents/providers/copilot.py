@@ -404,6 +404,13 @@ class CopilotProvider(ModelProvider):
         When ``request.conversation_history`` is set (multi-turn tool loop),
         the full history is passed as input_messages instead of a single user
         turn.
+
+        Chat Completions format for tool calls (produced by the runtime) is
+        translated to Responses API format:
+          - ``{"role": "assistant", "content": None, "tool_calls": [...]}``
+            becomes one ``{"type": "function_call", ...}`` item per tool call.
+          - ``{"role": "tool", "tool_call_id": "...", "content": "..."}``
+            becomes ``{"type": "function_call_output", "call_id": "...", "output": "..."}``.
         """
         instructions: str | None = None
         persona = request.extra_env.get("BREQY_PERSONA")
@@ -411,7 +418,32 @@ class CopilotProvider(ModelProvider):
             instructions = persona
 
         if request.conversation_history is not None:
-            input_messages: list[dict[str, Any]] = list(request.conversation_history)
+            input_messages: list[dict[str, Any]] = []
+            for msg in request.conversation_history:
+                role = msg.get("role")
+                if role == "assistant" and msg.get("tool_calls"):
+                    # Translate each tool_call to a Responses API function_call item
+                    for tc in msg["tool_calls"]:
+                        fn = tc.get("function", {})
+                        input_messages.append(
+                            {
+                                "type": "function_call",
+                                "call_id": tc.get("id", ""),
+                                "name": fn.get("name", ""),
+                                "arguments": fn.get("arguments", "{}"),
+                            }
+                        )
+                elif role == "tool":
+                    # Translate to Responses API function_call_output item
+                    input_messages.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": msg.get("tool_call_id", ""),
+                            "output": msg.get("content", ""),
+                        }
+                    )
+                else:
+                    input_messages.append(msg)
         else:
             input_messages = [{"role": "user", "content": request.prompt}]
         return input_messages, instructions
@@ -441,7 +473,19 @@ class CopilotProvider(ModelProvider):
                 if delta:
                     yield ProviderEvent(kind="text", text=delta)
 
-            # Tool call (complete item)
+            # Reasoning summary text chunk
+            elif event_type == "response.reasoning_summary_text.delta":
+                delta = event.get("delta", "")
+                if delta:
+                    yield ProviderEvent(kind="reasoning_text", text=delta)
+
+            # Reasoning item started
+            elif event_type == "response.output_item.added":
+                item = event.get("item", {})
+                if item.get("type") == "reasoning":
+                    yield ProviderEvent(kind="reasoning_started")
+
+            # Tool call OR reasoning item done
             elif event_type == "response.output_item.done":
                 item = event.get("item", {})
                 if item.get("type") == "function_call":
@@ -453,6 +497,8 @@ class CopilotProvider(ModelProvider):
                             arguments_chunk=item.get("arguments", ""),
                         ),
                     )
+                elif item.get("type") == "reasoning":
+                    yield ProviderEvent(kind="reasoning_done")
 
             # Stream complete (success)
             elif event_type == "response.completed":

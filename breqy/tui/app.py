@@ -127,6 +127,18 @@ class BreqyApp(App):
             EventType.MESSAGE_CHUNK,
             lambda e: self._route_to_chat("handle_message_chunk", e),
         )
+        self._dispatcher.register(
+            EventType.REASONING_STARTED,
+            lambda e: self._route_to_chat("handle_reasoning_started", e),
+        )
+        self._dispatcher.register(
+            EventType.REASONING_DONE,
+            lambda e: self._route_to_chat("handle_reasoning_done", e),
+        )
+        self._dispatcher.register(
+            EventType.REASONING_TEXT_CHUNK,
+            lambda e: self._route_to_chat("handle_reasoning_text_chunk", e),
+        )
 
         # Task events → ChatScreen
         for et in (EventType.TASK_CREATED, EventType.TASK_UPDATED, EventType.TASK_COMPLETED):

@@ -1286,3 +1286,17 @@ class TestToolCallArgumentAccumulation:
 
         tool_events = [e for e in events if e.kind == "tool_call"]
         assert len(tool_events) == 1
+
+
+class TestProviderEventKind:
+    def test_reasoning_started_kind_is_valid(self) -> None:
+        from breqy.agents.providers.base import ProviderEvent
+
+        e = ProviderEvent(kind="reasoning_started")
+        assert e.kind == "reasoning_started"
+
+    def test_reasoning_done_kind_is_valid(self) -> None:
+        from breqy.agents.providers.base import ProviderEvent
+
+        e = ProviderEvent(kind="reasoning_done")
+        assert e.kind == "reasoning_done"

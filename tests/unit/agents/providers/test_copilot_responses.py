@@ -238,6 +238,34 @@ class TestStreamResponsesErrors:
         assert exc_info.value.status_code == 400
 
 
+class TestStreamResponsesReasoningParam:
+    """stream_responses must send reasoning: {summary: auto} in the request body."""
+
+    def test_stream_responses_sends_reasoning_summary_auto(self) -> None:
+        from breqy.agents.providers.copilot_client import CopilotApiClient
+
+        chunks = _make_sse_lines("[DONE]")
+        mock_response = _mock_streaming_response(chunks)
+        mock_client = MagicMock()
+        mock_client.stream.return_value = mock_response
+
+        client = CopilotApiClient(http_client=mock_client)
+        list(
+            client.stream_responses(
+                token="gho_test",
+                model="gpt-5.4-mini",
+                input_messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+
+        call_args = mock_client.stream.call_args
+        body = call_args[1].get("json", {})
+        assert "reasoning" in body, "reasoning key missing from request body"
+        assert body["reasoning"] == {"summary": "auto"}, (
+            f"Expected reasoning={{summary: auto}}, got {body['reasoning']}"
+        )
+
+
 class TestStreamResponsesTools:
     def test_tools_included_in_request(self) -> None:
         from breqy.agents.providers.copilot_client import CopilotApiClient
@@ -270,3 +298,311 @@ class TestStreamResponsesTools:
         body = call_args[1].get("json", {})
         assert "tools" in body
         assert body["tools"] == tools
+
+
+class TestStreamResponsesReasoningItem:
+    """_do_stream_responses emits reasoning_started / reasoning_done for reasoning output items."""
+
+    def _make_provider(self) -> "CopilotProvider":
+        from breqy.agents.providers.copilot import CopilotProvider
+        from unittest.mock import MagicMock
+
+        authenticator = MagicMock()
+        authenticator.get_copilot_token.return_value = "tok"
+        client = MagicMock()
+        return CopilotProvider(model_id="gpt-5-mini", authenticator=authenticator, client=client)
+
+    def _make_sse(self, *events) -> list[str]:
+        import json
+
+        lines = []
+        for ev in events:
+            lines.append(f"data: {json.dumps(ev)}")
+            lines.append("")
+        return lines
+
+    def test_reasoning_output_item_emits_reasoning_started_then_done(self) -> None:
+        from breqy.agents.providers.base import ProviderEvent, ProviderRequest
+        from pathlib import Path
+
+        reasoning_added = {
+            "type": "response.output_item.added",
+            "item": {"id": "r1", "type": "reasoning", "summary": []},
+            "output_index": 0,
+        }
+        reasoning_done = {
+            "type": "response.output_item.done",
+            "item": {"id": "r1", "type": "reasoning", "summary": []},
+            "output_index": 0,
+        }
+        text_delta = {"type": "response.output_text.delta", "delta": "Hello"}
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter(
+            [
+                reasoning_added,
+                reasoning_done,
+                text_delta,
+                completed,
+            ]
+        )
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        kinds = [e.kind for e in events]
+        assert "reasoning_started" in kinds
+        assert "reasoning_done" in kinds
+        # reasoning_started must come before reasoning_done
+        assert kinds.index("reasoning_started") < kinds.index("reasoning_done")
+
+    def test_non_reasoning_output_item_does_not_emit_reasoning_events(self) -> None:
+        from breqy.agents.providers.base import ProviderRequest
+        from pathlib import Path
+
+        function_call_done = {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "call_id": "c1",
+                "name": "read_file",
+                "arguments": '{"path": "/tmp/x"}',
+            },
+        }
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter(
+            [
+                function_call_done,
+                completed,
+            ]
+        )
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        kinds = [e.kind for e in events]
+        assert "reasoning_started" not in kinds
+        assert "reasoning_done" not in kinds
+
+
+class TestStreamResponsesReasoningTextDelta:
+    """_do_stream_responses emits reasoning_text events for response.reasoning_summary_text.delta."""
+
+    def _make_provider(self):
+        from breqy.agents.providers.copilot import CopilotProvider
+        from unittest.mock import MagicMock
+
+        authenticator = MagicMock()
+        authenticator.get_copilot_token.return_value = "tok"
+        return CopilotProvider(
+            model_id="gpt-5.4-mini", authenticator=authenticator, client=MagicMock()
+        )
+
+    def test_reasoning_summary_text_delta_yields_reasoning_text_event(self) -> None:
+        from breqy.agents.providers.base import ProviderRequest
+        from pathlib import Path
+
+        reasoning_delta_1 = {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "First thought",
+        }
+        reasoning_delta_2 = {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": " continues here",
+        }
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter(
+            [reasoning_delta_1, reasoning_delta_2, completed]
+        )
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        reasoning_text_events = [e for e in events if e.kind == "reasoning_text"]
+        assert len(reasoning_text_events) == 2
+        assert reasoning_text_events[0].text == "First thought"
+        assert reasoning_text_events[1].text == " continues here"
+
+    def test_empty_reasoning_delta_is_not_yielded(self) -> None:
+        """Empty or missing delta strings must not produce reasoning_text events."""
+        from breqy.agents.providers.base import ProviderRequest
+        from pathlib import Path
+
+        reasoning_delta_empty = {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "",
+        }
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter([reasoning_delta_empty, completed])
+
+        request = ProviderRequest(prompt="hi", work_dir=Path("/tmp"))
+        events = list(provider._do_stream_responses("tok", request))
+
+        reasoning_text_events = [e for e in events if e.kind == "reasoning_text"]
+        assert reasoning_text_events == []
+
+
+# --------------------------------------------------------------------------- #
+# _build_responses_input: multi-turn tool history translation
+# --------------------------------------------------------------------------- #
+
+
+class TestBuildResponsesInputToolHistory:
+    """Verify _build_responses_input translates Chat Completions tool history to Responses API format.
+
+    The runtime builds conversation_history in Chat Completions format:
+      {"role": "assistant", "content": None, "tool_calls": [{...}]}
+      {"role": "tool", "tool_call_id": "...", "name": "...", "content": "..."}
+
+    The Responses API rejects content: null and does not understand "role: tool".
+    _build_responses_input must translate to:
+      {"type": "function_call", "call_id": "...", "name": "...", "arguments": "..."}
+      {"type": "function_call_output", "call_id": "...", "output": "..."}
+    """
+
+    def _make_provider(self):
+        from unittest.mock import MagicMock
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        return CopilotProvider(
+            model_id="gpt-5.4-mini",
+            authenticator=MagicMock(),
+            client=MagicMock(),
+        )
+
+    def test_plain_user_message_becomes_single_input_item(self) -> None:
+        """With no conversation_history, input is a single user message."""
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        provider = self._make_provider()
+        request = ProviderRequest(prompt="hello", work_dir=Path("/tmp"))
+        input_messages, _ = provider._build_responses_input(request)
+
+        assert input_messages == [{"role": "user", "content": "hello"}]
+
+    def test_assistant_tool_call_with_null_content_is_translated(self) -> None:
+        """Chat Completions assistant tool-call item (content=None) becomes function_call type."""
+        import json
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        history = [
+            {"role": "user", "content": "run ls"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "ls"}'},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_abc",
+                "name": "shell",
+                "content": "file1.txt\nfile2.txt",
+            },
+        ]
+        provider = self._make_provider()
+        request = ProviderRequest(
+            prompt="run ls", work_dir=Path("/tmp"), conversation_history=history
+        )
+        input_messages, _ = provider._build_responses_input(request)
+
+        # The assistant tool-call message must NOT appear with content=null
+        for msg in input_messages:
+            assert msg.get("content") is not None or msg.get("type") in (
+                "function_call",
+                "function_call_output",
+            ), f"Found null content in non-translated message: {msg}"
+
+        # Must contain a function_call item
+        fc_items = [m for m in input_messages if m.get("type") == "function_call"]
+        assert len(fc_items) == 1
+        assert fc_items[0]["call_id"] == "call_abc"
+        assert fc_items[0]["name"] == "shell"
+        assert json.loads(fc_items[0]["arguments"]) == {"command": "ls"}
+
+        # Must contain a function_call_output item
+        fco_items = [m for m in input_messages if m.get("type") == "function_call_output"]
+        assert len(fco_items) == 1
+        assert fco_items[0]["call_id"] == "call_abc"
+        assert fco_items[0]["output"] == "file1.txt\nfile2.txt"
+
+    def test_regular_user_and_assistant_messages_are_preserved(self) -> None:
+        """User and assistant text messages in history are preserved as-is."""
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        history = [
+            {"role": "user", "content": "First question."},
+            {"role": "assistant", "content": "First answer."},
+            {"role": "user", "content": "Second question."},
+        ]
+        provider = self._make_provider()
+        request = ProviderRequest(
+            prompt="Second question.", work_dir=Path("/tmp"), conversation_history=history
+        )
+        input_messages, _ = provider._build_responses_input(request)
+
+        assert input_messages == history
+
+    def test_multiple_tool_calls_in_one_round_are_all_translated(self) -> None:
+        """When there are multiple tool_calls in one assistant message, each becomes a function_call."""
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        history = [
+            {"role": "user", "content": "do two things"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "ls"}'},
+                    },
+                    {
+                        "id": "call_2",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": '{"command": "pwd"}'},
+                    },
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "name": "shell",
+                "content": "file.txt",
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_2",
+                "name": "shell",
+                "content": "/home/user",
+            },
+        ]
+        provider = self._make_provider()
+        request = ProviderRequest(
+            prompt="do two things", work_dir=Path("/tmp"), conversation_history=history
+        )
+        input_messages, _ = provider._build_responses_input(request)
+
+        fc_items = [m for m in input_messages if m.get("type") == "function_call"]
+        fco_items = [m for m in input_messages if m.get("type") == "function_call_output"]
+        assert len(fc_items) == 2
+        assert len(fco_items) == 2
+        assert {m["call_id"] for m in fc_items} == {"call_1", "call_2"}
+        assert {m["call_id"] for m in fco_items} == {"call_1", "call_2"}

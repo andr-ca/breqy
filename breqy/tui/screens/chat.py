@@ -12,6 +12,7 @@ responsibility (Task 15).
 
 from __future__ import annotations
 
+import structlog
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
@@ -24,6 +25,9 @@ from breqy.domain.events import (
     MessageChunkEvent,
     MessageSentEvent,
     ModelInfoEvent,
+    ReasoningDoneEvent,
+    ReasoningStartedEvent,
+    ReasoningTextChunkEvent,
     TaskUpdatedEvent,
     ToolInvocationCompletedEvent,
     ToolInvocationFailedEvent,
@@ -39,6 +43,8 @@ from breqy.tui.widgets.control_bar import ControlBar
 from breqy.tui.widgets.message_input import MessageInput
 from breqy.tui.widgets.task_panel import TaskPanel
 from breqy.tui.widgets.tool_panel import ToolPanel
+
+logger = structlog.get_logger(__name__)
 
 
 class ChatScreen(Screen[None]):
@@ -144,13 +150,38 @@ class ChatScreen(Screen[None]):
             )
 
     def handle_message_chunk(self, event: MessageChunkEvent) -> None:
-        """Route a ``MessageChunkEvent`` to the ``ChatView`` for streaming."""
+        """Route a ``MessageChunkEvent`` to the ``ChatView`` for streaming.
+
+        Also hides the thinking indicator if it is still showing (safety net).
+        """
         chat_view = self.query_one(ChatView)
+        chat_view.hide_thinking_indicator()
         chat_view.add_chunk(
             message_id=event.message_id,
             chunk=event.chunk,
             chunk_index=event.chunk_index,
         )
+
+    def handle_reasoning_started(self, event: ReasoningStartedEvent) -> None:
+        """Show the 'Thinking...' indicator when the model enters a reasoning phase."""
+        self.query_one(ChatView).show_thinking_indicator()
+
+    def handle_reasoning_text_chunk(self, event: ReasoningTextChunkEvent) -> None:
+        """Buffer a reasoning text chunk in the ChatView."""
+        logger.debug("handle_reasoning_text_chunk", chunk_len=len(event.chunk))
+        self.query_one(ChatView).add_reasoning_chunk(event.chunk)
+
+    def handle_reasoning_done(self, event: ReasoningDoneEvent) -> None:
+        """Flush buffered reasoning text to the chat log as a dim block.
+
+        Does NOT hide the thinking indicator — the Responses API sends
+        ``reasoning_started`` and ``reasoning_done`` back-to-back (before any
+        text delta), so hiding here would remove the indicator before any frame
+        is rendered. The indicator is instead hidden by ``handle_message_chunk``
+        when the first text chunk arrives.
+        """
+        logger.debug("handle_reasoning_done_flushing")
+        self.query_one(ChatView).flush_reasoning_block()
 
     def handle_task_updated(self, event: TaskUpdatedEvent) -> None:
         """Route a ``TaskUpdatedEvent`` to the ``TaskPanel``."""
@@ -162,7 +193,13 @@ class ChatScreen(Screen[None]):
         )
 
     def handle_tool_started(self, event: ToolInvocationStartedEvent) -> None:
-        """Route a ``ToolInvocationStartedEvent`` to the ``ToolPanel``."""
+        """Route a ``ToolInvocationStartedEvent`` to the ``ToolPanel``.
+
+        Also hides the thinking indicator — when the model decides to call a
+        tool instead of emitting text, ``MessageChunkEvent`` never fires so the
+        indicator would otherwise remain visible indefinitely.
+        """
+        self.query_one(ChatView).hide_thinking_indicator()
         tool_panel = self.query_one(ToolPanel)
         tool_panel.tool_started(
             invocation_id=event.invocation_id,

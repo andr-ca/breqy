@@ -7,12 +7,15 @@ incremental streaming via ``StreamBuffer``.
 
 from __future__ import annotations
 
+import structlog
 from textual.widget import Widget
-from textual.widgets import RichLog
+from textual.widgets import RichLog, Static
 
 from breqy.domain.enums import MessageRole
 from breqy.tui.widgets.selectable_rich_log import SelectableRichLog
 from breqy.tui.widgets.stream_buffer import StreamBuffer
+
+logger = structlog.get_logger(__name__)
 
 
 class ChatView(Widget):
@@ -22,11 +25,17 @@ class ChatView(Widget):
     ChatView {
         height: 1fr;
     }
+    .thinking-indicator {
+        color: $text-muted;
+        text-style: italic;
+        padding: 0 2;
+    }
     """
 
     def __init__(self, **kwargs) -> None:  # type: ignore[override]
         super().__init__(**kwargs)
         self._stream_buffer = StreamBuffer()
+        self._reasoning_chunks: list[str] = []
 
     def compose(self):  # noqa: ANN201
         yield SelectableRichLog(id="chat-log", wrap=True, markup=True)
@@ -55,6 +64,54 @@ class ChatView(Widget):
     def clear_messages(self) -> None:
         """Clear all messages from the chat."""
         self.log_widget.clear()
+
+    def show_thinking_indicator(self) -> None:
+        """Show a 'Thinking...' indicator at the bottom of the chat.
+
+        Idempotent — calling this multiple times only mounts one indicator.
+        """
+        if self.query("#thinking-indicator"):
+            return
+        self.mount(Static("● Thinking...", id="thinking-indicator", classes="thinking-indicator"))
+
+    def hide_thinking_indicator(self) -> None:
+        """Remove the 'Thinking...' indicator if it is present.
+
+        No-op if no indicator is currently shown.
+        """
+        for widget in self.query("#thinking-indicator"):
+            widget.remove()
+
+    def add_reasoning_chunk(self, chunk: str) -> None:
+        """Buffer a reasoning text chunk.
+
+        Chunks are not written to the log immediately — call
+        ``flush_reasoning_block()`` to persist the accumulated text.
+        """
+        logger.debug(
+            "reasoning_chunk_buffered",
+            chunk_len=len(chunk),
+            total_chunks=len(self._reasoning_chunks) + 1,
+        )
+        self._reasoning_chunks.append(chunk)
+
+    def flush_reasoning_block(self) -> None:
+        """Write accumulated reasoning text to the chat log as a dim italic block.
+
+        No-op if no chunks have been buffered since the last flush.
+        Clears the buffer after writing.
+        """
+        logger.debug(
+            "flush_reasoning_block_called",
+            chunk_count=len(self._reasoning_chunks),
+        )
+        if not self._reasoning_chunks:
+            logger.debug("flush_reasoning_block_noop_empty_buffer")
+            return
+        text = "".join(self._reasoning_chunks)
+        self._reasoning_chunks = []
+        logger.debug("flush_reasoning_block_writing", text_len=len(text))
+        self.log_widget.write(f"[dim italic]{text}[/dim italic]")
 
     @staticmethod
     def _role_prefix(role: MessageRole, agent_id: str = "") -> str:

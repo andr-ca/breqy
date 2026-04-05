@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Reasoning text display: the Copilot Responses API is now requested with `reasoning:{summary:"auto"}`, causing `response.reasoning_summary_text.delta` events to stream. Each delta is yielded as a `ProviderEvent(kind="reasoning_text")`, dispatched through `runtime.py` as a `ReasoningTextChunkEvent`, buffered in `ChatView._reasoning_chunks`, and flushed as a dim italic block in the chat log when `reasoning_done` fires. The full pipeline—provider → domain event → TUI—is covered by new unit and TUI tests.
 - `breqy/tools/browser.py` and `breqy/tools/browser_runtime.py`: native Playwright-backed `browser` tool with typed action validation for navigate/click/fill/select/wait/extract/screenshot/history/tab/session/header/cookie operations, plus safe blocked-flow handling for CAPTCHA/MFA/blocked access.
 - `tests/unit/tools/test_browser.py` and `tests/unit/tools/test_browser_registry.py`: browser-tool contract coverage for schema validation, blocked/error behavior, transport-safe artifact output, and registry exposure.
 - `approval_grants` persistence plus structured approval grant support: once/session/forever scopes, durable `grant_key` matching, and browser-ready action+domain grant semantics across `breqy/domain/`, `breqy/storage/`, and `breqy/policy/approval.py`.
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `CopilotProvider.stream()` now catches `CopilotAuthError` from `get_copilot_token()` (e.g. HTTP 404 on token exchange when OAuth token is expired/revoked) and triggers device flow re-authentication instead of crashing with an unrecoverable error message. Both the initial token fetch and the 401 retry path are covered.
+- `EngineServer._handle_user_message` now fetches prior session messages **before** persisting the current user message. Previously, the current user turn was already in storage by the time `session_context` was built, causing it to appear twice in the Responses API request body and producing HTTP 400 errors.
 
 ### Changed
 - `agents/core.instructions.md`, `agents/project.instructions.md`, and `agents/python.instructions.md` now include stronger guidance for migration discipline, PR scope hygiene, review-comment handling, approval-contract alignment, best-effort shutdown cleanup, external-surface hardening, and third-party schema compatibility based on lessons from the browser-tool PR review cycle.

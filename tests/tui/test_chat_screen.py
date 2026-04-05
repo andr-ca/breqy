@@ -1,4 +1,5 @@
 """Tests for breqy.tui.screens.chat — ChatScreen assembly of all chat widgets."""
+
 from __future__ import annotations
 
 import pytest
@@ -280,6 +281,42 @@ class TestChatScreenToolStarted:
             await pilot.pause()
             tool_panel = screen.query_one(ToolPanel)
             assert "inv_001" in tool_panel._entries
+
+    @pytest.mark.asyncio
+    async def test_handle_tool_started_hides_thinking_indicator(self) -> None:
+        """Thinking indicator must be hidden when a tool call starts.
+
+        If the model reasons and then calls a tool (no text), ``MessageChunkEvent``
+        never fires, so we hide the indicator here to prevent it from lingering.
+        """
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            from breqy.domain.events import ReasoningStartedEvent
+
+            # Show the indicator first
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            await pilot.pause()
+            chat_view = screen.query_one(ChatView)
+            assert chat_view.query("#thinking-indicator"), (
+                "Indicator should be visible after reasoning_started"
+            )
+
+            # Now a tool call arrives — indicator must be hidden
+            event = ToolInvocationStartedEvent(
+                session_id=SESSION_ID,
+                invocation_id="inv_001",
+                tool_name="shell",
+                arguments={"command": "ls"},
+                summary="List files",
+            )
+            screen.handle_tool_started(event)
+            await pilot.pause()
+            assert not chat_view.query("#thinking-indicator"), (
+                "Indicator should be hidden after tool call starts"
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -606,9 +643,7 @@ class TestChatScreenApprovalDecision:
             def on_mount(self) -> None:
                 self.push_screen(ChatScreen(session_id=SESSION_ID))
 
-            def on_approval_prompt_approved(
-                self, event: ApprovalPrompt.Approved
-            ) -> None:
+            def on_approval_prompt_approved(self, event: ApprovalPrompt.Approved) -> None:
                 approved.append(event)
 
         app = CapturingApp()
@@ -636,9 +671,7 @@ class TestChatScreenApprovalDecision:
             def on_mount(self) -> None:
                 self.push_screen(ChatScreen(session_id=SESSION_ID))
 
-            def on_approval_prompt_denied(
-                self, event: ApprovalPrompt.Denied
-            ) -> None:
+            def on_approval_prompt_denied(self, event: ApprovalPrompt.Denied) -> None:
                 denied.append(event)
 
         app = CapturingApp()
@@ -675,9 +708,7 @@ class TestChatScreenControlAction:
             def on_mount(self) -> None:
                 self.push_screen(ChatScreen(session_id=SESSION_ID))
 
-            def on_control_bar_control_action(
-                self, event: ControlBar.ControlAction
-            ) -> None:
+            def on_control_bar_control_action(self, event: ControlBar.ControlAction) -> None:
                 actions.append(event)
 
         app = CapturingApp()
@@ -760,8 +791,7 @@ class TestChatScreenLayout:
             msg_input = screen.query_one(MessageInput)
             # Widget's region.y + height must be <= terminal height (40)
             assert msg_input.region.y < 40, (
-                f"MessageInput at y={msg_input.region.y} is off-screen "
-                f"(viewport height=40)"
+                f"MessageInput at y={msg_input.region.y} is off-screen (viewport height=40)"
             )
 
     @pytest.mark.asyncio
@@ -783,8 +813,7 @@ class TestChatScreenLayout:
             screen = _get_screen(app)
             control = screen.query_one(ControlBar)
             assert control.region.y < 40, (
-                f"ControlBar at y={control.region.y} is off-screen "
-                f"(viewport height=40)"
+                f"ControlBar at y={control.region.y} is off-screen (viewport height=40)"
             )
 
     @pytest.mark.asyncio
@@ -798,3 +827,165 @@ class TestChatScreenLayout:
             assert chat_view.region.height >= 20, (
                 f"ChatView height={chat_view.region.height}, expected >= 20"
             )
+
+
+# --------------------------------------------------------------------------- #
+# Event routing tests — ReasoningStartedEvent / ReasoningDoneEvent
+# --------------------------------------------------------------------------- #
+
+
+class TestChatScreenReasoningHandlers:
+    """ChatScreen calls show/hide thinking indicator on reasoning events."""
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_started_shows_indicator(self) -> None:
+        from breqy.domain.events import ReasoningStartedEvent
+
+        event = ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_started(event)
+            await pilot.pause()
+            assert len(screen.query("#thinking-indicator")) == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_done_does_not_hide_indicator(self) -> None:
+        """reasoning_done must NOT hide the indicator.
+
+        The Responses API emits reasoning_started + reasoning_done back-to-back
+        before any text arrives. Hiding on reasoning_done would remove the indicator
+        before a single frame is rendered — users would never see it.
+        """
+        from breqy.domain.events import ReasoningStartedEvent, ReasoningDoneEvent
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            await pilot.pause()
+            screen.handle_reasoning_done(ReasoningDoneEvent(session_id=SESSION_ID, agent_id="ag_1"))
+            await pilot.pause()
+            # Indicator must still be visible — only the first text chunk hides it
+            assert len(screen.query("#thinking-indicator")) == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_message_chunk_hides_indicator(self) -> None:
+        """First MessageChunkEvent also removes the thinking indicator (safety net)."""
+        from breqy.domain.events import ReasoningStartedEvent, MessageChunkEvent
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            await pilot.pause()
+            screen.handle_message_chunk(
+                MessageChunkEvent(
+                    session_id=SESSION_ID,
+                    agent_id="ag_1",
+                    message_id="msg_1",
+                    chunk="Hello",
+                    chunk_index=0,
+                )
+            )
+            await pilot.pause()
+            assert len(screen.query("#thinking-indicator")) == 0
+
+    @pytest.mark.asyncio
+    async def test_indicator_stays_visible_after_reasoning_done(self) -> None:
+        """Indicator must remain visible after reasoning_done — it only hides on first text chunk.
+
+        Root cause: the API sends reasoning_started + reasoning_done back-to-back before any
+        text delta. If handle_reasoning_done hides the indicator immediately, users never see it
+        because no screen frame is rendered between show and hide.
+        """
+        from breqy.domain.events import (
+            ReasoningStartedEvent,
+            ReasoningDoneEvent,
+            MessageChunkEvent,
+        )
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+
+            # Simulate the real API sequence: reasoning_started → reasoning_done → text chunk
+            screen.handle_reasoning_started(
+                ReasoningStartedEvent(session_id=SESSION_ID, agent_id="ag_1")
+            )
+            screen.handle_reasoning_done(ReasoningDoneEvent(session_id=SESSION_ID, agent_id="ag_1"))
+            await pilot.pause()
+
+            # Indicator must still be visible — reasoning_done must NOT hide it
+            assert len(screen.query("#thinking-indicator")) == 1, (
+                "Thinking indicator was hidden by reasoning_done before any text arrived. "
+                "The indicator should persist until the first text chunk."
+            )
+
+            # Only the first text chunk should hide the indicator
+            screen.handle_message_chunk(
+                MessageChunkEvent(
+                    session_id=SESSION_ID,
+                    agent_id="ag_1",
+                    message_id="msg_1",
+                    chunk="Hello",
+                    chunk_index=0,
+                )
+            )
+            await pilot.pause()
+            assert len(screen.query("#thinking-indicator")) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Event routing tests — ReasoningTextChunkEvent
+# --------------------------------------------------------------------------- #
+
+
+class TestChatScreenReasoningTextChunkHandler:
+    """ChatScreen.handle_reasoning_text_chunk buffers chunks in ChatView."""
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_text_chunk_buffers_in_chat_view(self) -> None:
+        """handle_reasoning_text_chunk calls add_reasoning_chunk on ChatView."""
+        from breqy.domain.events import ReasoningTextChunkEvent
+
+        event = ReasoningTextChunkEvent(
+            session_id=SESSION_ID,
+            agent_id="ag_1",
+            chunk="Some reasoning thought",
+        )
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            screen.handle_reasoning_text_chunk(event)
+            await pilot.pause()
+            # Chunk is buffered — not written to log yet
+            chat_view = screen.query_one(ChatView)
+            assert chat_view._reasoning_chunks == ["Some reasoning thought"]
+
+    @pytest.mark.asyncio
+    async def test_handle_reasoning_done_flushes_reasoning_block(self) -> None:
+        """handle_reasoning_done flushes accumulated reasoning to the chat log."""
+        from breqy.domain.events import ReasoningTextChunkEvent, ReasoningDoneEvent
+
+        app = ChatScreenApp()
+        async with app.run_test() as pilot:
+            screen = _get_screen(app)
+            chat_view = screen.query_one(ChatView)
+
+            screen.handle_reasoning_text_chunk(
+                ReasoningTextChunkEvent(session_id=SESSION_ID, agent_id="ag_1", chunk="A thought")
+            )
+            await pilot.pause()
+            assert len(chat_view.log_widget.lines) == 0  # not yet in log
+
+            screen.handle_reasoning_done(ReasoningDoneEvent(session_id=SESSION_ID, agent_id="ag_1"))
+            await pilot.pause()
+            assert len(chat_view.log_widget.lines) >= 1  # flushed to log
+            assert chat_view._reasoning_chunks == []  # buffer cleared

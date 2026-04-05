@@ -540,7 +540,9 @@ async def test_engine_server_routes_user_message_to_primary_agent_with_work_requ
     routed_event = sent[0][1].to_event()
     assert isinstance(routed_event, AgentWorkRequestedEvent)
     assert routed_event.user_message_content == "Continue Phase 8."
-    assert routed_event.session_context == SessionContextBundle(messages=stored_messages)
+    # session_context must contain only PRIOR messages (empty for first message).
+    # The current user message is carried separately in user_message_content.
+    assert routed_event.session_context == SessionContextBundle(messages=[])
 
 
 @pytest.mark.asyncio
@@ -2063,3 +2065,143 @@ async def test_engine_server_model_list_response_uses_default_broadcast(
     assert published[0].event_type == EventType.MODEL_LIST_RESPONSE
     assert len(broadcasts) == 1
     assert broadcasts[0][1] == "cli_agent"
+
+
+# --------------------------------------------------------------------------- #
+# Bug: duplicate user message in session_context causes 400 from Responses API
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_work_request_session_context_excludes_current_user_message(
+    db_connection,
+    socket_path,
+) -> None:
+    """AgentWorkRequestedEvent.session_context must NOT include the current user message.
+
+    The runtime appends the current user message explicitly via user_message_content.
+    If session_context.messages already contains the current message, the Responses API
+    receives two consecutive identical user messages and returns HTTP 400.
+
+    This test verifies that get_messages is called BEFORE add_message so that
+    session_context.messages contains only prior messages.
+    """
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.agent_registry.register("agt_breqy", client_id="cli_agent")
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+    server.a2a_server.broadcast = cast(Any, lambda envelope, exclude_client="": None)
+
+    current_content = "Hello, first message in this session."
+    event = MessageSentEvent(
+        session_id=session.id,
+        message_id="msg_user_1",
+        role=MessageRole.USER,
+        content=current_content,
+    )
+
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_tui")
+
+    assert len(sent) == 1
+    work_event = sent[0][1].to_event()
+    assert isinstance(work_event, AgentWorkRequestedEvent)
+
+    # The current user message must NOT appear in session_context.messages.
+    # The runtime adds it separately via user_message_content.
+    context_contents = [m.content for m in work_event.session_context.messages]
+    assert current_content not in context_contents, (
+        f"Current user message was included in session_context.messages: {context_contents}. "
+        "This causes a duplicate user message when the runtime appends user_message_content, "
+        "resulting in HTTP 400 from the Responses API."
+    )
+    # user_message_content carries the current message
+    assert work_event.user_message_content == current_content
+
+
+@pytest.mark.asyncio
+async def test_work_request_session_context_includes_prior_messages_but_not_current(
+    db_connection,
+    socket_path,
+) -> None:
+    """With prior conversation history, session_context contains only those prior messages.
+
+    The current user message must appear only in user_message_content, not in
+    session_context.messages.
+    """
+    from breqy.domain.models import Message
+
+    session_repo = SqliteSessionRepository(db_connection)
+    message_repo = SqliteMessageRepository(db_connection)
+    event_repo = SqliteEventRepository(db_connection)
+    task_repo = SqliteTaskRepository(db_connection)
+    approval_repo = SqliteApprovalRepository(db_connection)
+    session = Session(primary_agent_id="agt_breqy")
+    await session_repo.create(session)
+
+    # Pre-populate with prior conversation turns
+    prior_user = Message(session_id=session.id, role=MessageRole.USER, content="First question.")
+    prior_assistant = Message(
+        session_id=session.id, role=MessageRole.ASSISTANT, content="First answer."
+    )
+    await message_repo.create(prior_user)
+    await message_repo.create(prior_assistant)
+
+    server = EngineServer(
+        socket_path=str(socket_path),
+        session_repo=session_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+        task_repo=task_repo,
+        approval_repo=approval_repo,
+    )
+    server.agent_registry.register("agt_breqy", client_id="cli_agent")
+    sent: list[tuple[str, Envelope]] = []
+
+    async def fake_send_to(client_id: str, envelope: Envelope) -> None:
+        sent.append((client_id, envelope))
+
+    server.a2a_server.send_to = fake_send_to  # type: ignore[method-assign]
+    server.a2a_server.broadcast = cast(Any, lambda envelope, exclude_client="": None)
+
+    current_content = "Second question."
+    event = MessageSentEvent(
+        session_id=session.id,
+        message_id="msg_user_2",
+        role=MessageRole.USER,
+        content=current_content,
+    )
+
+    await server._handle_envelope(Envelope.from_event(event), client_id="cli_tui")
+
+    assert len(sent) == 1
+    work_event = sent[0][1].to_event()
+    assert isinstance(work_event, AgentWorkRequestedEvent)
+
+    context_contents = [m.content for m in work_event.session_context.messages]
+    # Prior messages must be present
+    assert "First question." in context_contents
+    assert "First answer." in context_contents
+    # Current message must NOT be in session_context
+    assert current_content not in context_contents, (
+        f"Current message leaked into session_context: {context_contents}"
+    )
+    assert work_event.user_message_content == current_content

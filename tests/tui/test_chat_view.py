@@ -1,4 +1,5 @@
 """Tests for breqy.tui.widgets.chat_view — ChatView widget."""
+
 from __future__ import annotations
 
 import pytest
@@ -171,5 +172,104 @@ class TestChatViewClear:
             await pilot.pause()
             assert len(chat.log_widget.lines) == 2
             chat.clear_messages()
+            await pilot.pause()
+            assert len(chat.log_widget.lines) == 0
+
+
+class TestThinkingIndicator:
+    """ChatView.show_thinking_indicator / hide_thinking_indicator."""
+
+    @pytest.mark.asyncio
+    async def test_show_thinking_indicator_mounts_widget(self) -> None:
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.show_thinking_indicator()
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 1
+
+    @pytest.mark.asyncio
+    async def test_show_thinking_indicator_is_idempotent(self) -> None:
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.show_thinking_indicator()
+            chat.show_thinking_indicator()
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 1
+
+    @pytest.mark.asyncio
+    async def test_hide_thinking_indicator_removes_widget(self) -> None:
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.show_thinking_indicator()
+            await pilot.pause()
+            chat.hide_thinking_indicator()
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 0
+
+    @pytest.mark.asyncio
+    async def test_hide_thinking_indicator_is_noop_when_none_shown(self) -> None:
+        """hide_thinking_indicator does not raise if no indicator is mounted."""
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.hide_thinking_indicator()  # should not raise
+            await pilot.pause()
+            indicators = app.query("#thinking-indicator")
+            assert len(indicators) == 0
+
+
+class TestAddReasoningChunk:
+    """ChatView.add_reasoning_chunk buffers reasoning text; flush_reasoning_block writes it dim."""
+
+    @pytest.mark.asyncio
+    async def test_add_reasoning_chunk_does_not_write_to_log_immediately(self) -> None:
+        """Reasoning chunks are buffered, not written to the log on each call."""
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.add_reasoning_chunk("Some thought")
+            await pilot.pause()
+            assert len(chat.log_widget.lines) == 0
+
+    @pytest.mark.asyncio
+    async def test_flush_reasoning_block_writes_to_log(self) -> None:
+        """flush_reasoning_block writes the accumulated reasoning text to the log."""
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.add_reasoning_chunk("First thought")
+            chat.add_reasoning_chunk(" second thought")
+            chat.flush_reasoning_block()
+            await pilot.pause()
+            assert len(chat.log_widget.lines) >= 1
+
+    @pytest.mark.asyncio
+    async def test_flush_reasoning_block_clears_accumulator(self) -> None:
+        """After flush, another flush with no new chunks writes nothing."""
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.add_reasoning_chunk("Thought")
+            chat.flush_reasoning_block()
+            await pilot.pause()
+            line_count_after_first_flush = len(chat.log_widget.lines)
+            # Second flush with no new chunks should not add more lines
+            chat.flush_reasoning_block()
+            await pilot.pause()
+            assert len(chat.log_widget.lines) == line_count_after_first_flush
+
+    @pytest.mark.asyncio
+    async def test_flush_reasoning_block_with_no_chunks_is_noop(self) -> None:
+        """flush_reasoning_block with no buffered chunks does not write to log."""
+        app = ChatViewApp()
+        async with app.run_test() as pilot:
+            chat = app.query_one(ChatView)
+            chat.flush_reasoning_block()
             await pilot.pause()
             assert len(chat.log_widget.lines) == 0

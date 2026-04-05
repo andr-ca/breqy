@@ -451,6 +451,30 @@ class ModelSwitchRequestedEvent(FixedEventTypeEvent):
 
 
 # --------------------------------------------------------------------------- #
+# Reasoning events
+# --------------------------------------------------------------------------- #
+
+
+class ReasoningStartedEvent(FixedEventTypeEvent):
+    """Agent's model has begun a reasoning/thinking phase."""
+
+    event_type: EventType = EventType.REASONING_STARTED
+
+
+class ReasoningDoneEvent(FixedEventTypeEvent):
+    """Agent's model has finished its reasoning/thinking phase."""
+
+    event_type: EventType = EventType.REASONING_DONE
+
+
+class ReasoningTextChunkEvent(FixedEventTypeEvent):
+    """A chunk of the model's reasoning/thinking text."""
+
+    event_type: EventType = EventType.REASONING_TEXT_CHUNK
+    chunk: str
+
+
+# --------------------------------------------------------------------------- #
 # Registry + deserializer
 # --------------------------------------------------------------------------- #
 
@@ -491,6 +515,9 @@ EVENT_TYPE_MAP: dict[EventType, type[Event]] = {
     EventType.MODEL_LIST_REQUESTED: ModelListRequestedEvent,
     EventType.MODEL_LIST_RESPONSE: ModelListResponseEvent,
     EventType.MODEL_SWITCH_REQUESTED: ModelSwitchRequestedEvent,
+    EventType.REASONING_STARTED: ReasoningStartedEvent,
+    EventType.REASONING_DONE: ReasoningDoneEvent,
+    EventType.REASONING_TEXT_CHUNK: ReasoningTextChunkEvent,
 }
 
 

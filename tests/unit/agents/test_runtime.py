@@ -2015,3 +2015,162 @@ class TestToolOutputInConversationHistory:
         assert "warning: deprecated" in tool_msg["content"], (
             f"Expected stderr in tool message, got: {tool_msg['content']!r}"
         )
+
+
+# --------------------------------------------------------------------------- #
+# make_runtime fixture and _sample_work_event helper for reasoning event tests
+# --------------------------------------------------------------------------- #
+
+
+def _sample_work_event() -> AgentWorkRequestedEvent:
+    """Minimal AgentWorkRequestedEvent for use in reasoning dispatch tests."""
+    return AgentWorkRequestedEvent(
+        session_id="ses_reasoning",
+        agent_id="breqy",
+        correlation_id="corr_reasoning",
+        message_id="msg_reasoning",
+        user_message_content="Think about this.",
+        session_context=SessionContextBundle(messages=[]),
+    )
+
+
+@pytest.fixture()
+def make_runtime():
+    """Factory fixture that builds an AgentRuntime with a given list of provider events."""
+    from breqy.agents.runtime import AgentRuntime
+    from breqy.config.models import AgentConfig
+
+    def _factory(*, provider_events: list[ProviderEvent]) -> AgentRuntime:
+        config = AgentConfig(id="breqy", name="Breqy", provider="copilot", model="gpt-4o")
+        fake_client = FakeA2AClient()
+        provider = FakeProvider(events=provider_events)
+        runtime = AgentRuntime(
+            config=config,
+            agent_dir=Path("."),
+            client=cast(Any, fake_client),
+            provider=cast(Any, provider),
+            skill_loader=None,
+            private_memory_runtime=None,
+            tool_result_waiter=None,
+        )
+        runtime._client = fake_client  # type: ignore[attr-defined]
+        return runtime
+
+    return _factory
+
+
+# --------------------------------------------------------------------------- #
+# Reasoning event dispatch tests
+# --------------------------------------------------------------------------- #
+
+
+class TestRuntimeReasoningEventDispatch:
+    """Runtime dispatches ReasoningStartedEvent / ReasoningDoneEvent for reasoning provider events."""
+
+    @pytest.mark.asyncio
+    async def test_reasoning_started_published_to_client(self, make_runtime) -> None:
+        """reasoning_started provider event → ReasoningStartedEvent sent to client."""
+        from breqy.domain.events import ReasoningStartedEvent
+        from breqy.domain.enums import EventType
+
+        runtime = make_runtime(
+            provider_events=[
+                ProviderEvent(kind="reasoning_started"),
+                ProviderEvent(kind="text", text="Hello"),
+                _complete_event(),
+            ]
+        )
+        await runtime.handle_work(_sample_work_event())
+
+        sent_types = [e.event_type for e in runtime._client.sent_events]
+        assert EventType.REASONING_STARTED in sent_types
+
+    @pytest.mark.asyncio
+    async def test_reasoning_done_published_to_client(self, make_runtime) -> None:
+        """reasoning_done provider event → ReasoningDoneEvent sent to client."""
+        from breqy.domain.enums import EventType
+
+        runtime = make_runtime(
+            provider_events=[
+                ProviderEvent(kind="reasoning_started"),
+                ProviderEvent(kind="reasoning_done"),
+                ProviderEvent(kind="text", text="Hello"),
+                _complete_event(),
+            ]
+        )
+        await runtime.handle_work(_sample_work_event())
+
+        sent_types = [e.event_type for e in runtime._client.sent_events]
+        assert EventType.REASONING_DONE in sent_types
+
+    @pytest.mark.asyncio
+    async def test_reasoning_started_before_reasoning_done(self, make_runtime) -> None:
+        """reasoning_started is dispatched before reasoning_done."""
+        from breqy.domain.enums import EventType
+
+        runtime = make_runtime(
+            provider_events=[
+                ProviderEvent(kind="reasoning_started"),
+                ProviderEvent(kind="reasoning_done"),
+                ProviderEvent(kind="text", text="Hi"),
+                _complete_event(),
+            ]
+        )
+        await runtime.handle_work(_sample_work_event())
+
+        sent_types = [e.event_type for e in runtime._client.sent_events]
+        started_idx = sent_types.index(EventType.REASONING_STARTED)
+        done_idx = sent_types.index(EventType.REASONING_DONE)
+        assert started_idx < done_idx
+
+
+class TestRuntimeReasoningTextChunkDispatch:
+    """Runtime dispatches ReasoningTextChunkEvent for reasoning_text provider events."""
+
+    @pytest.mark.asyncio
+    async def test_reasoning_text_chunk_published_to_client(self, make_runtime) -> None:
+        """reasoning_text provider event → ReasoningTextChunkEvent sent to client."""
+        from breqy.domain.events import ReasoningTextChunkEvent
+        from breqy.domain.enums import EventType
+
+        runtime = make_runtime(
+            provider_events=[
+                ProviderEvent(kind="reasoning_started"),
+                ProviderEvent(kind="reasoning_text", text="Some thought"),
+                ProviderEvent(kind="reasoning_done"),
+                ProviderEvent(kind="text", text="Hello"),
+                _complete_event(),
+            ]
+        )
+        await runtime.handle_work(_sample_work_event())
+
+        reasoning_chunk_events = [
+            e for e in runtime._client.sent_events if e.event_type == EventType.REASONING_TEXT_CHUNK
+        ]
+        assert len(reasoning_chunk_events) == 1
+        assert isinstance(reasoning_chunk_events[0], ReasoningTextChunkEvent)
+        assert reasoning_chunk_events[0].chunk == "Some thought"
+
+    @pytest.mark.asyncio
+    async def test_multiple_reasoning_text_chunks_all_published(self, make_runtime) -> None:
+        """Multiple reasoning_text provider events each become a ReasoningTextChunkEvent."""
+        from breqy.domain.enums import EventType
+
+        runtime = make_runtime(
+            provider_events=[
+                ProviderEvent(kind="reasoning_started"),
+                ProviderEvent(kind="reasoning_text", text="First chunk"),
+                ProviderEvent(kind="reasoning_text", text=" second chunk"),
+                ProviderEvent(kind="reasoning_done"),
+                ProviderEvent(kind="text", text="Answer"),
+                _complete_event(),
+            ]
+        )
+        await runtime.handle_work(_sample_work_event())
+
+        reasoning_chunk_events = [
+            e for e in runtime._client.sent_events if e.event_type == EventType.REASONING_TEXT_CHUNK
+        ]
+        assert len(reasoning_chunk_events) == 2
+        chunks = [e.chunk for e in reasoning_chunk_events]
+        assert chunks == ["First chunk", " second chunk"]
