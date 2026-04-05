@@ -181,6 +181,16 @@ git log --oneline <base>..HEAD
 git diff --name-only <base>...HEAD
 ```
 
+Where `<base>` means the intended PR target branch on the remote, normally `origin/main`
+(or another explicitly chosen PR base branch).
+
+Example:
+
+```bash
+git log --oneline origin/main..HEAD
+git diff --name-only origin/main...HEAD
+```
+
 Confirm:
 - every commit belongs to the intended PR scope
 - every changed file belongs to the intended PR scope

@@ -107,7 +107,7 @@ class DiskStorage(Readable, Writable):
     def write(self): ...
 ```
 
-### 4. External Surface Hardening
+### External Surface Hardening
 
 For any user-controlled external surface — especially URLs, file paths, cookies, headers, browser options, or serialized payloads:
 
@@ -122,7 +122,7 @@ Examples:
 - use explicit serialization aliases when an external API expects camelCase keys
 - ensure writable output paths stay inside a trusted directory boundary
 
-### 5. Third-Party Schema Compatibility
+### Third-Party Schema Compatibility
 
 When adapting Python models to third-party libraries or APIs:
 
