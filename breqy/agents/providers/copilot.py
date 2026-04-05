@@ -316,17 +316,40 @@ class CopilotProvider(ModelProvider):
             for tool in tools
         ]
 
-    def _convert_tools_responses(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
-        """Convert Breqy ToolDefinition to Responses API tool format."""
-        return [
-            {
-                "type": "function",
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.input_schema,
-            }
-            for tool in tools
-        ]
+    @staticmethod
+    def _sanitize_tool_name(name: str) -> str:
+        """Return a Responses API-compatible tool name.
+
+        The Responses API only allows ``^[a-zA-Z0-9_-]+$``.
+        Dots (used in memory tool names like ``mcp.memory.n--search``)
+        are replaced with underscores.
+        """
+        return name.replace(".", "_")
+
+    def _convert_tools_responses(
+        self, tools: list[ToolDefinition]
+    ) -> tuple[list[dict[str, Any]], dict[str, str]]:
+        """Convert Breqy ToolDefinition to Responses API tool format.
+
+        Returns ``(tool_dicts, name_map)`` where ``name_map`` maps each
+        sanitized tool name back to its original name.  The caller uses
+        ``name_map`` to restore the original name when the model returns
+        a tool call, ensuring the runtime can route it to the correct executor.
+        """
+        tool_dicts: list[dict[str, Any]] = []
+        name_map: dict[str, str] = {}
+        for tool in tools:
+            sanitized = self._sanitize_tool_name(tool.name)
+            name_map[sanitized] = tool.name
+            tool_dicts.append(
+                {
+                    "type": "function",
+                    "name": sanitized,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                }
+            )
+        return tool_dicts, name_map
 
     def _use_responses_api(self, token: str) -> bool:
         """Determine if this model should use the /responses endpoint.
@@ -455,7 +478,10 @@ class CopilotProvider(ModelProvider):
     ) -> Iterator[ProviderEvent]:
         """Stream from Responses API and map events to ProviderEvent."""
         input_messages, instructions = self._build_responses_input(request)
-        tools = self._convert_tools_responses(request.tools) if request.tools else None
+        tool_name_map: dict[str, str] = {}
+        tools: list[dict[str, Any]] | None = None
+        if request.tools:
+            tools, tool_name_map = self._convert_tools_responses(request.tools)
 
         for event in self._client.stream_responses(
             token=token,
@@ -489,11 +515,16 @@ class CopilotProvider(ModelProvider):
             elif event_type == "response.output_item.done":
                 item = event.get("item", {})
                 if item.get("type") == "function_call":
+                    api_name = item.get("name", "")
+                    # Restore the original tool name: the API receives sanitized names
+                    # (dots replaced with underscores); map back to the original so the
+                    # runtime can route the call to the correct ToolExecutor.
+                    original_name = tool_name_map.get(api_name, api_name)
                     yield ProviderEvent(
                         kind="tool_call",
                         tool_call=ToolCallDelta(
                             call_id=item.get("call_id", ""),
-                            tool_name=item.get("name", ""),
+                            tool_name=original_name,
                             arguments_chunk=item.get("arguments", ""),
                         ),
                     )
