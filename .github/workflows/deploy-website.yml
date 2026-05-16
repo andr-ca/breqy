@@ -1,0 +1,413 @@
+name: Deploy Website
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: website-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-pre-prod:
+    name: Deploy pre-prod website
+    if: github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    environment:
+      name: pre-prod
+      url: https://develop.breqy.com
+    defaults:
+      run:
+        working-directory: web
+    env:
+      PUBLIC_BREQY_SITE_URL: ${{ vars.BREQY_PREPROD_SITE_URL || 'https://develop.breqy.com' }}
+      PUBLIC_BREQY_DEPLOY_ENV: pre-prod
+      PUBLIC_BREQY_COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Run website tests
+        run: npm test
+
+      - name: Type-check Astro site
+        run: npm run check
+
+      - name: Build website
+        run: npm run build
+
+      - name: Smoke-check built website
+        run: npm run smoke:build
+
+      - name: Ensure Cloudflare Pages project and custom domain
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" || -z "${CLOUDFLARE_PAGES_PROJECT}" ]]; then
+            echo "Cloudflare deployment configuration is incomplete." >&2
+            exit 1
+          fi
+
+          api_base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects"
+          auth_header="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+
+          project_response="$(mktemp)"
+          project_status="$(curl --silent --show-error --output "${project_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "${api_base}/${CLOUDFLARE_PAGES_PROJECT}")"
+
+          if [[ "${project_status}" == "404" ]]; then
+            project_payload="$(jq -n \
+              --arg name "${CLOUDFLARE_PAGES_PROJECT}" \
+              --arg branch "${CLOUDFLARE_PAGES_PRODUCTION_BRANCH}" \
+              '{name: $name, production_branch: $branch, build_config: {build_command: "npm run build", destination_dir: "dist", root_dir: "web"}}')"
+            create_response="$(mktemp)"
+            create_status="$(curl --silent --show-error --output "${create_response}" --write-out "%{http_code}" \
+              --request POST \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${project_payload}" \
+              "${api_base}")"
+            if [[ "${create_status}" != "200" && "${create_status}" != "201" ]]; then
+              jq '.' "${create_response}" >&2
+              exit 1
+            fi
+            jq -e '.success == true' "${create_response}" >/dev/null
+            echo "Created Cloudflare Pages project ${CLOUDFLARE_PAGES_PROJECT}."
+          else
+            if [[ "${project_status}" != "200" ]]; then
+              jq '.' "${project_response}" >&2
+              exit 1
+            fi
+            jq -e '.success == true' "${project_response}" >/dev/null
+            echo "Cloudflare Pages project ${CLOUDFLARE_PAGES_PROJECT} is present."
+          fi
+
+          domains_response="$(mktemp)"
+          domains_status="$(curl --silent --show-error --output "${domains_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "${api_base}/${CLOUDFLARE_PAGES_PROJECT}/domains")"
+          if [[ "${domains_status}" != "200" ]]; then
+            jq '.' "${domains_response}" >&2
+            exit 1
+          fi
+
+          domain_exists="$(jq -r --arg name "${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}" 'any(.result[]?; .name == $name)' "${domains_response}")"
+          if [[ "${domain_exists}" == "true" ]]; then
+            echo "Cloudflare Pages custom domain ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN} is present."
+          else
+            domain_payload="$(jq -n --arg name "${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}" '{name: $name}')"
+            domain_response="$(mktemp)"
+            domain_status="$(curl --silent --show-error --output "${domain_response}" --write-out "%{http_code}" \
+              --request POST \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${domain_payload}" \
+              "${api_base}/${CLOUDFLARE_PAGES_PROJECT}/domains")"
+            if [[ "${domain_status}" != "200" && "${domain_status}" != "201" ]]; then
+              jq '.' "${domain_response}" >&2
+              exit 1
+            fi
+            jq -e '.success == true' "${domain_response}" >/dev/null
+            echo "Added Cloudflare Pages custom domain ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}."
+          fi
+
+          zone_response="$(mktemp)"
+          zone_status="$(curl --silent --show-error --output "${zone_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "https://api.cloudflare.com/client/v4/zones?name=${CLOUDFLARE_DNS_ZONE}&status=active")"
+          if [[ "${zone_status}" != "200" ]]; then
+            jq '.' "${zone_response}" >&2
+            exit 1
+          fi
+          jq -e '.success == true' "${zone_response}" >/dev/null
+          zone_id="$(jq -r '.result[0].id // empty' "${zone_response}")"
+          if [[ -z "${zone_id}" ]]; then
+            echo "Cloudflare zone ${CLOUDFLARE_DNS_ZONE} was not found or is not active." >&2
+            exit 1
+          fi
+
+          records_response="$(mktemp)"
+          records_status="$(curl --silent --show-error --output "${records_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}")"
+          if [[ "${records_status}" != "200" ]]; then
+            jq '.' "${records_response}" >&2
+            exit 1
+          fi
+          jq -e '.success == true' "${records_response}" >/dev/null
+
+          conflicting_records="$(jq '[.result[]? | select(.type != "CNAME")] | length' "${records_response}")"
+          if [[ "${conflicting_records}" != "0" ]]; then
+            echo "Refusing to replace non-CNAME DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
+            jq '.result[]? | {type, name, content}' "${records_response}" >&2
+            exit 1
+          fi
+
+          dns_payload="$(jq -n \
+            --arg name "${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}" \
+            --arg content "${CLOUDFLARE_PAGES_DNS_TARGET}" \
+            '{type: "CNAME", name: $name, content: $content, proxied: true, ttl: 1}')"
+          cname_record_id="$(jq -r '.result[]? | select(.type == "CNAME") | .id' "${records_response}" | head -n 1)"
+          dns_response="$(mktemp)"
+          if [[ -n "${cname_record_id}" ]]; then
+            dns_status="$(curl --silent --show-error --output "${dns_response}" --write-out "%{http_code}" \
+              --request PATCH \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${dns_payload}" \
+              "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${cname_record_id}")"
+          else
+            dns_status="$(curl --silent --show-error --output "${dns_response}" --write-out "%{http_code}" \
+              --request POST \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${dns_payload}" \
+              "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records")"
+          fi
+          if [[ "${dns_status}" != "200" && "${dns_status}" != "201" ]]; then
+            jq '.' "${dns_response}" >&2
+            exit 1
+          fi
+          jq -e '.success == true' "${dns_response}" >/dev/null
+          echo "Cloudflare DNS CNAME ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN} -> ${CLOUDFLARE_PAGES_DNS_TARGET} is configured."
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT_PREPROD }}
+          CLOUDFLARE_PAGES_PRODUCTION_BRANCH: develop
+          CLOUDFLARE_PAGES_CUSTOM_DOMAIN: develop.breqy.com
+          CLOUDFLARE_DNS_ZONE: breqy.com
+          CLOUDFLARE_PAGES_DNS_TARGET: breqy-preprod.pages.dev
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web/dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT_PREPROD }} --branch=develop
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate pre-prod custom domain
+        run: node scripts/check-url.mjs
+        env:
+          TARGET_URL: ${{ env.PUBLIC_BREQY_SITE_URL }}
+          EXPECTED_DEPLOY_ENV: pre-prod
+          EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          SMOKE_RETRIES: "36"
+          SMOKE_DELAY_MS: "10000"
+
+  deploy-production:
+    name: Deploy production website
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://breqy.com
+    defaults:
+      run:
+        working-directory: web
+    env:
+      PUBLIC_BREQY_SITE_URL: ${{ vars.BREQY_PROD_SITE_URL || 'https://breqy.com' }}
+      PUBLIC_BREQY_DEPLOY_ENV: production
+      PUBLIC_BREQY_COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Run website tests
+        run: npm test
+
+      - name: Type-check Astro site
+        run: npm run check
+
+      - name: Build website
+        run: npm run build
+
+      - name: Smoke-check built website
+        run: npm run smoke:build
+
+      - name: Ensure Cloudflare Pages project and custom domain
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" || -z "${CLOUDFLARE_ACCOUNT_ID}" || -z "${CLOUDFLARE_PAGES_PROJECT}" ]]; then
+            echo "Cloudflare deployment configuration is incomplete." >&2
+            exit 1
+          fi
+
+          api_base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects"
+          auth_header="Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"
+
+          project_response="$(mktemp)"
+          project_status="$(curl --silent --show-error --output "${project_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "${api_base}/${CLOUDFLARE_PAGES_PROJECT}")"
+
+          if [[ "${project_status}" == "404" ]]; then
+            project_payload="$(jq -n \
+              --arg name "${CLOUDFLARE_PAGES_PROJECT}" \
+              --arg branch "${CLOUDFLARE_PAGES_PRODUCTION_BRANCH}" \
+              '{name: $name, production_branch: $branch, build_config: {build_command: "npm run build", destination_dir: "dist", root_dir: "web"}}')"
+            create_response="$(mktemp)"
+            create_status="$(curl --silent --show-error --output "${create_response}" --write-out "%{http_code}" \
+              --request POST \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${project_payload}" \
+              "${api_base}")"
+            if [[ "${create_status}" != "200" && "${create_status}" != "201" ]]; then
+              jq '.' "${create_response}" >&2
+              exit 1
+            fi
+            jq -e '.success == true' "${create_response}" >/dev/null
+            echo "Created Cloudflare Pages project ${CLOUDFLARE_PAGES_PROJECT}."
+          else
+            if [[ "${project_status}" != "200" ]]; then
+              jq '.' "${project_response}" >&2
+              exit 1
+            fi
+            jq -e '.success == true' "${project_response}" >/dev/null
+            echo "Cloudflare Pages project ${CLOUDFLARE_PAGES_PROJECT} is present."
+          fi
+
+          domains_response="$(mktemp)"
+          domains_status="$(curl --silent --show-error --output "${domains_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "${api_base}/${CLOUDFLARE_PAGES_PROJECT}/domains")"
+          if [[ "${domains_status}" != "200" ]]; then
+            jq '.' "${domains_response}" >&2
+            exit 1
+          fi
+
+          domain_exists="$(jq -r --arg name "${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}" 'any(.result[]?; .name == $name)' "${domains_response}")"
+          if [[ "${domain_exists}" == "true" ]]; then
+            echo "Cloudflare Pages custom domain ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN} is present."
+          else
+            domain_payload="$(jq -n --arg name "${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}" '{name: $name}')"
+            domain_response="$(mktemp)"
+            domain_status="$(curl --silent --show-error --output "${domain_response}" --write-out "%{http_code}" \
+              --request POST \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${domain_payload}" \
+              "${api_base}/${CLOUDFLARE_PAGES_PROJECT}/domains")"
+            if [[ "${domain_status}" != "200" && "${domain_status}" != "201" ]]; then
+              jq '.' "${domain_response}" >&2
+              exit 1
+            fi
+            jq -e '.success == true' "${domain_response}" >/dev/null
+            echo "Added Cloudflare Pages custom domain ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}."
+          fi
+
+          zone_response="$(mktemp)"
+          zone_status="$(curl --silent --show-error --output "${zone_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "https://api.cloudflare.com/client/v4/zones?name=${CLOUDFLARE_DNS_ZONE}&status=active")"
+          if [[ "${zone_status}" != "200" ]]; then
+            jq '.' "${zone_response}" >&2
+            exit 1
+          fi
+          jq -e '.success == true' "${zone_response}" >/dev/null
+          zone_id="$(jq -r '.result[0].id // empty' "${zone_response}")"
+          if [[ -z "${zone_id}" ]]; then
+            echo "Cloudflare zone ${CLOUDFLARE_DNS_ZONE} was not found or is not active." >&2
+            exit 1
+          fi
+
+          records_response="$(mktemp)"
+          records_status="$(curl --silent --show-error --output "${records_response}" --write-out "%{http_code}" \
+            --header "${auth_header}" \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}")"
+          if [[ "${records_status}" != "200" ]]; then
+            jq '.' "${records_response}" >&2
+            exit 1
+          fi
+          jq -e '.success == true' "${records_response}" >/dev/null
+
+          conflicting_records="$(jq '[.result[]? | select(.type != "CNAME")] | length' "${records_response}")"
+          if [[ "${conflicting_records}" != "0" ]]; then
+            echo "Refusing to replace non-CNAME DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
+            jq '.result[]? | {type, name, content}' "${records_response}" >&2
+            exit 1
+          fi
+
+          dns_payload="$(jq -n \
+            --arg name "${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}" \
+            --arg content "${CLOUDFLARE_PAGES_DNS_TARGET}" \
+            '{type: "CNAME", name: $name, content: $content, proxied: true, ttl: 1}')"
+          cname_record_id="$(jq -r '.result[]? | select(.type == "CNAME") | .id' "${records_response}" | head -n 1)"
+          dns_response="$(mktemp)"
+          if [[ -n "${cname_record_id}" ]]; then
+            dns_status="$(curl --silent --show-error --output "${dns_response}" --write-out "%{http_code}" \
+              --request PATCH \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${dns_payload}" \
+              "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${cname_record_id}")"
+          else
+            dns_status="$(curl --silent --show-error --output "${dns_response}" --write-out "%{http_code}" \
+              --request POST \
+              --header "${auth_header}" \
+              --header "Content-Type: application/json" \
+              --data "${dns_payload}" \
+              "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records")"
+          fi
+          if [[ "${dns_status}" != "200" && "${dns_status}" != "201" ]]; then
+            jq '.' "${dns_response}" >&2
+            exit 1
+          fi
+          jq -e '.success == true' "${dns_response}" >/dev/null
+          echo "Cloudflare DNS CNAME ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN} -> ${CLOUDFLARE_PAGES_DNS_TARGET} is configured."
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT_PROD }}
+          CLOUDFLARE_PAGES_PRODUCTION_BRANCH: main
+          CLOUDFLARE_PAGES_CUSTOM_DOMAIN: breqy.com
+          CLOUDFLARE_DNS_ZONE: breqy.com
+          CLOUDFLARE_PAGES_DNS_TARGET: breqy-prod.pages.dev
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web/dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT_PROD }} --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate production custom domain
+        run: node scripts/check-url.mjs
+        env:
+          TARGET_URL: ${{ env.PUBLIC_BREQY_SITE_URL }}
+          EXPECTED_DEPLOY_ENV: production
+          EXPECTED_COMMIT_SHA: ${{ github.sha }}
+          SMOKE_RETRIES: "36"
+          SMOKE_DELAY_MS: "10000"

@@ -5,7 +5,7 @@ session to open, create a new session, refresh the list, or quit.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import ClassVar
 
 from textual import on
@@ -51,7 +51,7 @@ def _truncate_id(session_id: str, max_len: int = 20) -> str:
 class SessionListScreen(Screen):
     """Screen that lists all Breqy sessions in a DataTable."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
+    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
         Binding("n", "new_session", "New Session", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         Binding("q", "quit", "Quit", show=True),

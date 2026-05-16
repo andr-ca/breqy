@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+import re
 from typing import Any
 
 import httpx
@@ -21,6 +22,9 @@ from breqy.agents.providers.copilot_auth import CopilotAuthError, CopilotAuthent
 from breqy.agents.providers.copilot_client import CopilotApiClient, CopilotApiError
 
 logger = structlog.get_logger(__name__)
+
+
+_RESPONSES_TOOL_NAME_PATTERN = re.compile(r"[^a-zA-Z0-9_-]")
 
 
 @dataclass(frozen=True)
@@ -130,42 +134,17 @@ class CopilotProvider(ModelProvider):
             return [(self.model_id, self.model_id)]
 
     def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]:
-        try:
-            token = self._authenticator.get_copilot_token()
-        except CopilotAuthError:
-            logger.info("copilot_auth_error_clearing_token")
-            self._authenticator.clear_token()
-            token = None
+        token = self._get_copilot_token_or_none(log_event="copilot_auth_error_clearing_token")
 
         if token is None:
             pending_flow = self._start_device_flow()
             yield pending_flow.auth_event  # Yield auth instructions BEFORE blocking poll
-            self._authenticator.poll_for_token(
-                pending_flow.device_code, interval=pending_flow.interval
-            )
-            # After device flow stores the OAuth token, exchange it for a session token
-            token = self._authenticator.get_copilot_token()
+            token = self._complete_device_flow(pending_flow)
 
         try:
             yield from self._do_stream_routed(token, request)
         except CopilotApiError as exc:
-            if exc.status_code == 401:
-                logger.info("copilot_token_expired_retrying")
-                self._authenticator.clear_token()
-                try:
-                    token = self._authenticator.get_copilot_token()
-                except CopilotAuthError:
-                    logger.info("copilot_auth_error_during_retry")
-                    token = None
-                if token is None:
-                    pending_flow = self._start_device_flow()
-                    yield pending_flow.auth_event
-                    self._authenticator.poll_for_token(
-                        pending_flow.device_code, interval=pending_flow.interval
-                    )
-                    token = self._authenticator.get_copilot_token()
-                yield from self._do_stream_routed(token, request)
-            else:
+            if exc.status_code != 401:
                 yield ProviderEvent(
                     kind="complete",
                     metadata=CompletionMetadata(
@@ -175,6 +154,31 @@ class CopilotProvider(ModelProvider):
                     ),
                 )
                 raise
+            logger.info("copilot_token_expired_retrying")
+            self._authenticator.clear_token()
+            token = self._get_copilot_token_or_none(log_event="copilot_auth_error_during_retry")
+            if token is None:
+                pending_flow = self._start_device_flow()
+                yield pending_flow.auth_event
+                token = self._complete_device_flow(pending_flow)
+            yield from self._do_stream_routed(token, request)
+
+    def _get_copilot_token_or_none(self, *, log_event: str) -> str | None:
+        try:
+            return self._authenticator.get_copilot_token()
+        except CopilotAuthError:
+            logger.info(log_event)
+            self._authenticator.clear_token()
+            return None
+
+    def _complete_device_flow(self, pending_flow: _PendingDeviceFlow) -> str:
+        self._authenticator.poll_for_token(
+            pending_flow.device_code, interval=pending_flow.interval
+        )
+        token = self._authenticator.get_copilot_token()
+        if token is None:
+            raise CopilotAuthError("device flow completed without a Copilot token")
+        return token
 
     def _start_device_flow(self) -> _PendingDeviceFlow:
         """Initiate device flow and build the auth instructions event.
@@ -316,12 +320,21 @@ class CopilotProvider(ModelProvider):
             for tool in tools
         ]
 
+    @staticmethod
+    def _responses_tool_api_name(tool_name: str) -> str:
+        """Return a Responses API-compatible tool name.
+
+        Breqy native and MCP-style tool names may contain dots, but the
+        Responses API accepts only letters, digits, underscores, and hyphens.
+        """
+        return _RESPONSES_TOOL_NAME_PATTERN.sub("_", tool_name)
+
     def _convert_tools_responses(self, tools: list[ToolDefinition]) -> list[dict[str, Any]]:
         """Convert Breqy ToolDefinition to Responses API tool format."""
         return [
             {
                 "type": "function",
-                "name": tool.name,
+                "name": self._responses_tool_api_name(tool.name),
                 "description": tool.description,
                 "parameters": tool.input_schema,
             }
@@ -429,7 +442,7 @@ class CopilotProvider(ModelProvider):
                             {
                                 "type": "function_call",
                                 "call_id": tc.get("id", ""),
-                                "name": fn.get("name", ""),
+                                "name": self._responses_tool_api_name(fn.get("name", "")),
                                 "arguments": fn.get("arguments", "{}"),
                             }
                         )
@@ -456,6 +469,9 @@ class CopilotProvider(ModelProvider):
         """Stream from Responses API and map events to ProviderEvent."""
         input_messages, instructions = self._build_responses_input(request)
         tools = self._convert_tools_responses(request.tools) if request.tools else None
+        original_tool_names_by_api_name = {
+            self._responses_tool_api_name(tool.name): tool.name for tool in request.tools
+        }
 
         for event in self._client.stream_responses(
             token=token,
@@ -489,11 +505,14 @@ class CopilotProvider(ModelProvider):
             elif event_type == "response.output_item.done":
                 item = event.get("item", {})
                 if item.get("type") == "function_call":
+                    api_tool_name = item.get("name", "")
                     yield ProviderEvent(
                         kind="tool_call",
                         tool_call=ToolCallDelta(
                             call_id=item.get("call_id", ""),
-                            tool_name=item.get("name", ""),
+                            tool_name=original_tool_names_by_api_name.get(
+                                api_tool_name, api_tool_name
+                            ),
                             arguments_chunk=item.get("arguments", ""),
                         ),
                     )

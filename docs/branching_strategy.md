@@ -69,6 +69,17 @@ If the team introduces `develop` later, use this scaled model:
 | `hotfix/*` | `main` | `main` (then back-merge to `develop`) |
 | `release/*` | `develop` (release cut) | `main` (then back-merge to `develop`) |
 
+## Website Deployment Branches
+
+The website deployment pipeline treats `develop` and `main` as protected deployment branches:
+
+| Branch | Environment | URL |
+|---|---|---|
+| `develop` | pre-prod | `https://develop.breqy.com` |
+| `main` | production | `https://breqy.com` |
+
+Website changes must still happen on topic branches. Merge to `develop` first for pre-prod validation, then merge or promote to `main` for production once checks and review pass.
+
 ## Standard Workflow (Topic Branch)
 
 1. Confirm branch strategy before file changes.

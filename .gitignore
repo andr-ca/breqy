@@ -19,6 +19,13 @@ build/
 htmlcov/
 .coverage
 
+# Node / website
+node_modules/
+web/node_modules/
+web/dist/
+web/.astro/
+web/.env
+
 # Environment
 .env
 

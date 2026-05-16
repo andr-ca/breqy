@@ -17,6 +17,7 @@ import collections
 import os
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from textual import on
 from textual.app import ComposeResult
@@ -135,7 +136,7 @@ class AgentLogsScreen(Screen[None]):
         self,
         log_file: Path | None = None,
         agent_id: str = "",
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._log_file: Path = (
