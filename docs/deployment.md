@@ -21,7 +21,7 @@ Create the following repository or environment secrets and variables before the 
 
 | Name | Purpose |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Cloudflare Pages write permission. The deploy workflow uses it to create/verify Pages projects, add custom domains, and publish direct-upload deployments. |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Pages write, Zone read, and DNS edit permissions. The deploy workflow uses it to create/verify Pages projects, add custom domains, create/update DNS CNAMEs, and publish direct-upload deployments. |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. This may also be a GitHub variable if the account ID is not treated as secret. |
 
 ### Variables
@@ -42,12 +42,14 @@ Use environment protection on `production` if a manual approval gate is desired 
 
 ## Required Cloudflare setup
 
-The deploy workflow creates missing Cloudflare Pages projects and adds missing custom domains before publishing. Operators still need to ensure:
+The deploy workflow creates missing Cloudflare Pages projects, adds missing custom domains, and creates/updates the required proxied CNAME records before publishing. Operators still need to ensure:
 
-1. The Cloudflare API token has Pages write permission for the target account.
+1. The Cloudflare API token has Pages write, Zone read, and DNS edit permissions for the target account and zone.
 2. The `breqy.com` zone is active in the same Cloudflare account.
-3. DNS records and TLS for `develop.breqy.com` and `breqy.com` can be managed by Cloudflare.
+3. TLS for `develop.breqy.com` and `breqy.com` can be managed by Cloudflare.
 4. The project names are configured in the GitHub variables above.
+
+The workflow refuses to overwrite non-CNAME records with the same name. If an existing A/AAAA record already uses `breqy.com` or `develop.breqy.com`, remove or migrate it before rerunning deployment.
 
 Using two Pages projects keeps pre-prod and production domain ownership explicit and avoids depending on preview-branch domain behavior for production validation.
 
