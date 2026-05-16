@@ -76,7 +76,7 @@ class AuthScreen(Screen[None]):
         └─────────────────────────────────────────┘
     """
 
-    BINDINGS: ClassVar[list[Binding]] = [
+    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
         Binding("escape", "pop_screen", "Back", show=True),
     ]
 

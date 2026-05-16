@@ -75,15 +75,16 @@ class FilesystemTool(ToolExecutor):
                 )
 
             if operation == "write":
-                content = arguments.get("content")
-                if content is None:
+                content_value = arguments.get("content")
+                if content_value is None:
                     return ToolResult(success=False, error="Missing required argument: content")
 
+                content = str(content_value)
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(str(content), encoding="utf-8")
+                path.write_text(content, encoding="utf-8")
                 return ToolResult(
                     success=True,
-                    output={"path": str(path), "bytes_written": len(str(content).encode("utf-8"))},
+                    output={"path": str(path), "bytes_written": len(content.encode("utf-8"))},
                     summary=f"Wrote file {path}",
                 )
 

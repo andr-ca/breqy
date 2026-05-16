@@ -40,7 +40,7 @@ class ModelOption:
 class ModelSelectScreen(Screen):
     """Overlay screen for selecting an AI model/provider."""
 
-    BINDINGS: ClassVar[list[Binding]] = [
+    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
         Binding("escape", "cancel", "Cancel", show=True),
     ]
 

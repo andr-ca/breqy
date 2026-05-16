@@ -262,8 +262,12 @@ class ToolService:
         if not isinstance(path, str):
             return None
 
+        session_manager = self._session_manager
+        if session_manager is None:
+            return None
+
         try:
-            workspace_paths = await self._session_manager.get_workspace_paths(session_id)
+            workspace_paths = await session_manager.get_workspace_paths(session_id)
         except Exception:
             # If session not found or any error, skip workspace check
             return None

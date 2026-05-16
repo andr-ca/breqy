@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+from typing import Any
 
 import structlog
 from textual import work
@@ -82,7 +83,7 @@ class BreqyApp(App):
     # Init
     # ------------------------------------------------------------------ #
 
-    def __init__(self, socket_path: str = "", **kwargs: object) -> None:
+    def __init__(self, socket_path: str = "", **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.socket_path = socket_path
 
@@ -105,7 +106,7 @@ class BreqyApp(App):
         self._model_list_pending: bool = False
 
         # Timer handle for model list request timeout
-        self._model_list_timer: object | None = None
+        self._model_list_timer: Any | None = None
 
         # Event dispatcher — routes domain events to screen handlers
         self._dispatcher = EventDispatcher()

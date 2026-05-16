@@ -127,7 +127,7 @@ def engine_start(
 
     config = load_engine_config()
 
-    click.echo(f"Starting Breqy engine...")
+    click.echo("Starting Breqy engine...")
     click.echo(f"  Socket:    {config.socket_path}")
     click.echo(f"  Data dir:  {config.data_dir}")
     click.echo(f"  Database:  {config.db_path}")
@@ -232,7 +232,7 @@ def tui(socket_path: str | None) -> None:
     if socket_path:
         os.environ["BREQY_ENGINE_SOCKET"] = socket_path
 
-    resolved = socket_path or os.getenv("BREQY_ENGINE_SOCKET", "/tmp/breqy-engine.sock")
+    resolved = socket_path or os.getenv("BREQY_ENGINE_SOCKET") or "/tmp/breqy-engine.sock"
 
     # Set up structured logging for the TUI process
     from breqy.utils.logging import default_log_file, setup_logging
