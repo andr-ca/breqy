@@ -1,0 +1,335 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import {
+  architectureNodes,
+  homepageSections,
+  productClaims,
+  quickstartCommands,
+  siteMeta,
+} from "../content/site";
+
+const sectionById = new Map(homepageSections.map((section) => [section.id, section]));
+const hero = sectionById.get("hero")!;
+const runtime = sectionById.get("runtime")!;
+const agents = sectionById.get("agents")!;
+const sessions = sectionById.get("sessions")!;
+const approvals = sectionById.get("approvals")!;
+const control = sectionById.get("control")!;
+const architecture = sectionById.get("architecture")!;
+const quickstart = sectionById.get("quickstart")!;
+const roadmap = sectionById.get("roadmap")!;
+const source = sectionById.get("source")!;
+
+const availableClaims = productClaims.filter((claim) => claim.status === "available");
+const deferredClaims = productClaims.filter((claim) => claim.status === "deferred");
+---
+
+<BaseLayout>
+  <main id="top" class="relative z-0" data-site-marker="breqy-site-root">
+    <nav class="fixed left-0 right-0 top-0 z-20 px-4 pt-5">
+      <div class="mx-auto flex w-full max-w-5xl items-center justify-between rounded-full border border-white/10 bg-obsidian/75 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-2xl">
+        <a href="#top" class="flex items-center gap-3 rounded-full pl-2 pr-4 text-sm font-semibold tracking-tight text-chalk transition duration-700 ease-mass hover:text-signal">
+          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-signal/15 text-signal ring-1 ring-signal/30">B</span>
+          <span>Breqy</span>
+        </a>
+        <div class="hidden items-center gap-1 text-sm text-fog md:flex">
+          <a class="rounded-full px-4 py-2 transition duration-700 ease-mass hover:bg-white/[0.06] hover:text-chalk" href="#runtime">Runtime</a>
+          <a class="rounded-full px-4 py-2 transition duration-700 ease-mass hover:bg-white/[0.06] hover:text-chalk" href="#architecture">Architecture</a>
+          <a class="rounded-full px-4 py-2 transition duration-700 ease-mass hover:bg-white/[0.06] hover:text-chalk" href="#quickstart">Quickstart</a>
+          <a class="rounded-full px-4 py-2 transition duration-700 ease-mass hover:bg-white/[0.06] hover:text-chalk" href="#roadmap">Roadmap</a>
+        </div>
+        <a href="#source" class="cta-pill">
+          <span>View source</span>
+          <span class="cta-icon" aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </nav>
+
+    <section class="page-shell flex min-h-[100dvh] items-center pb-20 pt-36 md:pt-44">
+      <div class="grid w-full grid-cols-1 gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
+        <div class="reveal max-w-4xl" style="--delay: 80ms">
+          <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span>{hero.eyebrow}</p>
+          <h1 class="mt-8 max-w-5xl text-5xl font-semibold leading-[0.95] tracking-[-0.06em] text-chalk sm:text-6xl lg:text-7xl">
+            {hero.title}
+          </h1>
+          <p class="mt-7 max-w-2xl text-lg leading-8 text-fog sm:text-xl">
+            {hero.copy}
+          </p>
+          <div class="mt-10 flex flex-col gap-3 sm:flex-row">
+            <a href="#quickstart" class="cta-pill w-fit">
+              <span>Start locally</span>
+              <span class="cta-icon" aria-hidden="true">↘</span>
+            </a>
+            <a href="#architecture" class="secondary-pill w-fit">Inspect the architecture</a>
+          </div>
+          <dl class="mt-14 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="hardware-shell">
+              <div class="hardware-core p-4">
+                <dt class="mono-label">Mode</dt>
+                <dd class="mt-3 text-lg font-semibold text-chalk">Local-first</dd>
+              </div>
+            </div>
+            <div class="hardware-shell sm:translate-y-5">
+              <div class="hardware-core p-4">
+                <dt class="mono-label">Channel</dt>
+                <dd class="mt-3 text-lg font-semibold text-chalk">TUI now</dd>
+              </div>
+            </div>
+            <div class="hardware-shell">
+              <div class="hardware-core p-4">
+                <dt class="mono-label">State</dt>
+                <dd class="mt-3 text-lg font-semibold text-chalk">Durable</dd>
+              </div>
+            </div>
+            <div class="hardware-shell sm:translate-y-5">
+              <div class="hardware-core p-4">
+                <dt class="mono-label">Stage</dt>
+                <dd class="mt-3 text-lg font-semibold text-chalk">{siteMeta.launchStage}</dd>
+              </div>
+            </div>
+          </dl>
+        </div>
+
+        <div class="reveal hardware-shell lg:translate-y-10" style="--delay: 220ms">
+          <div class="hardware-core overflow-hidden p-0">
+            <div class="border-b border-white/10 px-5 py-4">
+              <div class="flex items-center justify-between">
+                <p class="mono-label">Runtime control plane</p>
+                <span class="rounded-full bg-signal/10 px-3 py-1 font-mono text-xs text-signal">online</span>
+              </div>
+            </div>
+            <div class="space-y-5 p-5 sm:p-7">
+              <div class="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-5">
+                <div class="flex items-start justify-between gap-4">
+                  <div>
+                    <p class="mono-label">Session</p>
+                    <h2 class="mt-3 text-2xl font-semibold tracking-tight text-chalk">resume local-services-audit</h2>
+                  </div>
+                  <span class="status-dot mt-2" aria-hidden="true"></span>
+                </div>
+                <div class="mt-6 grid gap-3 text-sm text-fog">
+                  <div class="flex items-center justify-between border-t border-white/10 pt-3">
+                    <span>message history</span>
+                    <span class="font-mono text-chalk">persisted</span>
+                  </div>
+                  <div class="flex items-center justify-between border-t border-white/10 pt-3">
+                    <span>tool approval</span>
+                    <span class="font-mono text-brass">awaiting user</span>
+                  </div>
+                  <div class="flex items-center justify-between border-t border-white/10 pt-3">
+                    <span>event writer</span>
+                    <span class="font-mono text-signal">sequential</span>
+                  </div>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-[0.8fr_1.2fr]">
+                <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.035] p-4">
+                  <p class="mono-label">control</p>
+                  <div class="mt-4 space-y-2 text-sm text-chalk/80">
+                    <p>stop</p>
+                    <p>steer</p>
+                    <p>circuit-break</p>
+                  </div>
+                </div>
+                <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.035] p-4">
+                  <p class="mono-label">A2A envelope</p>
+                  <pre class="mt-4 overflow-hidden whitespace-pre-wrap font-mono text-[12px] leading-6 text-fog">event_type: tool.invocation
+schema_version: v1
+agent_id: breqy
+status: approval_required</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="runtime" class="page-shell py-24 md:py-36">
+      <div class="reveal max-w-3xl" style="--delay: 80ms">
+        <p class="eyebrow">{runtime.eyebrow}</p>
+        <h2 class="mt-6 text-4xl font-semibold leading-[1.02] tracking-[-0.05em] text-chalk md:text-6xl">{runtime.title}</h2>
+        <p class="mt-6 text-lg leading-8 text-fog">{runtime.copy}</p>
+      </div>
+
+      <div class="mt-12 grid grid-cols-1 gap-5 lg:grid-cols-12">
+        <article class="reveal hardware-shell lg:col-span-7 lg:row-span-2" style="--delay: 120ms">
+          <div class="hardware-core h-full p-7 md:p-9">
+            <p class="eyebrow">{agents.eyebrow}</p>
+            <h3 class="mt-8 text-3xl font-semibold tracking-tight text-chalk md:text-5xl">{agents.title}</h3>
+            <p class="mt-5 max-w-2xl text-lg leading-8 text-fog">{agents.copy}</p>
+            <div class="mt-10 grid gap-3 sm:grid-cols-2">
+              {availableClaims.map((claim, index) => (
+                <div class="rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-5" style={`--delay: ${180 + index * 70}ms`}>
+                  <p class="mono-label">available</p>
+                  <h4 class="mt-4 text-lg font-semibold text-chalk">{claim.name}</h4>
+                  <p class="mt-3 text-sm leading-6 text-fog">{claim.copy}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </article>
+
+        <article class="reveal hardware-shell lg:col-span-5" style="--delay: 220ms">
+          <div class="hardware-core p-7">
+            <p class="eyebrow">{sessions.eyebrow}</p>
+            <h3 class="mt-6 text-3xl font-semibold tracking-tight text-chalk">{sessions.title}</h3>
+            <p class="mt-4 leading-7 text-fog">{sessions.copy}</p>
+          </div>
+        </article>
+
+        <article class="reveal hardware-shell lg:col-span-5 lg:translate-y-7" style="--delay: 300ms">
+          <div class="hardware-core p-7">
+            <p class="eyebrow">{approvals.eyebrow}</p>
+            <h3 class="mt-6 text-3xl font-semibold tracking-tight text-chalk">{approvals.title}</h3>
+            <p class="mt-4 leading-7 text-fog">{approvals.copy}</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="control" class="page-shell py-24 md:py-36">
+      <div class="grid grid-cols-1 gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+        <div class="reveal" style="--delay: 80ms">
+          <p class="eyebrow">{control.eyebrow}</p>
+          <h2 class="mt-6 text-4xl font-semibold leading-[1.02] tracking-[-0.05em] text-chalk md:text-6xl">{control.title}</h2>
+          <p class="mt-6 text-lg leading-8 text-fog">{control.copy}</p>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          {[
+            ["Stop", "Cancel active work as soon as safely possible."],
+            ["Stop and steer", "Let the current atomic step finish, then re-plan."],
+            ["Steer", "Update context and direction without losing the session."],
+            ["Circuit break", "Hard-kill unsafe or stuck agent work and record it."],
+          ].map(([name, copy], index) => (
+            <div class="reveal hardware-shell" style={`--delay: ${120 + index * 80}ms`}>
+              <div class="hardware-core p-6">
+                <p class="mono-label">control primitive</p>
+                <h3 class="mt-5 text-2xl font-semibold tracking-tight text-chalk">{name}</h3>
+                <p class="mt-4 leading-7 text-fog">{copy}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture" class="page-shell py-24 md:py-36">
+      <div class="reveal mx-auto max-w-3xl text-left lg:ml-auto lg:mr-0" style="--delay: 80ms">
+        <p class="eyebrow">{architecture.eyebrow}</p>
+        <h2 class="mt-6 text-4xl font-semibold leading-[1.02] tracking-[-0.05em] text-chalk md:text-6xl">{architecture.title}</h2>
+        <p class="mt-6 text-lg leading-8 text-fog">{architecture.copy}</p>
+      </div>
+      <div class="mt-12 grid grid-cols-1 gap-5 lg:grid-cols-[1.25fr_0.75fr]">
+        <div class="reveal hardware-shell" style="--delay: 140ms">
+          <div class="hardware-core p-6 md:p-8">
+            <div class="grid gap-5 md:grid-cols-3">
+              {architectureNodes.map((node, index) => (
+                <div class="rounded-[1.6rem] border border-white/10 bg-white/[0.035] p-5" style={`--delay: ${180 + index * 90}ms`}>
+                  <p class="mono-label">node {index + 1}</p>
+                  <h3 class="mt-6 text-2xl font-semibold tracking-tight text-chalk">{node.name}</h3>
+                  <p class="mt-4 text-sm leading-6 text-fog">{node.role}</p>
+                </div>
+              ))}
+            </div>
+            <div class="mt-8 rounded-[1.6rem] border border-signal/20 bg-signal/[0.06] p-5">
+              <p class="mono-label text-signal">message path</p>
+              <p class="mt-4 text-lg leading-8 text-chalk/85">Channel apps send typed envelopes to the engine. The engine persists, routes, and audits work before agents execute tools.</p>
+            </div>
+          </div>
+        </div>
+        <aside class="reveal hardware-shell lg:translate-y-12" style="--delay: 260ms">
+          <div class="hardware-core p-6">
+            <p class="mono-label">source of truth</p>
+            <ul class="mt-6 space-y-4 text-sm leading-6 text-fog">
+              <li class="border-t border-white/10 pt-4"><span class="text-chalk">SQLite WAL</span> for canonical local persistence.</li>
+              <li class="border-t border-white/10 pt-4"><span class="text-chalk">EventWriter</span> serializes durable runtime events.</li>
+              <li class="border-t border-white/10 pt-4"><span class="text-chalk">PolicyEvaluator</span> gates tools independently of skills.</li>
+              <li class="border-t border-white/10 pt-4"><span class="text-chalk">SecretProvider</span> keeps credentials out of plain config.</li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="quickstart" class="page-shell py-24 md:py-36">
+      <div class="grid grid-cols-1 gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+        <div class="reveal" style="--delay: 80ms">
+          <p class="eyebrow">{quickstart.eyebrow}</p>
+          <h2 class="mt-6 text-4xl font-semibold leading-[1.02] tracking-[-0.05em] text-chalk md:text-6xl">{quickstart.title}</h2>
+          <p class="mt-6 text-lg leading-8 text-fog">{quickstart.copy}</p>
+        </div>
+        <div class="reveal hardware-shell" style="--delay: 170ms">
+          <div class="hardware-core overflow-hidden">
+            <div class="border-b border-white/10 px-6 py-4">
+              <p class="mono-label">terminal sequence</p>
+            </div>
+            <ol class="divide-y divide-white/10">
+              {quickstartCommands.map((item, index) => (
+                <li class="grid gap-3 p-6 sm:grid-cols-[10rem_1fr] sm:items-center">
+                  <span class="text-sm font-semibold text-chalk/80">{String(index + 1).padStart(2, "0")} {item.label}</span>
+                  <code class="rounded-full border border-white/10 bg-obsidian/70 px-4 py-3 font-mono text-sm text-signal">{item.command}</code>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="roadmap" class="page-shell py-24 md:py-36">
+      <div class="reveal max-w-3xl" style="--delay: 80ms">
+        <p class="eyebrow">{roadmap.eyebrow}</p>
+        <h2 class="mt-6 text-4xl font-semibold leading-[1.02] tracking-[-0.05em] text-chalk md:text-6xl">{roadmap.title}</h2>
+        <p class="mt-6 text-lg leading-8 text-fog">{roadmap.copy}</p>
+      </div>
+      <div class="mt-12 grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+        <div class="reveal hardware-shell" style="--delay: 160ms">
+          <div class="hardware-core p-6">
+            <p class="mono-label text-signal">available in the current path</p>
+            <div class="mt-6 space-y-4">
+              {availableClaims.map((claim) => (
+                <article class="rounded-[1.4rem] border border-white/10 bg-white/[0.035] p-5">
+                  <h3 class="text-xl font-semibold tracking-tight text-chalk">{claim.name}</h3>
+                  <p class="mt-3 text-sm leading-6 text-fog">{claim.copy}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div class="reveal hardware-shell lg:translate-y-8" style="--delay: 240ms">
+          <div class="hardware-core p-6">
+            <p class="mono-label text-brass">deferred roadmap</p>
+            <div class="mt-6 space-y-4">
+              {deferredClaims.map((claim) => (
+                <article class="rounded-[1.4rem] border border-white/10 bg-white/[0.025] p-5">
+                  <h3 class="text-xl font-semibold tracking-tight text-chalk">{claim.name}</h3>
+                  <p class="mt-3 text-sm leading-6 text-fog">{claim.copy}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="source" class="page-shell py-24 pb-32 md:py-40">
+      <div class="reveal hardware-shell" style="--delay: 80ms">
+        <div class="hardware-core grid gap-8 p-7 md:grid-cols-[1fr_auto] md:items-end md:p-10">
+          <div>
+            <p class="eyebrow">{source.eyebrow}</p>
+            <h2 class="mt-7 max-w-4xl text-4xl font-semibold leading-[1.02] tracking-[-0.05em] text-chalk md:text-6xl">{source.title}</h2>
+            <p class="mt-6 max-w-2xl text-lg leading-8 text-fog">{source.copy}</p>
+          </div>
+          <div class="flex flex-col gap-3 sm:flex-row md:flex-col">
+            <a href={siteMeta.repositoryUrl} class="cta-pill w-fit">
+              <span>Open repository</span>
+              <span class="cta-icon" aria-hidden="true">↗</span>
+            </a>
+            <a href="#quickstart" class="secondary-pill w-fit">Run it locally</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</BaseLayout>

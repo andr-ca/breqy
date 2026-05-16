@@ -255,6 +255,8 @@ class MemoryService:
 
         if policy_requires_approval or autonomy_requires_approval:
             request_id = approval_id
+            if request_id is None:
+                raise RuntimeError("promotion approval id missing")
             decision = await self._approval_service.wait_for_decision(
                 request_id,
                 timeout=self._approval_timeout,
@@ -265,7 +267,7 @@ class MemoryService:
                         event_type=EventType.APPROVAL_GRANTED,
                         session_id=session_id,
                         agent_id=agent_id,
-                        approval_id=approval_id,
+                        approval_id=request_id,
                         decision=ApprovalStatus.GRANTED,
                     )
                 )
@@ -275,7 +277,7 @@ class MemoryService:
                         event_type=EventType.APPROVAL_DENIED,
                         session_id=session_id,
                         agent_id=agent_id,
-                        approval_id=approval_id,
+                        approval_id=request_id,
                         decision=ApprovalStatus.DENIED,
                     )
                 )

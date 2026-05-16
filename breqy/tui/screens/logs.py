@@ -259,11 +259,11 @@ class LogsScreen(Screen[None]):
                 "WARNING": "yellow",
                 "ERROR": "red",
             }
-            for entry in visible_logs:
-                ts_str = entry.timestamp.strftime("%H:%M:%S")
-                color = _level_colors.get(entry.level, "")
-                level_fmt = f"[{color}]{entry.level}[/{color}]" if color else entry.level
+            for log_entry in visible_logs:
+                ts_str = log_entry.timestamp.strftime("%H:%M:%S")
+                color = _level_colors.get(log_entry.level, "")
+                level_fmt = f"[{color}]{log_entry.level}[/{color}]" if color else log_entry.level
                 log.write(
                     f"[dim]{ts_str}[/dim] {level_fmt} "
-                    f"[bold]{entry.logger_name}[/bold] {entry.message}"
+                    f"[bold]{log_entry.logger_name}[/bold] {log_entry.message}"
                 )

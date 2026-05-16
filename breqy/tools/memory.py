@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, cast
 
 import structlog
 
@@ -203,7 +203,7 @@ class MemoryWriteTool(ToolExecutor):
         except ValueError as exc:
             return ToolResult(success=False, error=str(exc))
 
-        record = await self._memory_service.write_record(
+        session_record = await self._memory_service.write_record(
             scope=MemoryScope.SESSION,
             session_id=session_id,
             agent_id=agent_id,
@@ -219,7 +219,10 @@ class MemoryWriteTool(ToolExecutor):
         )
         return ToolResult(
             success=True,
-            output={"scope": MemoryScope.SESSION.value, "record": record.model_dump(mode="json")},
+            output={
+                "scope": MemoryScope.SESSION.value,
+                "record": session_record.model_dump(mode="json"),
+            },
             summary="Wrote session memory record",
         )
 
@@ -329,7 +332,8 @@ def _parse_tags(value: Any) -> list[str] | None:
         return None
     if not isinstance(value, list):
         return None
-    tags = [str(item).strip() for item in value if str(item).strip()]
+    tag_values = cast(list[Any], value)
+    tags = [str(item).strip() for item in tag_values if str(item).strip()]
     return tags or None
 
 
@@ -348,11 +352,12 @@ def _parse_execution_context(arguments: dict[str, Any]) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
 
+    raw_context = cast(dict[str, Any], value)
     context: dict[str, str] = {}
-    session_id = value.get("session_id")
+    session_id = raw_context.get("session_id")
     if isinstance(session_id, str) and session_id.strip():
         context["session_id"] = session_id.strip()
-    agent_id = value.get("agent_id")
+    agent_id = raw_context.get("agent_id")
     if isinstance(agent_id, str) and agent_id.strip():
         context["agent_id"] = agent_id.strip()
     return context

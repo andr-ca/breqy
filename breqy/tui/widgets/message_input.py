@@ -54,7 +54,7 @@ class MessageInput(Widget):
             suggester=suggester,
         )
 
-    def _on_key(self, event: Key) -> None:
+    async def _on_key(self, event: Key) -> None:
         """Intercept Tab to accept an active slash-command suggestion."""
         if event.key == "tab":
             inp = self.query_one("#message-input", Input)

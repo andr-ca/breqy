@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -13,7 +14,7 @@ import structlog
 from breqy.a2a.client import A2AClient
 from breqy.agents.credentials import CredentialStore
 from breqy.agents.private_memory import PrivateMemoryRuntime
-from breqy.agents.providers.base import ModelProvider, ProviderRequest, ToolDefinition
+from breqy.agents.providers.base import ModelProvider, ProviderEvent, ProviderRequest, ToolDefinition
 from breqy.agents.skills import SkillLoader, SkillActivationError
 from breqy.config.loader import load_agent_config
 from breqy.config.models import AgentConfig
@@ -34,8 +35,9 @@ from breqy.domain.events import (
     ToolExecutionRequestedEvent,
     ToolExecutionResultEvent,
 )
-from breqy.domain.models import ModelEntry
+from breqy.domain.models import ModelEntry, StructuredErrorPayload
 from breqy.domain.ids import generate_prefixed_id
+from breqy.secrets.provider import SecretProvider
 from breqy.utils.logging import default_log_file, setup_logging
 
 logger = structlog.get_logger(__name__)
@@ -669,11 +671,11 @@ class AgentRuntime:
                 agent_id=event.agent_id,
                 correlation_id=event.correlation_id,
                 invocation_id=event.correlation_id,
-                failure_payload={
-                    "code": "invalid_skill_activation",
-                    "message": "One or more requested skills are unknown or disallowed for this agent",
-                    "details": {"invalid_skill_ids": invalid_skill_ids},
-                },
+                failure_payload=StructuredErrorPayload(
+                    code="invalid_skill_activation",
+                    message="One or more requested skills are unknown or disallowed for this agent",
+                    details={"invalid_skill_ids": invalid_skill_ids},
+                ),
             )
         )
 
@@ -705,7 +707,7 @@ def _build_provider(
             from breqy.secrets.provider import FileSecretProvider, KeyringSecretProvider
 
             try:
-                secret_provider = KeyringSecretProvider()
+                secret_provider: SecretProvider = KeyringSecretProvider()
                 # Probe: verify keyring is functional
                 secret_provider.get("__probe__")
             except Exception:
@@ -741,7 +743,7 @@ def _create_credential_store() -> CredentialStore:
     from breqy.secrets.provider import FileSecretProvider, KeyringSecretProvider
 
     try:
-        secret_provider = KeyringSecretProvider()
+        secret_provider: SecretProvider = KeyringSecretProvider()
         secret_provider.get("__probe__")
     except Exception:
         structlog.get_logger().info("keyring_unavailable_using_file_store")
@@ -793,14 +795,22 @@ def main() -> None:
     asyncio.run(run())
 
 
-class _NullProvider:
-    provider_id = "null"
-    model_id = "null"
-    supports_tool_calls = False
+class _NullProvider(ModelProvider):
+    @property
+    def provider_id(self) -> str:
+        return "null"
 
-    def stream(self, request: ProviderRequest):
+    @property
+    def model_id(self) -> str:
+        return "null"
+
+    @property
+    def supports_tool_calls(self) -> bool:
+        return False
+
+    def stream(self, request: ProviderRequest) -> Iterator[ProviderEvent]:
         if False:
-            yield request
+            yield ProviderEvent(kind="notice", text=request.prompt)
 
     def list_models(self) -> list[tuple[str, str]]:
         return [("null", "null")]

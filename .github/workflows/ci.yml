@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+      - "feat/**"
+      - "fix/**"
+      - "docs/**"
+      - "chore/**"
+      - "refactor/**"
+      - "test/**"
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python tests and source checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Prepare sanitized test environment
+        run: |
+          mkdir -p .breqy
+          cat > .env <<'EOF'
+          BREQY_ENGINE_SOCKET=/tmp/breqy/engine.sock
+          BREQY_DATA_DIR=.breqy
+          BREQY_LOG_LEVEL=INFO
+          BREQY_DB_PATH=.breqy/breqy.db
+          PUBLIC_BREQY_SITE_URL=https://breqy.com
+          PUBLIC_BREQY_DEPLOY_ENV=ci
+          PUBLIC_BREQY_COMMIT_SHA=${{ github.sha }}
+          EOF
+
+      - name: Run Python tests with coverage
+        run: python -m pytest --cov=breqy --cov-report=term-missing
+
+      - name: Lint runtime source packages
+        run: python -m ruff check breqy system scripts
+
+      - name: Type-check runtime package
+        run: python -m mypy breqy/
+
+  web:
+    name: Website tests and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Run website tests
+        run: npm test
+
+      - name: Type-check Astro site
+        run: npm run check
+
+      - name: Build website
+        run: npm run build
+        env:
+          PUBLIC_BREQY_SITE_URL: https://breqy.com
+          PUBLIC_BREQY_DEPLOY_ENV: ci
+          PUBLIC_BREQY_COMMIT_SHA: ${{ github.sha }}
+
+      - name: Smoke-check built website
+        run: npm run smoke:build
+        env:
+          PUBLIC_BREQY_DEPLOY_ENV: ci
+          PUBLIC_BREQY_COMMIT_SHA: ${{ github.sha }}

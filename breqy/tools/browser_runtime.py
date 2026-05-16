@@ -209,7 +209,7 @@ BrowserAction = Annotated[
     Field(discriminator="action"),
 ]
 
-browser_action_adapter = TypeAdapter(BrowserAction)
+browser_action_adapter: TypeAdapter[BrowserAction] = TypeAdapter(BrowserAction)
 
 
 def _validate_allowed_url(raw_url: str | None) -> None:

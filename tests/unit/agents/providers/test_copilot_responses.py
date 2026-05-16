@@ -606,3 +606,138 @@ class TestBuildResponsesInputToolHistory:
         assert len(fco_items) == 2
         assert {m["call_id"] for m in fc_items} == {"call_1", "call_2"}
         assert {m["call_id"] for m in fco_items} == {"call_1", "call_2"}
+
+
+# --------------------------------------------------------------------------- #
+# _convert_tools_responses: tool name sanitization for Responses API
+# --------------------------------------------------------------------------- #
+
+
+class TestConvertToolsResponsesNameSanitization:
+    """Tool names sent to the Responses API must match ^[a-zA-Z0-9_-]+$.
+
+    Memory tools use dotted names (e.g. mcp.memory.n--search).
+    _convert_tools_responses must replace dots with underscores in the 'name'
+    field sent to the API.  The original name must be recoverable for routing.
+    """
+
+    def _make_provider(self):
+        from unittest.mock import MagicMock
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        return CopilotProvider(
+            model_id="gpt-5.4-mini",
+            authenticator=MagicMock(),
+            client=MagicMock(),
+        )
+
+    def _make_tool(self, name: str):
+        from breqy.agents.providers.base import ToolDefinition
+
+        return ToolDefinition(
+            name=name,
+            description="A tool",
+            input_schema={"type": "object", "properties": {}},
+        )
+
+    def test_dotted_tool_name_is_sanitized_to_underscore(self) -> None:
+        """Dots in tool names must be replaced with underscores in the API payload."""
+        import re
+
+        provider = self._make_provider()
+        tools = [self._make_tool("mcp.memory.n--search")]
+        result = provider._convert_tools_responses(tools)
+
+        name_in_payload = result[0]["name"]
+        pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
+        assert pattern.match(name_in_payload), (
+            f"Tool name '{name_in_payload}' does not match Responses API pattern ^[a-zA-Z0-9_-]+$"
+        )
+        assert "." not in name_in_payload, f"Dot still present in tool name: {name_in_payload}"
+
+    def test_clean_tool_name_is_unchanged(self) -> None:
+        """Tool names without dots are passed through unchanged."""
+        provider = self._make_provider()
+        tools = [self._make_tool("shell")]
+        result = provider._convert_tools_responses(tools)
+
+        assert result[0]["name"] == "shell"
+
+    def test_multiple_tools_all_sanitized(self) -> None:
+        """All tools in the list are sanitized."""
+        import re
+
+        provider = self._make_provider()
+        tools = [
+            self._make_tool("mcp.memory.n--search"),
+            self._make_tool("mcp.memory.n--write"),
+            self._make_tool("mcp.memory.n--promote"),
+            self._make_tool("shell"),
+        ]
+        result = provider._convert_tools_responses(tools)
+
+        pattern = re.compile(r"^[a-zA-Z0-9_-]+$")
+        for item in result:
+            assert pattern.match(item["name"]), (
+                f"Tool name '{item['name']}' does not match Responses API pattern"
+            )
+
+
+class TestDoStreamResponsesToolNameReverseMapping:
+    """When the model returns a tool call using the sanitized name, _do_stream_responses
+    must emit a tool_call ProviderEvent with the ORIGINAL (pre-sanitization) tool name.
+
+    This ensures the runtime can correctly route the call to the ToolExecutor registered
+    under the original name.
+    """
+
+    def _make_provider(self):
+        from unittest.mock import MagicMock
+        from breqy.agents.providers.copilot import CopilotProvider
+
+        return CopilotProvider(
+            model_id="gpt-5.4-mini",
+            authenticator=MagicMock(),
+            client=MagicMock(),
+        )
+
+    def _make_tool(self, name: str):
+        from breqy.agents.providers.base import ToolDefinition
+
+        return ToolDefinition(
+            name=name,
+            description="A tool",
+            input_schema={"type": "object", "properties": {}},
+        )
+
+    def test_tool_call_event_carries_original_dotted_name(self) -> None:
+        """The ProviderEvent.tool_call.tool_name must be the original name, not the sanitized one."""
+        from pathlib import Path
+        from breqy.agents.providers.base import ProviderRequest
+
+        # Model returns the sanitized name (dots replaced with underscores)
+        function_call_done = {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "call_id": "call_42",
+                "name": "mcp_memory_n--search",  # sanitized form the API returns
+                "arguments": '{"scope": "session", "agent_id": "a1"}',
+            },
+        }
+        completed = {"type": "response.completed", "response": {"status": "completed"}}
+
+        provider = self._make_provider()
+        provider._client.stream_responses.return_value = iter([function_call_done, completed])
+
+        # Register the dotted tool so the provider knows the original name
+        tools = [self._make_tool("mcp.memory.n--search")]
+        request = ProviderRequest(prompt="search memory", work_dir=Path("/tmp"), tools=tools)
+        events = list(provider._do_stream_responses("tok", request))
+
+        tool_call_events = [e for e in events if e.kind == "tool_call"]
+        assert len(tool_call_events) == 1
+        assert tool_call_events[0].tool_call.tool_name == "mcp.memory.n--search", (
+            f"Expected original name 'mcp.memory.n--search', "
+            f"got '{tool_call_events[0].tool_call.tool_name}'"
+        )

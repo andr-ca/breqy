@@ -1,0 +1,50 @@
+---
+import { buildExpectedMarkers } from "../content/deployment";
+import { siteMeta } from "../content/site";
+import "../styles/global.css";
+
+type Props = {
+  description?: string;
+  title?: string;
+  canonicalPath?: string;
+};
+
+const siteUrl = import.meta.env.PUBLIC_BREQY_SITE_URL ?? siteMeta.productionUrl;
+const deployEnv = import.meta.env.PUBLIC_BREQY_DEPLOY_ENV ?? "local";
+const commitSha = import.meta.env.PUBLIC_BREQY_COMMIT_SHA ?? "local";
+const markers = buildExpectedMarkers({ siteUrl, deployEnv, commitSha });
+
+const pageTitle = Astro.props.title ?? markers.title;
+const description = Astro.props.description ?? siteMeta.description;
+const canonicalPath = Astro.props.canonicalPath ?? "/";
+const canonicalUrl = new URL(canonicalPath.replace(/^\//, ""), markers.canonicalUrl).toString();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#05070a" />
+    <meta name="breqy:site-marker" content={markers.siteMarker} />
+    <meta name="breqy:deploy-env" content={markers.deployEnv} />
+    <meta name="breqy:commit-sha" content={markers.commitSha} />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={siteMeta.name} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content="/og-card.svg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    <title>{pageTitle}</title>
+  </head>
+  <body data-site-marker={markers.siteMarker} data-deploy-env={markers.deployEnv} data-commit-sha={markers.commitSha}>
+    <slot />
+  </body>
+</html>

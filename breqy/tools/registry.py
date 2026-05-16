@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from breqy.agents.providers.base import ToolDefinition
 from breqy.tools.executor import ToolExecutor
 
@@ -31,7 +33,7 @@ class ToolRegistry:
             names: If provided, only include tools whose names are in this list.
                    If None, include all registered tools.
         """
-        tools = self._tools.values()
+        tools: Iterable[ToolExecutor] = self._tools.values()
         if names is not None:
             name_set = set(names)
             tools = [t for t in tools if t.name in name_set]

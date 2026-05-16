@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Breqy website preview">
+  <defs>
+    <radialGradient id="a" cx="20%" cy="20%" r="70%">
+      <stop offset="0" stop-color="#7dd8b1" stop-opacity="0.26" />
+      <stop offset="1" stop-color="#05070a" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="b" cx="84%" cy="10%" r="70%">
+      <stop offset="0" stop-color="#c7a66b" stop-opacity="0.22" />
+      <stop offset="1" stop-color="#05070a" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#05070a" />
+  <rect width="1200" height="630" fill="url(#a)" />
+  <rect width="1200" height="630" fill="url(#b)" />
+  <rect x="78" y="76" width="1044" height="478" rx="46" fill="#0c1016" stroke="#ffffff" stroke-opacity="0.12" />
+  <text x="132" y="166" fill="#7dd8b1" font-family="Geist Mono, monospace" font-size="22" letter-spacing="8">EARLY ACCESS</text>
+  <text x="132" y="292" fill="#f4f0e8" font-family="Satoshi, Geist, sans-serif" font-size="76" font-weight="700">Breqy</text>
+  <text x="132" y="384" fill="#f4f0e8" font-family="Satoshi, Geist, sans-serif" font-size="54" font-weight="600">Always-on AI runtime for Linux</text>
+  <text x="132" y="462" fill="#9fa8b5" font-family="Satoshi, Geist, sans-serif" font-size="30">Persistent sessions. Separate agents. Policy-gated tools.</text>
+</svg>
