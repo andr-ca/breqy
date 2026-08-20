@@ -1,6 +1,6 @@
 # Breqy Roadmap
 
-Last updated: March 14, 2026
+Last updated: August 19, 2026
 
 ## 1. Purpose
 
@@ -30,6 +30,25 @@ Primary source documents:
 ## 3. Active Roadmap (Slice 1)
 
 Slice 1 is the current target and includes 36 planned tasks across 9 chunks.
+
+### Slice 1 Completion Status (verified 2026-08-19)
+
+All four Slice 1 milestones (M1-M4) are implemented and integrated. Release-gate
+evidence captured on this date:
+
+| Gate | Command | Result |
+|---|---|---|
+| Tests | `pytest` | 1761 passed |
+| Coverage | `pytest --cov=breqy` | 93% overall (478/6513 stmts missed) |
+| Lint | `ruff check breqy system scripts` | clean |
+| Types | `mypy breqy/` | no issues (103 files) |
+
+Residual coverage gaps are concentrated in I/O-edge modules
+(`tools/browser_runtime.py` 58%, `tui/screens/agent_logs.py` 55%,
+`tools/browser.py` 69%, `secrets/provider.py` 86%); core business logic
+(policy, memory, storage, engine session/task managers, domain) is at or near
+100%. Formal sponsor sign-off on the release gate (section 4) remains
+outstanding.
 
 ### Milestone M1: Foundation and Contracts
 

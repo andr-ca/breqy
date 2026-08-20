@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `EngineServer._handle_user_message` now fetches prior session messages **before** persisting the current user message. Previously, the current user turn was already in storage by the time `session_context` was built, causing it to appear twice in the Responses API request body and producing HTTP 400 errors.
 
 ### Changed
+- Recorded Slice 1 release-gate evidence (1761 tests passing, 93% coverage, `ruff check breqy system scripts` clean, `mypy breqy/` clean) in `docs/roadmap.md`, and corrected `docs/plans/2026-03-28-observability.md` status from *pending* to *implemented* to match the shipped logging infrastructure.
 - `agents/core.instructions.md`, `agents/project.instructions.md`, and `agents/python.instructions.md` now include stronger guidance for migration discipline, PR scope hygiene, review-comment handling, approval-contract alignment, best-effort shutdown cleanup, external-surface hardening, and third-party schema compatibility based on lessons from the browser-tool PR review cycle.
 - `breqy/tools/service.py` now honors tool-specific approval metadata and skips repeat approval prompts when a matching session/forever grant already exists.
 - `breqy/agents/runtime.py` now expands legacy tool permission aliases (`fs`, `memory`) to canonical native/MCP tool names, while adding browser permission support for the default agent manifest.
