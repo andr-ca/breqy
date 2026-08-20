@@ -1,8 +1,17 @@
 # Observability & Logging — Design Spec
 
 **Date:** 2026-03-28
-**Status:** Approved, pending implementation
+**Status:** Implemented (verified 2026-08-19)
 **Branch:** exp-full-build
+
+> **Implementation status (2026-08-19):** The substantive design is landed and
+> verified in-tree. `setup_logging()` is extended for per-process JSON log files;
+> structlog is adopted across all processes (including the former stdlib users
+> `a2a/server.py`, `a2a/client.py`, and `tui/app.py`); agent-subprocess output
+> handling is fixed in `engine/agent_spawner.py`; the LogsScreen ring buffer is
+> moved to `BreqyApp._log_buffer`; and the dual-view (Events/Logs) `LogsScreen`
+> with a `Tab` toggle is implemented. The engine daemon, agent runtime, and TUI
+> all call `setup_logging()` at startup.
 
 ## Problem
 
