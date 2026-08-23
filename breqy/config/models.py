@@ -9,8 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from breqy.domain.models import FilesystemPolicy, PolicyRule
 
-
-SUPPORTED_AGENT_PROVIDERS = {"copilot", "codex", "claude", "gemini", "qwen"}
+SUPPORTED_AGENT_PROVIDERS = {"copilot", "codex", "claude", "gemini", "qwen", "ollama"}
 
 
 class MCPServerConfig(BaseModel):

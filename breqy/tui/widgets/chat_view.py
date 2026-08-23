@@ -37,7 +37,7 @@ class ChatView(Widget):
         self._stream_buffer = StreamBuffer()
         self._reasoning_chunks: list[str] = []
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         yield SelectableRichLog(id="chat-log", wrap=True, markup=True)
 
     @property

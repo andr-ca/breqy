@@ -10,14 +10,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import Field
+
 from breqy.agents.credentials import CredentialStore
 from breqy.agents.providers.base import (
     CompletionMetadata,
     ModelProvider,
     ProviderEvent,
     ProviderRequest,
-    ToolDefinition,
     ToolCallDelta,
+    ToolDefinition,
 )
 from system.orchestrator.auth.credential_store import CredentialStore as OrchestratorCredentialStore
 from system.orchestrator.runners.claude_runner import ClaudeRunner
@@ -77,6 +79,10 @@ PROVIDER_FALLBACK_MODELS: dict[str, list[tuple[str, str]]] = {
     "qwen": [
         ("qwen-max", "Qwen Max"),
         ("qwen-plus", "Qwen Plus"),
+    ],
+    "ollama": [
+        ("llama3.2", "Llama 3.2"),
+        ("qwen2.5:7b", "Qwen 2.5 7B"),
     ],
 }
 
@@ -160,7 +166,7 @@ class _RunnerCredentialStore(OrchestratorCredentialStore):
 
 class _ConfiguredRunContext(RunContext):
     model_id: str
-    tools: list[ToolDefinition] = []
+    tools: list[ToolDefinition] = Field(default_factory=list)
 
 
 class _SafeClaudeRunner(ClaudeRunner):
@@ -514,6 +520,14 @@ def build_model_providers(
                 model_id=model_id,
                 runner=runner_factory.make_qwen_runner(),
                 runner_factory=runner_factory,
+            )
+        elif provider_id == "ollama":
+            from breqy.agents.providers.ollama import OllamaProvider
+            from breqy.agents.providers.ollama_client import OllamaApiClient
+
+            providers[provider_id] = OllamaProvider(
+                model_id=model_id,
+                client=OllamaApiClient(),
             )
         else:
             message = f"unsupported provider: {provider_id!r}"

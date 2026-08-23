@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 

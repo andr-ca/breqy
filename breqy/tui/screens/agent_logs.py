@@ -17,11 +17,12 @@ import collections
 import os
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from textual import on
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Input, RichLog, Static
 
@@ -125,7 +126,7 @@ class AgentLogsScreen(Screen[None]):
         └─── q/Esc close  F filter  C clear ────────────────┘
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "pop_screen", "Close", show=True),
         Binding("q", "pop_screen", "Close", show=True),
         Binding("f", "focus_filter", "Filter", show=True),
@@ -217,7 +218,7 @@ class AgentLogsScreen(Screen[None]):
         """Clear the log display and re-render from the buffer."""
         try:
             display = self.query_one("#agent-logs-display", RichLog)
-        except Exception:
+        except NoMatches:
             return  # not mounted yet
 
         display.clear()

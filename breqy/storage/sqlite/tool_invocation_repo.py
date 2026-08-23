@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, ClassVar
 
 import aiosqlite
 
@@ -14,7 +14,7 @@ from breqy.storage.interfaces import ToolInvocationRepository
 
 
 class SqliteToolInvocationRepository(ToolInvocationRepository):
-    _FINAL_STATUSES = {
+    _FINAL_STATUSES: ClassVar[set[ToolStatus]] = {
         ToolStatus.COMPLETED,
         ToolStatus.FAILED,
         ToolStatus.DENIED,
@@ -78,7 +78,7 @@ class SqliteToolInvocationRepository(ToolInvocationRepository):
     ) -> None:
         completed_at = None
         if status in self._FINAL_STATUSES:
-            completed_at = datetime.now(timezone.utc).isoformat()
+            completed_at = datetime.now(UTC).isoformat()
         await self._conn.execute(
             """UPDATE tool_invocations
                 SET status = ?, result = ?, error = ?, approval_id = ?,

@@ -28,7 +28,7 @@ class AgentStatusBar(Widget):
         self._model_info: tuple[str, str] | None = None
         self._switching: bool = False
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         yield Static("", id="agent-status")
 
     @property

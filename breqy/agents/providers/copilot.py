@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
-import re
 from typing import Any
 
 import httpx
@@ -18,7 +18,7 @@ from breqy.agents.providers.base import (
     ToolCallDelta,
     ToolDefinition,
 )
-from breqy.agents.providers.copilot_auth import CopilotAuthError, CopilotAuthenticator
+from breqy.agents.providers.copilot_auth import CopilotAuthenticator, CopilotAuthError
 from breqy.agents.providers.copilot_client import CopilotApiClient, CopilotApiError
 
 logger = structlog.get_logger(__name__)
@@ -352,9 +352,7 @@ class CopilotProvider(ModelProvider):
             logger.debug("copilot_lazy_endpoint_discovery", model=self._model_id)
             self._discover_endpoints(token)
         endpoints = self._model_endpoints.get(self._model_id, [])
-        if "/responses" in endpoints:
-            return True
-        return False
+        return "/responses" in endpoints
 
     def _discover_endpoints(self, token: str) -> None:
         """Fetch model metadata and populate _model_endpoints cache.

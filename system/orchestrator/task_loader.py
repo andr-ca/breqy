@@ -1,6 +1,8 @@
 """TaskLoader — abstract base class for task loading strategies."""
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
+
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 
 
@@ -14,7 +16,7 @@ class TaskLoader(ABC):
 class CompositeTaskLoader(TaskLoader):
     """GitHub Issues primary; local YAML fallback. GitHub wins on same task_id."""
 
-    def __init__(self, github: "TaskLoader", local: "TaskLoader") -> None:
+    def __init__(self, github: TaskLoader, local: TaskLoader) -> None:
         self._github = github
         self._local = local
 

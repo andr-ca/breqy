@@ -5,13 +5,10 @@ Includes ``CommandRegistry`` (pure logic) and ``SlashCommandSuggester``
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Iterable
 
 from textual.suggester import Suggester
-
-if TYPE_CHECKING:
-    pass
 
 
 @dataclass

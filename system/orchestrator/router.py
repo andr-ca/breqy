@@ -1,19 +1,20 @@
 from __future__ import annotations
+
+from system.orchestrator.agent_adapters.base import AgentAdapter
+from system.orchestrator.agent_adapters.checker import CheckerAdapter
+from system.orchestrator.agent_adapters.doer import DoerAdapter
+from system.orchestrator.agent_adapters.lessons import LessonsAdapter
+from system.orchestrator.agent_adapters.planner import PlannerAdapter
+from system.orchestrator.agent_adapters.qa_automation import QaAutomationAdapter
+from system.orchestrator.agent_adapters.tester import TesterAdapter
 from system.orchestrator.auth.credential_store import CredentialStore
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.runners.base import AgentRunner
 from system.orchestrator.runners.claude_runner import ClaudeRunner
 from system.orchestrator.runners.codex_runner import CodexRunner
-from system.orchestrator.runners.gemini_runner import GeminiRunner
 from system.orchestrator.runners.copilot_runner import CopilotRunner
+from system.orchestrator.runners.gemini_runner import GeminiRunner
 from system.orchestrator.runners.qwen_runner import QwenRunner
-from system.orchestrator.agent_adapters.base import AgentAdapter
-from system.orchestrator.agent_adapters.planner import PlannerAdapter
-from system.orchestrator.agent_adapters.doer import DoerAdapter
-from system.orchestrator.agent_adapters.checker import CheckerAdapter
-from system.orchestrator.agent_adapters.tester import TesterAdapter
-from system.orchestrator.agent_adapters.qa_automation import QaAutomationAdapter
-from system.orchestrator.agent_adapters.lessons import LessonsAdapter
 
 _RUNNERS: dict[str, type[AgentRunner]] = {
     "claude": ClaudeRunner,

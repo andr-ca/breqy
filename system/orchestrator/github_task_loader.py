@@ -1,12 +1,15 @@
 """GitHubTaskLoader — loads tasks from GitHub Issues with orchestrator:managed label."""
 from __future__ import annotations
+
 import json
 import re
 import subprocess
+
 import yaml
 from pydantic import ValidationError
-from system.orchestrator.task_loader import TaskLoader
+
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
+from system.orchestrator.task_loader import TaskLoader
 
 _YAML_BLOCK_RE = re.compile(r"```yaml\s*\n(.*?)```", re.DOTALL)
 
@@ -25,6 +28,7 @@ class GitHubTaskLoader(TaskLoader):
              "--label", self._label,
              "--json", "number,title,body,labels"],
             capture_output=True, text=True,
+            check=False,
         )
         issues = json.loads(result.stdout or "[]")
         return [t for t in (self._parse_issue(i) for i in issues) if t is not None]

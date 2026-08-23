@@ -1,7 +1,9 @@
 """GitHubAdapter — issue label management and PR operations via gh CLI."""
 from __future__ import annotations
+
 import json
 import subprocess
+
 from pydantic import BaseModel
 
 
@@ -18,7 +20,7 @@ class GitHubAdapter:
         self._repo = repo
 
     def _run(self, *args: str) -> str:
-        result = subprocess.run(args, capture_output=True, text=True)
+        result = subprocess.run(args, capture_output=True, text=True, check=False)
         result.check_returncode()
         return result.stdout.strip()
 

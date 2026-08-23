@@ -1,8 +1,12 @@
 # system/orchestrator/tui/auth_app.py
 from __future__ import annotations
+
+from typing import ClassVar
+
 from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.widgets import Header, Footer
+from textual.binding import Binding, BindingType
+from textual.widgets import Footer, Header
+
 from system.orchestrator.auth.base import AuthProvider
 from system.orchestrator.tui.panels.auth_panel import AuthPanel
 
@@ -14,7 +18,7 @@ class AuthApp(App):
     AuthPanel { height: 100%; border: solid green; }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "panel_back", "Back", priority=True),
         ("q", "quit", "Quit"),
     ]

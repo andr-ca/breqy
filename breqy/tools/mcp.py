@@ -133,7 +133,7 @@ async def bootstrap_mcp_tools(
         client = client_factory(config)
         try:
             await client.start()
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             logger.warning(
                 "Failed to start MCP server",
                 server_id=config.id,
@@ -144,7 +144,7 @@ async def bootstrap_mcp_tools(
 
         try:
             tools = await client.discover_tools()
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             logger.warning(
                 "Failed to discover MCP tools",
                 server_id=config.id,

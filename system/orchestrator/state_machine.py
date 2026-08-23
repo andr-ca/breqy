@@ -1,7 +1,9 @@
 """TaskState enum, Task model, and StateMachine ABC."""
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from enum import Enum
+
 from pydantic import BaseModel
 
 

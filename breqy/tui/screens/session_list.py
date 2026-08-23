@@ -18,7 +18,6 @@ from textual.widgets import DataTable, Static
 from breqy.domain.enums import SessionStatus
 from breqy.domain.models import Session
 
-
 # --------------------------------------------------------------------------- #
 # Status helpers
 # --------------------------------------------------------------------------- #

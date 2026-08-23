@@ -4,7 +4,7 @@ Pure logic — no Textual dependency.
 """
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from breqy.domain.enums import EventType
 from breqy.domain.events import Event

@@ -47,7 +47,7 @@ class BrowserPageAction(BrowserActionBase):
     url: str | None = None
 
     @model_validator(mode="after")
-    def validate_page_context(self) -> "BrowserPageAction":
+    def validate_page_context(self) -> BrowserPageAction:
         if not self.url and not self.session_id:
             raise ValueError("browser page actions require session_id or url")
         _validate_allowed_url(self.url)
@@ -59,7 +59,7 @@ class NavigateAction(BrowserActionBase):
     url: str
 
     @model_validator(mode="after")
-    def validate_url(self) -> "NavigateAction":
+    def validate_url(self) -> NavigateAction:
         _validate_allowed_url(self.url)
         return self
 
@@ -102,7 +102,7 @@ class WaitAction(BrowserPageAction):
     timeout_seconds: int = Field(default=30, ge=1, le=300)
 
     @model_validator(mode="after")
-    def validate_wait_target(self) -> "WaitAction":
+    def validate_wait_target(self) -> WaitAction:
         if self.selector is None and self.wait_state not in {"load", "domcontentloaded", "networkidle"}:
             raise ValueError("selector is required for DOM wait states")
         if self.selector is not None and self.wait_state in {"load", "domcontentloaded", "networkidle"}:
@@ -126,7 +126,7 @@ class BackAction(BrowserActionBase):
     action: Literal["back"] = "back"
 
     @model_validator(mode="after")
-    def validate_requires_session(self) -> "BackAction":
+    def validate_requires_session(self) -> BackAction:
         if not self.session_id:
             raise ValueError("browser history actions require session_id")
         return self
@@ -136,7 +136,7 @@ class ForwardAction(BrowserActionBase):
     action: Literal["forward"] = "forward"
 
     @model_validator(mode="after")
-    def validate_requires_session(self) -> "ForwardAction":
+    def validate_requires_session(self) -> ForwardAction:
         if not self.session_id:
             raise ValueError("browser history actions require session_id")
         return self
@@ -147,7 +147,7 @@ class NewTabAction(BrowserActionBase):
     url: str | None = None
 
     @model_validator(mode="after")
-    def validate_url(self) -> "NewTabAction":
+    def validate_url(self) -> NewTabAction:
         _validate_allowed_url(self.url)
         return self
 
@@ -157,7 +157,7 @@ class SwitchTabAction(BrowserActionBase):
     tab_id: str
 
     @model_validator(mode="after")
-    def validate_requires_session(self) -> "SwitchTabAction":
+    def validate_requires_session(self) -> SwitchTabAction:
         if not self.session_id:
             raise ValueError("tab actions require session_id")
         return self
@@ -168,7 +168,7 @@ class CloseTabAction(BrowserActionBase):
     tab_id: str | None = None
 
     @model_validator(mode="after")
-    def validate_requires_session(self) -> "CloseTabAction":
+    def validate_requires_session(self) -> CloseTabAction:
         if not self.session_id:
             raise ValueError("tab actions require session_id")
         return self
@@ -184,7 +184,7 @@ class SetHeadersAction(BrowserPageAction):
     headers: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_headers(self) -> "SetHeadersAction":
+    def validate_headers(self) -> SetHeadersAction:
         if not self.headers:
             raise ValueError("set_headers requires at least one header")
         return self
@@ -466,12 +466,12 @@ class PlaywrightBrowserRuntime:
             for session in list(self._sessions.values()):
                 try:
                     await session.context.close()
-                except Exception as exc:
+                except (OSError, RuntimeError) as exc:
                     if first_error is None:
                         first_error = exc
                 try:
                     await session.browser.close()
-                except Exception as exc:
+                except (OSError, RuntimeError) as exc:
                     if first_error is None:
                         first_error = exc
         finally:
@@ -480,7 +480,7 @@ class PlaywrightBrowserRuntime:
                 playwright = self._playwright
                 try:
                     await playwright.stop()
-                except Exception as exc:
+                except (OSError, RuntimeError) as exc:
                     if first_error is None:
                         first_error = exc
                 finally:

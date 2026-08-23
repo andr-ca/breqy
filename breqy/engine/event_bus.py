@@ -5,7 +5,8 @@ Handlers are invoked inline (not as tasks) to keep ordering deterministic.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import structlog
 

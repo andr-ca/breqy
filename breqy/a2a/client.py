@@ -6,7 +6,7 @@ listens for incoming events via async iteration.
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import structlog
 
@@ -40,7 +40,7 @@ class A2AClient:
             self._writer.close()
             try:
                 await self._writer.wait_closed()
-            except Exception:
+            except (OSError, RuntimeError):
                 pass
         self._reader = None
         self._writer = None
@@ -70,6 +70,6 @@ class A2AClient:
                 yield envelope
             except asyncio.IncompleteReadError:
                 break
-            except Exception as exc:
+            except (OSError, RuntimeError, ValueError) as exc:
                 logger.error("Error reading from server", error=str(exc))
                 break

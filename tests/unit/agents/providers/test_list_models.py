@@ -262,17 +262,17 @@ class TestCopilotListModelsFallback:
 
 
 class TestProviderFallbackModels:
-    """PROVIDER_FALLBACK_MODELS has entries for all 5 providers."""
+    """PROVIDER_FALLBACK_MODELS has entries for all supported providers."""
 
     def test_dict_exists(self):
         from breqy.agents.providers.adapters import PROVIDER_FALLBACK_MODELS
 
         assert isinstance(PROVIDER_FALLBACK_MODELS, dict)
 
-    def test_has_all_five_providers(self):
+    def test_has_all_supported_providers(self):
         from breqy.agents.providers.adapters import PROVIDER_FALLBACK_MODELS
 
-        expected_providers = {"copilot", "claude", "codex", "gemini", "qwen"}
+        expected_providers = {"copilot", "claude", "codex", "gemini", "qwen", "ollama"}
         assert set(PROVIDER_FALLBACK_MODELS.keys()) == expected_providers
 
     def test_each_entry_is_list_of_tuples(self):

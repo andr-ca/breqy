@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -21,7 +21,7 @@ class ApprovalRequestSpec(BaseModel):
 class ToolExecutor(ABC):
     name: str = ""
     description: str = ""
-    input_schema: dict[str, object] = {}
+    input_schema: ClassVar[dict[str, object]] = {}
 
     @abstractmethod
     async def execute(self, arguments: dict[str, Any]) -> ToolResult:

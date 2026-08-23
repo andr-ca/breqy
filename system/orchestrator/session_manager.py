@@ -1,5 +1,6 @@
 """SessionManager — Claude session continuity and rate limit detection."""
 from __future__ import annotations
+
 import json
 import subprocess
 
@@ -37,6 +38,7 @@ class SessionManager:
             result = subprocess.run(
                 ["ccusage", "blocks", "--json"],
                 capture_output=True, text=True, timeout=10,
+                check=False,
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)

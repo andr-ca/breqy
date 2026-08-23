@@ -5,7 +5,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 _PREFIXES = {
     "feature": "feat",
     "feat": "feat",
@@ -29,7 +28,7 @@ class BranchManager:
         self._root = repo_root
 
     def _run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-        result = subprocess.run(args, cwd=self._root, capture_output=True, text=True)
+        result = subprocess.run(args, cwd=self._root, capture_output=True, text=True, check=False)
         if check and result.returncode != 0:
             raise BranchError(f"git {args} failed: {result.stderr.strip()}")
         return result

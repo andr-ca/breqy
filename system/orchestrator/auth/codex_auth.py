@@ -1,7 +1,10 @@
 # system/orchestrator/auth/codex_auth.py
 from __future__ import annotations
+
 import datetime
+
 import httpx
+
 from system.orchestrator.auth.base import DeviceCodeResponse, DeviceFlowProvider
 from system.orchestrator.auth.credential_store import CredentialStore
 
@@ -65,7 +68,7 @@ class CodexAuth(DeviceFlowProvider):
         if "expires_at" in data:
             try:
                 expires_at = datetime.datetime.fromisoformat(data["expires_at"])
-                now = datetime.datetime.now(datetime.timezone.utc)
+                now = datetime.datetime.now(datetime.UTC)
                 return max(0, int((expires_at - now).total_seconds()))
             except (ValueError, TypeError):
                 pass

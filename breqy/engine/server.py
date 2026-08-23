@@ -10,25 +10,25 @@ from breqy.a2a.envelope import Envelope
 from breqy.a2a.server import A2AServer
 from breqy.domain.enums import ApprovalStatus, EventType, MessageRole
 from breqy.domain.events import (
-    ApprovalDecidedEvent,
     AgentLifecycleEvent,
     AgentWorkRequestedEvent,
+    ApprovalDecidedEvent,
     ControlEvent,
     MessageSentEvent,
     ModelListRequestedEvent,
     ModelSwitchRequestedEvent,
     PrivateMemoryOperationRequestedEvent,
-    SessionCreateRequestedEvent,
     SessionCreatedEvent,
+    SessionCreateRequestedEvent,
     ToolExecutionRequestedEvent,
     ToolExecutionResultEvent,
 )
 from breqy.domain.models import (
+    Message,
     SessionContextBundle,
     StructuredErrorPayload,
     StructuredResultPayload,
 )
-from breqy.domain.models import Message
 from breqy.engine.agent_registry import AgentRegistry
 from breqy.engine.agent_spawner import AgentSpawner
 from breqy.engine.control_handler import ControlHandler
@@ -50,7 +50,6 @@ from breqy.storage.interfaces import (
     TaskRepository,
     ToolInvocationRepository,
 )
-from breqy.tools.executor import ToolResult
 from breqy.tools import (
     BrowserTool,
     FilesystemTool,
@@ -61,6 +60,7 @@ from breqy.tools import (
     ToolRegistry,
     ToolService,
 )
+from breqy.tools.executor import ToolResult
 
 logger = structlog.get_logger(__name__)
 
@@ -169,11 +169,10 @@ class EngineServer:
                     event.agent_id,
                 )
 
-        if isinstance(event, ControlEvent):
-            if self.control_handler is not None:
-                await self.control_handler.handle_control(event)
-                return
-            # Fall through to generic publish+broadcast if no control handler
+        if isinstance(event, ControlEvent) and self.control_handler is not None:
+            await self.control_handler.handle_control(event)
+            return
+        # Fall through to generic publish+broadcast if no control handler
 
         if isinstance(event, SessionCreateRequestedEvent):
             await self._handle_session_create_request(event)
@@ -238,7 +237,7 @@ class EngineServer:
                 session_id=session.id,
                 pid=pid,
             )
-        except Exception as exc:
+        except (OSError, RuntimeError) as exc:
             logger.error(
                 "Failed to spawn agent for session",
                 agent_dir=agent_dir,

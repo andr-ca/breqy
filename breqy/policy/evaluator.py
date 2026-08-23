@@ -62,11 +62,7 @@ class PolicyEvaluator:
         for rule in self._rules:
             if not self._resource_matches(rule.resource, resource):
                 continue
-            if rule.scope == PolicyScope.GLOBAL:
-                matched.append(rule)
-            elif rule.scope == PolicyScope.AGENT and rule.scope_id == agent_id:
-                matched.append(rule)
-            elif rule.scope == PolicyScope.SESSION and rule.scope_id == session_id:
+            if rule.scope == PolicyScope.GLOBAL or rule.scope == PolicyScope.AGENT and rule.scope_id == agent_id or rule.scope == PolicyScope.SESSION and rule.scope_id == session_id:
                 matched.append(rule)
         return matched
 
@@ -75,6 +71,4 @@ class PolicyEvaluator:
         """Exact match or colon-prefix match (e.g. 'tool:' matches 'tool:shell')."""
         if rule_resource == target_resource:
             return True
-        if rule_resource.endswith(":") and target_resource.startswith(rule_resource):
-            return True
-        return False
+        return rule_resource.endswith(":") and target_resource.startswith(rule_resource)

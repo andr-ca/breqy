@@ -44,7 +44,7 @@ class ToolPanel(Widget):
         self._entries: dict[str, _ToolEntry] = {}
         self._order: list[str] = []
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         yield SelectableRichLog(id="tool-log", wrap=True, markup=True)
 
     @property

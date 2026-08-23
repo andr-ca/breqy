@@ -1,5 +1,6 @@
 # system/orchestrator/auth/qwen_auth.py
 from __future__ import annotations
+
 from system.orchestrator.auth.base import ApiKeyProvider
 from system.orchestrator.auth.credential_store import CredentialStore
 

@@ -13,10 +13,12 @@ from __future__ import annotations
 import collections
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import ClassVar
 
 from textual import on
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Input, RichLog, Static
 
@@ -60,7 +62,7 @@ class LogsScreen(Screen[None]):
         └─────────────────────────────────────────────┘
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "pop_screen", "Back", show=True),
         Binding("c", "clear_filter", "Clear filter", show=True),
         Binding("tab", "toggle_view", "Toggle Events/Logs", show=True),
@@ -166,7 +168,7 @@ class LogsScreen(Screen[None]):
         try:
             header = self.query_one("#logs-header", Static)
             header.update("Python Logs" if self._view_mode == "logs" else "Event Logs")
-        except Exception:
+        except NoMatches:
             pass  # Header may not be mounted yet
 
     # ------------------------------------------------------------------ #
@@ -232,7 +234,7 @@ class LogsScreen(Screen[None]):
         """Clear and re-render visible entries based on current view mode."""
         try:
             log = self.query_one("#logs-display", RichLog)
-        except Exception:
+        except NoMatches:
             return  # Not mounted yet
 
         log.clear()

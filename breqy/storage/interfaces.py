@@ -19,8 +19,8 @@ from breqy.domain.enums import (
 )
 from breqy.domain.events import Event
 from breqy.domain.models import (
-    ApprovalGrant,
     ApprovalDecision,
+    ApprovalGrant,
     ApprovalRequest,
     MemoryPromotion,
     MemoryRecord,

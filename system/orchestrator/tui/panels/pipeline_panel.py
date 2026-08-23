@@ -1,7 +1,10 @@
 # system/orchestrator/tui/panels/pipeline_panel.py
 from __future__ import annotations
+
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Static
+
 from system.orchestrator.schemas.events import OrchestratorEvent
 from system.orchestrator.state_machine import TaskState
 
@@ -35,7 +38,7 @@ class PipelinePanel(Widget):
                 try:
                     widget = self.query_one(f"#state-{state.value}", Static)
                     widget.update(f"{label} {state.value}")
-                except Exception:
+                except NoMatches:
                     pass
         elif event.event_type == "task_cancelled":
             if event.task_id == self._current_task_id:
@@ -46,5 +49,5 @@ class PipelinePanel(Widget):
                     try:
                         widget = self.query_one(f"#state-{state.value}", Static)
                         widget.update(f"○ {state.value}")
-                    except Exception:
+                    except NoMatches:
                         pass

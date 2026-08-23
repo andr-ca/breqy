@@ -1,7 +1,7 @@
 """OrchestratorEvent — the canonical event schema for task orchestration."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 from ulid import ULID
@@ -14,7 +14,7 @@ def _ulid() -> str:
 
 def _now_iso() -> str:
     """Get current UTC time in ISO8601 format."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class OrchestratorEvent(BaseModel):

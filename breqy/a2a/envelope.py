@@ -9,12 +9,11 @@ Wire encoding: 4-byte big-endian uint32 length prefix + UTF-8 JSON bytes.
 from __future__ import annotations
 
 import struct
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
-
 import structlog
+from pydantic import BaseModel, Field
 
 from breqy.domain.enums import EventType
 from breqy.domain.events import Event, deserialize_event
@@ -33,12 +32,12 @@ class Envelope(BaseModel):
     agent_id: str = ""
     correlation_id: str = ""
     timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
     payload: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def from_event(cls, event: Event) -> "Envelope":
+    def from_event(cls, event: Event) -> Envelope:
         """Create an envelope from a typed Event."""
         data = event.model_dump()
         envelope_keys = {

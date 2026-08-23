@@ -1,5 +1,6 @@
 # system/orchestrator/auth/credential_store.py
 from __future__ import annotations
+
 import keyring
 import keyring.errors
 

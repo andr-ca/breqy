@@ -1,6 +1,8 @@
 # system/orchestrator/auth/copilot_auth.py
 from __future__ import annotations
+
 import httpx
+
 from system.orchestrator.auth.base import DeviceCodeResponse, DeviceFlowProvider
 from system.orchestrator.auth.credential_store import CredentialStore
 

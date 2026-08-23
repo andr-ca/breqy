@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import structlog
 
@@ -17,7 +17,7 @@ logger = structlog.get_logger(__name__)
 class MemorySearchTool(ToolExecutor):
     name = "mcp.memory.n--search"
     description = "Search engine or private memory through the mediated memory interface"
-    input_schema = {
+    input_schema: ClassVar[dict[str, object]] = {
         "type": "object",
         "properties": {
             "scope": {"type": "string", "enum": ["session", "global", "private"]},
@@ -123,7 +123,7 @@ class MemorySearchTool(ToolExecutor):
 class MemoryWriteTool(ToolExecutor):
     name = "mcp.memory.n--write"
     description = "Write session or private memory through the mediated memory interface"
-    input_schema = {
+    input_schema: ClassVar[dict[str, object]] = {
         "type": "object",
         "properties": {
             "scope": {"type": "string", "enum": ["session", "global", "private"]},
@@ -200,7 +200,7 @@ class MemoryWriteTool(ToolExecutor):
 
         try:
             kind = _parse_kind(arguments.get("kind"))
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             return ToolResult(success=False, error=str(exc))
 
         session_record = await self._memory_service.write_record(
@@ -230,7 +230,7 @@ class MemoryWriteTool(ToolExecutor):
 class MemoryPromoteTool(ToolExecutor):
     name = "mcp.memory.n--promote"
     description = "Promote session memory into global memory through the mediated memory interface"
-    input_schema = {
+    input_schema: ClassVar[dict[str, object]] = {
         "type": "object",
         "properties": {
             "record_id": {"type": "string"},
@@ -293,7 +293,7 @@ def _parse_kind(value: Any) -> MemoryRecordKind:
     if value is None:
         return MemoryRecordKind.NOTE
     if not isinstance(value, str):
-        raise ValueError(f"Invalid kind value: {value}")
+        raise TypeError(f"Invalid kind value: {value}")
     normalized = value.strip().lower()
     if not normalized:
         raise ValueError("Invalid kind value: ")

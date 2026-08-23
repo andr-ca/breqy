@@ -46,7 +46,7 @@ class MessageInput(Widget):
         super().__init__(**kwargs)
         self.command_registry = command_registry or CommandRegistry()
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         suggester = SlashCommandSuggester.from_registry(self.command_registry)
         yield Input(
             placeholder="Type a message or /command...",
@@ -58,7 +58,7 @@ class MessageInput(Widget):
         """Intercept Tab to accept an active slash-command suggestion."""
         if event.key == "tab":
             inp = self.query_one("#message-input", Input)
-            suggestion: str | None = inp._suggestion  # noqa: SLF001 — private but stable
+            suggestion: str | None = inp._suggestion
             if suggestion and inp.cursor_at_end:
                 inp.value = suggestion
                 inp.cursor_position = len(suggestion)

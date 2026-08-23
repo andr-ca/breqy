@@ -1,6 +1,8 @@
 """Engine-owned task lifecycle management."""
 from __future__ import annotations
 
+from typing import ClassVar
+
 import structlog
 
 from breqy.domain.enums import EventType, TaskStatus
@@ -20,7 +22,7 @@ class TaskManager:
     and emits ``TaskUpdatedEvent`` on every state change via ``EventBus``.
     """
 
-    VALID_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
+    VALID_TRANSITIONS: ClassVar[dict[TaskStatus, set[TaskStatus]]] = {
         TaskStatus.PENDING: {TaskStatus.RUNNING, TaskStatus.CANCELLED},
         TaskStatus.RUNNING: {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED},
     }

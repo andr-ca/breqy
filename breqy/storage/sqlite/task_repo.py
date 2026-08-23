@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -53,7 +53,7 @@ class SqliteTaskRepository(TaskRepository):
         return [self._row_to_task(row) for row in rows]
 
     async def update_status(self, task_id: str, status: TaskStatus) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._conn.execute(
             "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
             (status.value, now, task_id),

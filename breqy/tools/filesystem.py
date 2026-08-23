@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 
@@ -28,7 +28,7 @@ def derive_operations(arguments: dict[str, Any]) -> list[FilesystemOperation]:
 class FilesystemTool(ToolExecutor):
     name = "filesystem"
     description = "Read, write, edit, and delete files"
-    input_schema: dict[str, object] = {
+    input_schema: ClassVar[dict[str, object]] = {
         "type": "object",
         "properties": {
             "operation": {

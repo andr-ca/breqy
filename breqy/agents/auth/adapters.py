@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import cast
+
 from pydantic import SecretStr
 
 from breqy.agents.auth.models import AuthBackend, AuthResult
@@ -112,7 +113,7 @@ class _DeviceFlowAuthAdapter(_BaseProviderAuthAdapter):
         if self._pending_device_code is not None:
             try:
                 token = self._auth_provider.poll_for_token(self._pending_device_code)
-            except Exception as error:
+            except (OSError, RuntimeError, ValueError) as error:
                 return self._failed_status(AuthFlowKind.DEVICE, error)
             if token is not None:
                 self._pending_device_code = None
@@ -201,7 +202,7 @@ class _PkceCodeAuthAdapter(_BaseProviderAuthAdapter):
             token = self._auth_provider.get_token()
             if token is None:
                 raise RuntimeError("provider did not return an access token")
-        except Exception as error:
+        except (OSError, RuntimeError, ValueError) as error:
             return AuthResult(status=self._failed_status(AuthFlowKind.PKCE_CODE, error))
         credential = ProviderCredential(
             provider=self._provider,
