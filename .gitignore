@@ -37,6 +37,12 @@ ai-artifacts/
 .breqy/orchestrator/
 system/orchestrator/tasks/*.yaml
 
+# Local-only agent tool state (not part of the tracked agentharness install)
+.claude/settings.local.json
+.omx/
+.opencode/
+.superpowers/
+
 # --- Added by agentharness harness-link.sh ---
 !.env.sample
 $RECYCLE.BIN/

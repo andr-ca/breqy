@@ -1,0 +1,222 @@
+---
+name: multi-agent-coordination
+description: "Use when two or more agent sessions may work on the same repository concurrently — covers the per-feature lock-file protocol, stale-lock detection, worktree isolation rules, and what to do when a feature is already locked."
+metadata:
+  type: skills
+  complexity: low
+  scope: [all]
+---
+
+# Multi-Agent Coordination
+
+Use this skill when you start work on a feature and another agent session
+might be working on the same repository, or when you detect that a lock
+exists for the feature you want to work on.
+
+**`tools/agent-lock.sh` is agentharness's own dogfooding tool — it is
+not currently installed into consumer projects by `harness-link.sh`.**
+If this skill file is symlinked/copied into a consumer repo (the
+normal case for every install mode) and `tools/agent-lock.sh` doesn't
+exist there, every command below will fail with "No such file or
+directory". Check `[ -x tools/agent-lock.sh ]` before
+relying on this skill's commands; if it's missing, this protocol
+doesn't apply to this repo yet — fall back to plain git branch
+discipline (check `git branch -a` / `git log` for other in-progress
+work before starting) rather than assuming the lock file exists.
+
+Deeper reference: `patterns/multi-agent-coordination/COORDINATION.md`
+(full protocol, lock format, stale detection, worktree rules).
+
+---
+
+## Before starting work: check for a lock
+
+```bash
+tools/agent-lock.sh check "add-user-auth"
+```
+
+- **FREE** — no lock exists. Proceed normally.
+- **LOCKED** — another agent is working on this feature.
+
+---
+
+## Acquiring a lock
+
+```bash
+AGENT_LOCK_PID=<stable-session-pid> tools/agent-lock.sh acquire "add-user-auth" "feat/user-auth"
+# ACQUIRED: locked 'add-user-auth' (agent_id=3f2a1c8d-..., owner_pid=12345)
+# 3f2a1c8d-...
+export AGENTHARNESS_AGENT_ID=3f2a1c8d-...   # the id from the last line
+```
+
+**Check `owner_pid` in that output.** It is the process whose liveness and
+ancestry the lock is anchored to. If it isn't the session process you
+meant, `acquire` still succeeds — and the mistake surfaces much later, as
+a push blocked by your *own* lock. `acquire` prints a `NOTE` when the
+recorded pid isn't an ancestor of the acquiring process, which is the
+usual signature of a wrong `AGENT_LOCK_PID`.
+
+The agent id is a UUID printed on the last line. Keep it — you need it to
+release or renew.
+
+> **Do not capture it with command substitution.** The obvious
+> `AGENT_ID="$(tools/agent-lock.sh acquire …)"` records the *substitution
+> subshell* as the lock's owner process. That subshell exits the instant
+> the assignment completes, so the lock is left owned by a dead pid —
+> observed defeating lock persistence even from a genuinely long-lived
+> interactive shell. Read the id from the printed output instead, and
+> pass `AGENT_LOCK_PID` explicitly.
+
+**`AGENT_LOCK_PID` is how you name your session's stable process.** It
+defaults to `$PPID`, which is right only when the caller's parent really
+does live as long as the session. Set it to a pid that outlives the whole
+branch's work — your interactive shell, or the agent client process
+itself. Clients that run each tool call in a fresh process have no such
+parent by default and should always pass it explicitly.
+
+With a worktree:
+
+```bash
+git worktree add -b feat/user-auth .worktrees/user-auth main
+AGENT_LOCK_PID=<stable-session-pid> tools/agent-lock.sh \
+    acquire "add-user-auth" "feat/user-auth" ".worktrees/user-auth"
+```
+
+---
+
+## How a lock stays alive (the lease)
+
+A lock has **two independent liveness grants** and is only considered
+stale when both are gone:
+
+| Grant | Covers |
+|---|---|
+| **Live owner pid** | A long-lived shell; keeps working past the lease TTL. |
+| **Valid lease** (`lease_expires_at`) | A session whose acquiring process has legitimately exited — stateless per-tool-call clients, and anything run under command substitution. |
+
+This is why a stateless client no longer loses its lock between tool
+calls: the lease still covers the session even though the acquiring
+process is gone. A genuinely crashed owner is still recoverable — its pid
+is dead and its lease runs out — just not instantly.
+
+Default TTL is 4 hours (`AGENT_LOCK_LEASE_SECONDS` overrides it). If your
+session outlives the lease, extend it:
+
+```bash
+tools/agent-lock.sh renew "add-user-auth"    # uses $AGENTHARNESS_AGENT_ID
+```
+
+**Locks are repo-wide; the session marker is not.** Feature locks
+resolve to one store shared by the primary checkout and every linked
+worktree, so a lock taken in one is visible from all of them — worktree
+isolation must not hide the coordination state it exists to protect. The
+session marker is deliberately per-checkout: it proves *this* checkout's
+own session, and sharing it would let a foreign worktree's session pass
+the ownership check.
+
+**Ownership is provable three ways**, in this order: a matching
+`AGENTHARNESS_AGENT_ID`, an ancestor-pid match, or the per-checkout
+session marker (`.agentharness-locks/.session-ids`) that `acquire`
+writes. The third exists because hook processes — Claude Code's
+`PreToolUse` guard and git's own `pre-push` — run in their own process
+tree and **do not inherit an `AGENTHARNESS_AGENT_ID` you exported inline
+in an agent tool call**, so env-var proof is unavailable exactly where
+the push gate needs it.
+
+---
+
+## When a lock exists — what to do
+
+```
+LOCKED: 'add-user-auth' is being worked on.
+  agent_id : 3f2a1c8d-...
+  branch   : feat/user-auth
+  worktree : .worktrees/user-auth
+  since    : 2026-07-14T10:00:00Z
+```
+
+**Option A — Wait:** If the agent will finish soon, wait and retry.
+
+**Option B — New branch + worktree:**
+
+```bash
+# Get a suggested branch name
+NEW_BRANCH=$(tools/agent-lock.sh suggest-branch "add-user-auth")
+
+# Create an isolated worktree
+git worktree add -b "$NEW_BRANCH" ".worktrees/$(echo $NEW_BRANCH | tr '/' '-')" main
+
+# Acquire a lock for your sub-task (read the id from the output — see
+# the command-substitution warning above)
+AGENT_LOCK_PID=<stable-session-pid> tools/agent-lock.sh acquire "add-user-auth-review" "$NEW_BRANCH"
+```
+
+---
+
+## Releasing a lock
+
+Always release when done — don't leave locks for the next agent to clean up:
+
+```bash
+tools/agent-lock.sh release "add-user-auth" "$AGENT_ID"
+```
+
+---
+
+## Stale lock cleanup
+
+Locks are auto-cleaned on `acquire` and `check`. To manually clean all:
+
+```bash
+tools/agent-lock.sh clean
+```
+
+A lock is stale only when **both** liveness grants are gone: its `pid` is
+dead (or alive but reused by a different process, detected via a recorded
+process-start time) **and** its `lease_expires_at` has passed. A dead pid
+alone no longer expires a lock — see "How a lock stays alive" above and
+COORDINATION.md's "Stale lock detection".
+
+---
+
+## Worktree isolation rules
+
+- **One branch per worktree.** Never check out the same branch in two worktrees at once.
+- **Keep them in `.worktrees/<branch-name>/`** — gitignored.
+- **Remove with git:** `git worktree remove <dir>` (not `rm -rf`).
+
+---
+
+## Lock files should be gitignored
+
+`.agentharness-locks/` should be in `.gitignore` — lock files are
+operational state, not committed history. The harness adds this entry
+automatically when you run `agentharness init`.
+
+---
+
+## Enforcement — locks are checked at push time
+
+**This section describes agentharness's own repo, where `tools/agent-lock.sh`
+genuinely exists.** In a consumer project, per the caveat near the top of this
+file, none of the below is real unless you've installed the tool yourself —
+check `[ -x tools/agent-lock.sh ]` before trusting any of it.
+
+Where the tool is present, this protocol is no longer purely advisory:
+
+- Acquire a lock **before your first commit on any branch** (CLAUDE.md
+  mandate) and `export AGENTHARNESS_AGENT_ID=<the printed id>`.
+- The `pre-push` hook runs `tools/agent-lock.sh check-branch <branch>`
+  for every branch you push: a live lock held by a *different* session
+  blocks the push. Your own locks pass (agent-id, ancestor-pid, or
+  session-marker match). Note that an `AGENTHARNESS_AGENT_ID` exported
+  inline in a single agent tool call is **not** visible to a
+  `PreToolUse` hook, which runs in its own process — that path relies on
+  the ancestor-pid or session-marker proof, which is why acquiring with
+  a correct `AGENT_LOCK_PID` matters for pushing, not just for locking.
+- A repo-wide GitHub ruleset rejects force pushes on all branches — if
+  your push is rejected as non-fast-forward, fetch and rebase; never
+  force.
+
+Full details: `patterns/multi-agent-coordination/COORDINATION.md`
+("Enforcement").

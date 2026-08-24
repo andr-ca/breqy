@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "guard_root_level_new_items": true,
+  "guarded_dirs": [
+    "docs/",
+    "scripts/",
+    "temp/",
+    "tests/"
+  ],
+  "guarded_root_files": [
+    ".env.sample",
+    ".gitignore",
+    "README.md",
+    "pyproject.toml"
+  ],
+  "message": "New files in guarded paths require explicit user permission. Add the path to .agentharness-allowed-additions.txt or ask the user before creating files in these locations.",
+  "generated_from": "."
+}
