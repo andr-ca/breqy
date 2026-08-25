@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "mode": "copy",
+  "source": {
+    "path": null,
+    "revision": "9cb9292eaf2612b62806b624a2f6fbb387797e42",
+    "remote": "https://github.com/andr-ca/agentharness.git"
+  },
+  "skills": [
+    "accessibility",
+    "agentic-loops",
+    "api-design",
+    "audit-review-followup",
+    "branching",
+    "clean-architecture",
+    "code-review-api",
+    "code-review-db",
+    "code-review-ui",
+    "code-review",
+    "committing",
+    "database-conventions",
+    "dependency-audit",
+    "dependency-injection",
+    "design-patterns",
+    "docker-conventions",
+    "error-handling",
+    "file-placement-policy",
+    "github-issue-triage",
+    "go-conventions",
+    "harness-feedback",
+    "logging",
+    "multi-agent-coordination",
+    "mutation-testing",
+    "performance-profiling",
+    "planning-with-files",
+    "port-agent-config",
+    "project-bootstrap",
+    "python-conventions",
+    "react-best-practices",
+    "requirements-clarification",
+    "security-review",
+    "solid-principles",
+    "testing",
+    "typescript-conventions"
+  ],
+  "skills_filter": null,
+  "with_hook": false,
+  "hooks_path": null,
+  "previous_hooks_path": null,
+  "previous_merge_ff": null,
+  "coverage_hook": false,
+  "profile": null,
+  "installed_at": "2026-08-20T00:54:32.482190+00:00",
+  "updated_at": "2026-08-20T00:54:32.482190+00:00",
+  "managed_blocks": [
+    {
+      "file": "CLAUDE.md",
+      "block_id": "core-instructions",
+      "rendered_version": "9cb9292eaf2612b62806b624a2f6fbb387797e42",
+      "rendered_sha256": "706a3f9eb26c7e3c426a5c20204c177e6badc1d19ae1228589830b19ae3c0fb3",
+      "created_by_harness": false
+    },
+    {
+      "file": "AGENTS.md",
+      "block_id": "core-instructions",
+      "rendered_version": "9cb9292eaf2612b62806b624a2f6fbb387797e42",
+      "rendered_sha256": "706a3f9eb26c7e3c426a5c20204c177e6badc1d19ae1228589830b19ae3c0fb3",
+      "created_by_harness": false
+    },
+    {
+      "file": "GEMINI.md",
+      "block_id": "core-instructions",
+      "rendered_version": "9cb9292eaf2612b62806b624a2f6fbb387797e42",
+      "rendered_sha256": "706a3f9eb26c7e3c426a5c20204c177e6badc1d19ae1228589830b19ae3c0fb3",
+      "created_by_harness": false
+    },
+    {
+      "file": ".github/copilot-instructions.md",
+      "block_id": "core-instructions",
+      "rendered_version": "9cb9292eaf2612b62806b624a2f6fbb387797e42",
+      "rendered_sha256": "706a3f9eb26c7e3c426a5c20204c177e6badc1d19ae1228589830b19ae3c0fb3",
+      "created_by_harness": true
+    }
+  ],
+  "collision_decisions": [],
+  "overwritten_files": []
+}
