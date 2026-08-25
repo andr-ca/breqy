@@ -24,6 +24,7 @@ from breqy.agents.providers.base import (
 )
 from breqy.agents.providers.copilot_auth import CopilotAuthError
 from breqy.agents.providers.copilot_client import CopilotApiError
+from breqy.agents.providers.ollama_client import OllamaApiError
 from breqy.agents.skills import SkillActivationError, SkillLoader
 from breqy.config.loader import load_agent_config
 from breqy.config.models import AgentConfig
@@ -541,6 +542,7 @@ class AgentRuntime:
             except (
                 CopilotApiError,
                 CopilotAuthError,
+                OllamaApiError,
                 httpx.HTTPError,
                 OSError,
                 RuntimeError,

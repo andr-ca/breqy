@@ -32,6 +32,7 @@ class OllamaProvider(ModelProvider):
     ) -> None:
         self._model_id = model_id
         self._client = client
+        self._fallback_call_counter = 0
 
     @property
     def provider_id(self) -> str:
@@ -103,7 +104,7 @@ class OllamaProvider(ModelProvider):
 
                 tool_calls = message.get("tool_calls")
                 if isinstance(tool_calls, list):
-                    for index, tool_call in enumerate(tool_calls):
+                    for tool_call in tool_calls:
                         if not isinstance(tool_call, dict):
                             continue
                         function = tool_call.get("function")
@@ -121,7 +122,8 @@ class OllamaProvider(ModelProvider):
                             arguments_chunk = "{}"
                         call_id = tool_call.get("id")
                         if not isinstance(call_id, str) or not call_id:
-                            call_id = f"ollama-tool-{index}"
+                            self._fallback_call_counter += 1
+                            call_id = f"ollama-tool-{self._fallback_call_counter}"
                         yield ProviderEvent(
                             kind="tool_call",
                             tool_call=ToolCallDelta(

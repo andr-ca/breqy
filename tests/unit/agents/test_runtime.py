@@ -1076,6 +1076,22 @@ class TestStreamErrorHandling:
         assert EventType.MESSAGE_SENT in sent_types
 
     @pytest.mark.asyncio
+    async def test_ollama_provider_error_sends_error_message_to_tui(self) -> None:
+        """OllamaApiError from stream() should be caught like other provider errors,
+        not propagate out of the handle_work() asyncio task."""
+        from breqy.agents.providers.ollama_client import OllamaApiError
+
+        provider = ErroringProvider(error=OllamaApiError(500, "model not loaded"))
+        runtime, client = _build_runtime(provider=provider)
+        await runtime.handle_work(_work_event())
+
+        sent_types = [cast(Any, e).event_type for e in client.sent_events]
+        assert EventType.MESSAGE_SENT in sent_types
+        final = cast(MessageSentEvent, client.sent_events[-1])
+        assert final.role == MessageRole.SYSTEM
+        assert "error" in final.content.lower() or "500" in final.content
+
+    @pytest.mark.asyncio
     async def test_provider_generic_exception_sends_error_message(self) -> None:
         """Non-API exceptions (e.g. ConnectionError) should also produce error messages."""
         provider = ErroringProvider(error=ConnectionError("connection refused"))

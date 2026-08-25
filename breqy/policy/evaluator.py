@@ -62,7 +62,11 @@ class PolicyEvaluator:
         for rule in self._rules:
             if not self._resource_matches(rule.resource, resource):
                 continue
-            if rule.scope == PolicyScope.GLOBAL or rule.scope == PolicyScope.AGENT and rule.scope_id == agent_id or rule.scope == PolicyScope.SESSION and rule.scope_id == session_id:
+            if rule.scope == PolicyScope.GLOBAL:
+                matched.append(rule)
+            elif rule.scope == PolicyScope.AGENT and rule.scope_id == agent_id:
+                matched.append(rule)
+            elif rule.scope == PolicyScope.SESSION and rule.scope_id == session_id:
                 matched.append(rule)
         return matched
 
