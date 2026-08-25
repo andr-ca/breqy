@@ -48,7 +48,7 @@ while IFS= read -r line; do
                 WT_PATHS+=("$_current_path")
                 WT_BRANCHES+=("$_current_branch")
                 if [[ "$_current_path" == "$REPO_ROOT" ]]; then
-                    MENU_ITEMS+=("main  [main]")
+                    MENU_ITEMS+=("$_current_branch  [root]")
                 else
                     rel="${_current_path#"$REPO_ROOT"/}"
                     MENU_ITEMS+=("$_current_branch  [$rel]")
@@ -120,12 +120,13 @@ if [[ "$_dbg" == "y" || "$_dbg" == "yes" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Build environment prefix and commands
+# Build commands
 # ---------------------------------------------------------------------------
+# Worktree selection is enforced via each pane's cwd (set to $SELECTED_PATH
+# below), not PYTHONPATH — Python puts cwd ('') ahead of PYTHONPATH entries
+# on sys.path for `python -m`, so a PYTHONPATH override alone would have no
+# effect once panes are launched from a fixed directory.
 declare -a _env=()
-if [[ "$SELECTED_PATH" != "$REPO_ROOT" ]]; then
-    _env+=("PYTHONPATH=$SELECTED_PATH${PYTHONPATH:+:$PYTHONPATH}")
-fi
 if [[ "$DEBUG" == true ]]; then
     _env+=("BREQY_LOG_LEVEL=DEBUG")
 fi
@@ -143,13 +144,8 @@ TUI_CMD="${_env_str}${PYTHON} -m breqy.cli tui"
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
-if [[ "$SELECTED_PATH" == "$REPO_ROOT" ]]; then
-    echo "  Worktree : main (no PYTHONPATH override)"
-else
-    echo "  Worktree : $SELECTED_PATH"
-    echo "  Branch   : $SELECTED_BRANCH"
-    echo "  PYTHONPATH set"
-fi
+echo "  Worktree : $SELECTED_PATH"
+echo "  Branch   : $SELECTED_BRANCH"
 [[ "$DEBUG" == true ]] && echo "  Log level: DEBUG"
 echo ""
 
@@ -168,7 +164,7 @@ _setup_panes() {
     # -l "70%" is the tmux 3.1+ syntax (-p was removed in 3.4)
     # -P -F '#{pane_id}' captures the new pane's ID directly — immune to pane-base-index
     local tui_pane
-    tui_pane=$(tmux split-window -t "$target" -v -l "70%" -c "$REPO_ROOT" -P -F '#{pane_id}') \
+    tui_pane=$(tmux split-window -t "$target" -v -l "70%" -c "$SELECTED_PATH" -P -F '#{pane_id}') \
         || { echo "error: tmux split-window failed" >&2; exit 1; }
 
     # Send commands using pane IDs (not indices — avoids pane-base-index issues)
@@ -187,7 +183,7 @@ if [[ -n "${TMUX:-}" ]]; then
     if tmux list-windows -t "$_session" -F '#W' 2>/dev/null | grep -q "^breqy-dev$"; then
         tmux kill-window -t "${_session}:breqy-dev"
     fi
-    tmux new-window -n breqy-dev -c "$REPO_ROOT"
+    tmux new-window -n breqy-dev -c "$SELECTED_PATH"
     _setup_panes "${_session}:breqy-dev"
 else
     # Not inside tmux
@@ -197,7 +193,7 @@ else
         exit 0
     fi
     echo "Creating tmux session 'breqy-dev'..."
-    tmux new-session -d -s breqy-dev -c "$REPO_ROOT"
+    tmux new-session -d -s breqy-dev -c "$SELECTED_PATH"
     _setup_panes "breqy-dev:0"
     tmux attach-session -t breqy-dev
 fi
