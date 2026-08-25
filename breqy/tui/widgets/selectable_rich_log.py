@@ -21,7 +21,8 @@ inherited ``ScrollView.render()``.
 from __future__ import annotations
 
 from rich.style import Style as RichStyle
-
+from textual.app import ScreenStackError
+from textual.css.query import NoMatches
 from textual.selection import Selection
 from textual.strip import Strip
 from textual.widgets import RichLog
@@ -131,7 +132,7 @@ class SelectableRichLog(RichLog):
                     sel_style = self.screen.get_component_rich_style(
                         "screen--selection",
                     )
-                except Exception:
+                except (ScreenStackError, NoMatches):
                     sel_style = RichStyle(reverse=True)
                 line = _apply_selection_highlight(line, start, end, sel_style)
 

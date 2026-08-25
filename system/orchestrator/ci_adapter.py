@@ -1,8 +1,10 @@
 """CIAdapter — poll GitHub Actions CI runs and gate on green."""
 from __future__ import annotations
+
 import json
 import subprocess
 import time
+
 from pydantic import BaseModel
 
 
@@ -42,6 +44,7 @@ class CIAdapter:
              "--branch", branch, "--json", "databaseId,status,conclusion,headBranch",
              "--limit", "1"],
             capture_output=True, text=True,
+            check=False,
         )
         runs = json.loads(result.stdout or "[]")
         if not runs:

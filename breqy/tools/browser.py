@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 from pydantic import ValidationError
@@ -52,7 +52,7 @@ _SUPPORTED_ACTIONS = {
 class BrowserTool(ToolExecutor):
     name = "browser"
     description = "Automate headed or headless browser interactions on websites"
-    input_schema: dict[str, object] = {
+    input_schema: ClassVar[dict[str, object]] = {
         "type": "object",
         "properties": {
             "action": {

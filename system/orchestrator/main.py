@@ -9,23 +9,25 @@ Usage:
     python -m system.orchestrator.main run --config system/orchestrator/orchestrator.yaml
 """
 from __future__ import annotations
+
 import argparse
 import queue
 import signal
 import sys
 import threading
 from pathlib import Path
+
 from system.orchestrator.artifact_store import ArtifactStore
+from system.orchestrator.branch_manager import BranchManager
 from system.orchestrator.ci_adapter import CIAdapter
-from system.orchestrator.config import load_config, OrchestratorConfig
+from system.orchestrator.config import OrchestratorConfig, load_config
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.github_adapter import GitHubAdapter
-from system.orchestrator.orchestrator import OrchestratorLoop
-from system.orchestrator.state_machine import ConcreteStateMachine
-from system.orchestrator.branch_manager import BranchManager
-from system.orchestrator.task_loader import CompositeTaskLoader
 from system.orchestrator.github_task_loader import GitHubTaskLoader
 from system.orchestrator.local_task_loader import LocalYamlTaskLoader
+from system.orchestrator.orchestrator import OrchestratorLoop
+from system.orchestrator.state_machine import ConcreteStateMachine
+from system.orchestrator.task_loader import CompositeTaskLoader
 
 _PROVIDER_CHOICES = ["claude", "codex", "gemini", "copilot", "qwen"]
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -50,7 +50,7 @@ class SqliteSessionRepository(SessionRepository):
         return [self._row_to_session(row) for row in rows]
 
     async def update_status(self, session_id: str, status: SessionStatus) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._conn.execute(
             "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
             (status.value, now, session_id),
@@ -58,7 +58,7 @@ class SqliteSessionRepository(SessionRepository):
         await self._conn.commit()
 
     async def update_timestamp(self, session_id: str) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._conn.execute(
             "UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id)
         )
@@ -67,7 +67,7 @@ class SqliteSessionRepository(SessionRepository):
     async def update_workspace_paths(
         self, session_id: str, paths: list[str]
     ) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._conn.execute(
             "UPDATE sessions SET workspace_paths = ?, updated_at = ? WHERE id = ?",
             (json.dumps(paths), now, session_id),

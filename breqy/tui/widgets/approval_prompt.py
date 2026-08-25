@@ -8,8 +8,9 @@ Textual messages when the user makes a decision.
 from __future__ import annotations
 
 from collections import deque
+from typing import ClassVar
 
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal
 from textual.message import Message
 from textual.widget import Widget
@@ -31,7 +32,7 @@ class ApprovalPrompt(Widget):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("a", "approve", "Approve", show=False),
         Binding("s", "approve_session", "Approve for Session", show=False),
         Binding("f", "approve_forever", "Approve Forever", show=False),
@@ -75,7 +76,7 @@ class ApprovalPrompt(Widget):
         self._description_widget: Static | None = None
         self._button_bar: Horizontal | None = None
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         """Yield nothing initially — content is rendered dynamically."""
         yield from ()
 

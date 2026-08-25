@@ -43,15 +43,15 @@ class KeyringSecretProvider(SecretProvider):
     SERVICE_NAME = "breqy"
 
     def get(self, key: str) -> str | None:
-        import keyring  # noqa: PLC0415
+        import keyring
         return keyring.get_password(self.SERVICE_NAME, key)
 
     def set(self, key: str, value: str) -> None:
-        import keyring  # noqa: PLC0415
+        import keyring
         keyring.set_password(self.SERVICE_NAME, key, value)
 
     def delete(self, key: str) -> None:
-        import keyring  # noqa: PLC0415
+        import keyring
         try:
             keyring.delete_password(self.SERVICE_NAME, key)
         except keyring.errors.PasswordDeleteError:

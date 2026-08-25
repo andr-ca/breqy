@@ -12,8 +12,10 @@ responsibility (Task 15).
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import structlog
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Input
@@ -74,7 +76,7 @@ class ChatScreen(Screen[None]):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "pop_screen", "Back", show=True),
     ]
 
@@ -104,7 +106,7 @@ class ChatScreen(Screen[None]):
         )
         return registry
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         """Yield the full chat screen layout."""
         with Vertical():
             yield AgentStatusBar()

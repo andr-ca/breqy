@@ -7,7 +7,8 @@ Supports broadcasting events to all connected clients.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import structlog
 
@@ -51,7 +52,7 @@ class A2AServer:
         for client_id, writer in list(self._client_writers.items()):
             try:
                 writer.close()
-            except Exception:
+            except (OSError, RuntimeError):
                 pass
         self._client_writers.clear()
         self._clients.clear()
@@ -112,7 +113,7 @@ class A2AServer:
                     await self._on_envelope(envelope, client_id)
                 except asyncio.IncompleteReadError:
                     break
-                except Exception as exc:
+                except (OSError, RuntimeError, ValueError) as exc:
                     logger.error(
                         "Error reading from client",
                         client_id=client_id,
@@ -127,6 +128,6 @@ class A2AServer:
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
+            except (OSError, RuntimeError):
                 pass
             logger.info("Client disconnected", client_id=client_id)

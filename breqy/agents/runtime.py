@@ -9,13 +9,23 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
+import httpx
 import structlog
+from keyring.errors import KeyringError
 
 from breqy.a2a.client import A2AClient
 from breqy.agents.credentials import CredentialStore
 from breqy.agents.private_memory import PrivateMemoryRuntime
-from breqy.agents.providers.base import ModelProvider, ProviderEvent, ProviderRequest, ToolDefinition
-from breqy.agents.skills import SkillLoader, SkillActivationError
+from breqy.agents.providers.base import (
+    ModelProvider,
+    ProviderEvent,
+    ProviderRequest,
+    ToolDefinition,
+)
+from breqy.agents.providers.copilot_auth import CopilotAuthError
+from breqy.agents.providers.copilot_client import CopilotApiError
+from breqy.agents.providers.ollama_client import OllamaApiError
+from breqy.agents.skills import SkillActivationError, SkillLoader
 from breqy.config.loader import load_agent_config
 from breqy.config.models import AgentConfig
 from breqy.domain.enums import EventType, MessageRole
@@ -35,8 +45,8 @@ from breqy.domain.events import (
     ToolExecutionRequestedEvent,
     ToolExecutionResultEvent,
 )
-from breqy.domain.models import ModelEntry, StructuredErrorPayload
 from breqy.domain.ids import generate_prefixed_id
+from breqy.domain.models import ModelEntry, StructuredErrorPayload
 from breqy.secrets.provider import SecretProvider
 from breqy.utils.logging import default_log_file, setup_logging
 
@@ -184,7 +194,7 @@ class AgentRuntime:
                 active_work_task.cancel()
             await self.stop()
 
-    def _with_broker(self, broker: ToolResultBroker) -> "AgentRuntime":
+    def _with_broker(self, broker: ToolResultBroker) -> AgentRuntime:
         """Return a lightweight view of this runtime that uses *broker* as the tool_result_waiter."""
         # We mutate self._tool_result_waiter in-place for simplicity — the
         # broker is re-created per run() call so there are no concurrency issues.
@@ -223,7 +233,7 @@ class AgentRuntime:
         """Handle a model list request by discovering models and responding."""
         try:
             models = await self._discover_models()
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             logger.warning("Model discovery failed, sending empty response")
             models = []
         await self._client.send_event(
@@ -257,7 +267,7 @@ class AgentRuntime:
                 update={"provider": event.provider_id, "model": event.model_id}
             )
             new_provider = _build_provider(new_config, credential_store=self._credential_store)
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             logger.warning(
                 "Provider build failed during switch",
                 provider=event.provider_id,
@@ -312,7 +322,7 @@ class AgentRuntime:
         active_provider_id = self._provider.provider_id
         try:
             active_models = await asyncio.to_thread(self._provider.list_models)
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             active_models = PROVIDER_FALLBACK_MODELS.get(
                 active_provider_id, [(self._provider.model_id, self._provider.model_id)]
             )
@@ -336,7 +346,7 @@ class AgentRuntime:
             if self._credential_store is not None:
                 try:
                     is_authenticated = self._credential_store.get(provider_id) is not None
-                except Exception:
+                except (KeyringError, OSError, RuntimeError):
                     pass
             for model_id, display_name in fallback_models:
                 models.append(
@@ -529,7 +539,15 @@ class AgentRuntime:
                             break
                         continue
 
-            except Exception as exc:
+            except (
+                CopilotApiError,
+                CopilotAuthError,
+                OllamaApiError,
+                httpx.HTTPError,
+                OSError,
+                RuntimeError,
+                ValueError,
+            ) as exc:
                 stream_error = exc
                 logger.error(
                     "Provider stream error",
@@ -710,7 +728,7 @@ def _build_provider(
                 secret_provider: SecretProvider = KeyringSecretProvider()
                 # Probe: verify keyring is functional
                 secret_provider.get("__probe__")
-            except Exception:
+            except (KeyringError, OSError, RuntimeError):
                 structlog.get_logger().info(
                     "keyring_unavailable_using_file_store",
                     provider=config.provider,
@@ -726,7 +744,7 @@ def _build_provider(
         provider = providers.get(config.provider)
         if provider is not None:
             return provider
-    except Exception as exc:
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
         structlog.get_logger().error(
             "provider_build_failed",
             provider=config.provider,
@@ -745,7 +763,7 @@ def _create_credential_store() -> CredentialStore:
     try:
         secret_provider: SecretProvider = KeyringSecretProvider()
         secret_provider.get("__probe__")
-    except Exception:
+    except (KeyringError, OSError, RuntimeError):
         structlog.get_logger().info("keyring_unavailable_using_file_store")
         secret_provider = FileSecretProvider()
 

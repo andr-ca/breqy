@@ -1,7 +1,7 @@
 """Session lifecycle management for the Breqy engine."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -164,7 +164,7 @@ class SessionManager:
             )
             return
         if participant.left_at is None:
-            await repo.set_left_at(participant.id, datetime.now(timezone.utc))
+            await repo.set_left_at(participant.id, datetime.now(UTC))
             logger.info(
                 "Participant removed",
                 session_id=session_id,

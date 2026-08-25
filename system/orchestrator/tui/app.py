@@ -1,20 +1,24 @@
 # system/orchestrator/tui/app.py
 from __future__ import annotations
+
 import queue
+from typing import ClassVar
+
 from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.widgets import Header, Footer
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical
-from system.orchestrator.schemas.events import OrchestratorEvent
-from system.orchestrator.state_machine import Task
-from system.orchestrator.schemas.task_envelope import TaskEnvelope
-from system.orchestrator.tui.panels.pipeline_panel import PipelinePanel
-from system.orchestrator.tui.panels.task_panel import TaskPanel
-from system.orchestrator.tui.panels.agent_panel import AgentPanel
-from system.orchestrator.tui.panels.log_panel import LogPanel
+from textual.widgets import Footer, Header
+
 from system.orchestrator.auth import ALL_PROVIDER_CLASSES
 from system.orchestrator.auth.credential_store import CredentialStore
+from system.orchestrator.schemas.events import OrchestratorEvent
+from system.orchestrator.schemas.task_envelope import TaskEnvelope
+from system.orchestrator.state_machine import Task
+from system.orchestrator.tui.panels.agent_panel import AgentPanel
 from system.orchestrator.tui.panels.auth_panel import AuthPanel
+from system.orchestrator.tui.panels.log_panel import LogPanel
+from system.orchestrator.tui.panels.pipeline_panel import PipelinePanel
+from system.orchestrator.tui.panels.task_panel import TaskPanel
 
 
 class OrchestratorApp(App):
@@ -34,7 +38,7 @@ class OrchestratorApp(App):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         ("a", "toggle_auth", "Auth"),
         Binding("escape", "auth_back", "Back", priority=True),
     ]

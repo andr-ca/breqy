@@ -1,21 +1,26 @@
 # system/orchestrator/tui/panels/auth_panel.py
 from __future__ import annotations
+
 import threading
 import time
+from typing import ClassVar
+
 from rich.markup import escape as markup_escape
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
+from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.widget import Widget
-from textual.widgets import DataTable, Static, Input, Button, ContentSwitcher
-from textual.containers import Vertical, Horizontal
+from textual.widgets import Button, ContentSwitcher, DataTable, Input, Static
+
 from system.orchestrator.auth.base import AuthFlowType, AuthProvider, DeviceCodeResponse
 
 
 class AuthPanel(Widget):
     """Interactive authentication panel for all runner providers."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel_auth", "Back", priority=True),
         Binding("c", "copy_code", "Copy code"),
     ]
@@ -131,7 +136,7 @@ class AuthPanel(Widget):
                 status = "Waiting… (code copied to clipboard)" if copied else "Waiting… (press c to copy code)"
                 self.query_one("#df-status", Static).update(status)
                 self._start_device_poll(provider, device_resp)
-            except Exception as e:
+            except (NoMatches, OSError, RuntimeError, ValueError) as e:
                 self._show_view("device-flow")
                 self.query_one("#df-url", Static).update("")
                 self.query_one("#df-code", Static).update("")
@@ -147,7 +152,7 @@ class AuthPanel(Widget):
                 url_text.append(url, style=f"link {url}")
                 self.query_one("#pkce-url", Static).update(url_text)
                 self.query_one("#pkce-input", Input).value = ""
-            except Exception as e:
+            except (NoMatches, OSError, RuntimeError, ValueError) as e:
                 self._show_view("pkce-flow")
                 self.query_one("#pkce-url", Static).update(
                     f"[red]Error: {markup_escape(str(e))}[/red]"
@@ -164,7 +169,7 @@ class AuthPanel(Widget):
                     self.query_one("#key-url", Static).update(url_text)
                 else:
                     self.query_one("#key-url", Static).update("")
-            except Exception as e:
+            except (NoMatches, OSError, RuntimeError, ValueError) as e:
                 self.query_one("#key-title", Static).update(f"[red]Error: {e}[/red]")
 
     def _start_device_poll(self, provider: AuthProvider, device_resp: DeviceCodeResponse) -> None:
@@ -174,7 +179,7 @@ class AuthPanel(Widget):
         def _update_status(msg: str) -> None:
             try:
                 self.query_one("#df-status", Static).update(msg)
-            except Exception:
+            except NoMatches:
                 pass
 
         def _poll() -> None:
@@ -194,7 +199,7 @@ class AuthPanel(Widget):
                         f"[red]Auth failed: {markup_escape(str(e))}[/red]",
                     )
                     return
-                except Exception as e:
+                except (OSError, ValueError) as e:
                     # Transient: network error etc — keep retrying
                     app.call_from_thread(
                         _update_status,
@@ -243,7 +248,7 @@ class AuthPanel(Widget):
         try:
             msg = "[green]Copied![/green]" if copied else "[red]Clipboard unavailable[/red]"
             self.query_one("#df-status", Static).update(msg)
-        except Exception:
+        except NoMatches:
             pass
 
     def _copy_to_clipboard(self, text: str) -> bool:
@@ -257,7 +262,7 @@ class AuthPanel(Widget):
         ):
             try:
                 result = subprocess.run(
-                    cmd, input=text.encode(), timeout=2, capture_output=True
+                    cmd, input=text.encode(), timeout=2, capture_output=True, check=False
                 )
                 if result.returncode == 0:
                     return True
@@ -268,7 +273,7 @@ class AuthPanel(Widget):
             import pyperclip
             pyperclip.copy(text)
             return True
-        except Exception:
+        except (ImportError, RuntimeError, OSError):
             return False
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -287,7 +292,7 @@ class AuthPanel(Widget):
             try:
                 provider.exchange_code(code)
                 self._on_auth_success()
-            except Exception as e:
+            except (NoMatches, OSError, RuntimeError, ValueError) as e:
                 self.query_one("#pkce-url", Static).update(
                     f"[red]Error: {markup_escape(str(e))}[/red]"
                 )
@@ -300,7 +305,7 @@ class AuthPanel(Widget):
             try:
                 provider.set_key(key)
                 self._on_auth_success()
-            except Exception as e:
+            except (NoMatches, OSError, RuntimeError, ValueError) as e:
                 self.query_one("#key-title", Static).update(
                     f"[red]Error: {markup_escape(str(e))}[/red]"
                 )

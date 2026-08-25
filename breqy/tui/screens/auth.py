@@ -22,7 +22,6 @@ from textual.widgets import DataTable, Input, Static
 
 from breqy.domain.enums import AuthFlowKind, AuthSessionStatus
 
-
 # --------------------------------------------------------------------------- #
 # Data model
 # --------------------------------------------------------------------------- #

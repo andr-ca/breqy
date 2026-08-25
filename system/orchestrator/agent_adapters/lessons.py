@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 from system.orchestrator.agent_adapters.base import AgentAdapter, TaskContext, _parse_generic
 from system.orchestrator.schemas.artifacts import ParsedOutput
-from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.schemas.run_result import RunResult
+from system.orchestrator.schemas.task_envelope import TaskEnvelope
 
 
 class LessonsAdapter(AgentAdapter):

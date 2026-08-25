@@ -1,10 +1,13 @@
 # system/orchestrator/tui/panels/task_panel.py
 from __future__ import annotations
+
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import Static
+
 from system.orchestrator.schemas.events import OrchestratorEvent
-from system.orchestrator.state_machine import Task
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
+from system.orchestrator.state_machine import Task
 
 
 class TaskPanel(Widget):
@@ -39,5 +42,5 @@ class TaskPanel(Widget):
             )
             try:
                 self.query_one("#task-info", Static).update(info)
-            except Exception:
+            except NoMatches:
                 pass

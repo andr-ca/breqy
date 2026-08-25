@@ -1,7 +1,10 @@
 # system/orchestrator/tui/panels/agent_panel.py
 from __future__ import annotations
+
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import RichLog
+
 from system.orchestrator.schemas.events import OrchestratorEvent
 
 
@@ -17,5 +20,5 @@ class AgentPanel(Widget):
                 log = self.query_one("#agent-log", RichLog)
                 prefix = f"[{event.role}/{event.agent_type}]" if event.role else "[orchestrator]"
                 log.write(f"{prefix} {event.notes}")
-            except Exception:
+            except NoMatches:
                 pass

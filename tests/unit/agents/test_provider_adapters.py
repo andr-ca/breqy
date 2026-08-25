@@ -735,6 +735,22 @@ def test_provider_adapters_wrap_runner_class_instances() -> None:
     assert cast(Any, providers["gemini"])._runner.__class__.__mro__[1].__name__ == "GeminiRunner"
 
 
+class TestBuildOllamaProvider:
+    def test_ollama_returns_ollama_provider(self) -> None:
+        from breqy.agents.providers.ollama import OllamaProvider
+
+        store = CredentialStore(MemorySecretProvider())
+        providers = build_model_providers(
+            credential_store=store,
+            model_by_provider={"ollama": "llama3.2"},
+        )
+        assert "ollama" in providers
+        assert isinstance(providers["ollama"], OllamaProvider)
+        assert providers["ollama"].provider_id == "ollama"
+        assert providers["ollama"].model_id == "llama3.2"
+        assert providers["ollama"].supports_tool_calls is True
+
+
 class TestBuildCopilotProvider:
     def test_copilot_returns_copilot_provider(self) -> None:
         from breqy.agents.providers.copilot import CopilotProvider

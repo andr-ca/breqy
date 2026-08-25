@@ -62,19 +62,24 @@ class PolicyEvaluator:
         for rule in self._rules:
             if not self._resource_matches(rule.resource, resource):
                 continue
-            if rule.scope == PolicyScope.GLOBAL:
-                matched.append(rule)
-            elif rule.scope == PolicyScope.AGENT and rule.scope_id == agent_id:
-                matched.append(rule)
-            elif rule.scope == PolicyScope.SESSION and rule.scope_id == session_id:
+            if self._scope_matches(rule, agent_id=agent_id, session_id=session_id):
                 matched.append(rule)
         return matched
+
+    @staticmethod
+    def _scope_matches(rule: PolicyRule, *, agent_id: str, session_id: str) -> bool:
+        """Whether *rule*'s scope applies to this agent/session context."""
+        if rule.scope == PolicyScope.GLOBAL:
+            return True
+        if rule.scope == PolicyScope.AGENT:
+            return rule.scope_id == agent_id
+        if rule.scope == PolicyScope.SESSION:
+            return rule.scope_id == session_id
+        return False
 
     @staticmethod
     def _resource_matches(rule_resource: str, target_resource: str) -> bool:
         """Exact match or colon-prefix match (e.g. 'tool:' matches 'tool:shell')."""
         if rule_resource == target_resource:
             return True
-        if rule_resource.endswith(":") and target_resource.startswith(rule_resource):
-            return True
-        return False
+        return rule_resource.endswith(":") and target_resource.startswith(rule_resource)

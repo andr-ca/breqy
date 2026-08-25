@@ -46,7 +46,7 @@ def load_agent_config(agent_dir: str) -> AgentConfig:
     if data is None:
         data = {}
     if not isinstance(data, Mapping):
-        raise ValueError(f"Agent config in {config_path} must be a YAML mapping/object")
+        raise TypeError(f"Agent config in {config_path} must be a YAML mapping/object")
     config = AgentConfig(**data)
     persona_path = _resolve_persona_path(agent_path, config.persona_file)
     if not persona_path.exists():

@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import collections
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 from textual import work
 from textual.app import App, ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Static
 
@@ -26,15 +27,15 @@ from breqy.domain.events import (
     ModelListRequestedEvent,
     ModelListResponseEvent,
     ModelSwitchRequestedEvent,
-    SessionCreateRequestedEvent,
     SessionCreatedEvent,
+    SessionCreateRequestedEvent,
 )
 from breqy.domain.ids import generate_prefixed_id
 from breqy.tui.clipboard import copy_to_system_clipboard
 from breqy.tui.events import EventDispatcher
+from breqy.tui.screens.agent_logs import AgentLogsScreen, resolve_agent_log_path
 from breqy.tui.screens.auth import AuthScreen
 from breqy.tui.screens.chat import ChatScreen
-from breqy.tui.screens.agent_logs import AgentLogsScreen, resolve_agent_log_path
 from breqy.tui.screens.logs import LogEntry, LogsScreen
 from breqy.tui.screens.model_select import ModelOption, ModelSelectScreen
 from breqy.tui.screens.session_list import SessionListScreen
@@ -71,7 +72,7 @@ class BreqyApp(App):
     CSS_PATH = "styles/breqy.tcss"
     TITLE = "Breqy"
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+q", "quit", "Quit", show=True),
         Binding("ctrl+l", "push_logs", "Logs", show=True),
         Binding("ctrl+a", "push_auth", "Auth", show=True),
@@ -368,7 +369,7 @@ class BreqyApp(App):
                 return
 
             except Exception as exc:
-                logger.error("Unexpected error in A2A listener", error=str(exc), exc_info=True)
+                logger.exception("Unexpected error in A2A listener", error=str(exc))
                 self.notify(
                     f"Listener error: {exc}",
                     severity="error",
@@ -382,7 +383,7 @@ class BreqyApp(App):
         if self._client is not None:
             try:
                 await self._client.disconnect()
-            except Exception:
+            except (OSError, RuntimeError):
                 pass
 
     # ------------------------------------------------------------------ #
@@ -605,7 +606,7 @@ class BreqyApp(App):
                 mi = chat_screen.query_one(MIWidget)
                 for name, desc in mi.command_registry.list_commands().items():
                     lines.append(f"  /{name} — {desc}")
-            except Exception:
+            except (NoMatches, AttributeError):
                 pass
 
         self.notify("\n".join(lines), timeout=8)
@@ -634,7 +635,7 @@ class BreqyApp(App):
         try:
             bar = chat_screen.query_one(AgentStatusBar)
             bar.set_switching()
-        except Exception:
+        except NoMatches:
             pass  # Status bar may not be mounted yet
 
         event = ModelSwitchRequestedEvent(

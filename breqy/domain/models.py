@@ -1,14 +1,14 @@
 """Pydantic v2 domain models for the Breqy system."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 from breqy.domain.enums import (
-    ApprovalStatus,
     ApprovalGrantScope,
+    ApprovalStatus,
     AutonomyLevel,
     FilesystemOperation,
     MemoryPromotionStatus,
@@ -26,7 +26,7 @@ from breqy.domain.ids import generate_prefixed_id
 
 def _now() -> datetime:
     """Return current UTC-aware datetime."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class StructuredResultPayload(BaseModel):
@@ -51,7 +51,7 @@ class TaskContextReference(BaseModel):
 
 
 class SessionContextBundle(BaseModel):
-    messages: list["Message"] = Field(default_factory=list)
+    messages: list[Message] = Field(default_factory=list)
     memory_summary: str = ""
     memory_checkpoint: str = ""
     task_context: TaskContextReference | None = None

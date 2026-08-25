@@ -155,7 +155,7 @@ class ApprovalService:
 
         try:
             await asyncio.wait_for(pending.decided.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Approval timed out: %s", request_id)
             self._pending.pop(request_id, None)
             await self._repo.update_request_status(request_id, ApprovalStatus.EXPIRED)

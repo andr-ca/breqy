@@ -1,11 +1,14 @@
 # system/orchestrator/auth/claude_auth.py
 from __future__ import annotations
+
 import base64
 import hashlib
 import os
 import secrets
-from urllib.parse import urlencode, urlparse, parse_qs
+from urllib.parse import parse_qs, urlencode, urlparse
+
 import httpx
+
 from system.orchestrator.auth.base import PkceProvider
 from system.orchestrator.auth.credential_store import CredentialStore
 

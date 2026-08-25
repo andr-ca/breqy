@@ -17,7 +17,6 @@ from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import DataTable, Static
 
-
 # --------------------------------------------------------------------------- #
 # Data model
 # --------------------------------------------------------------------------- #

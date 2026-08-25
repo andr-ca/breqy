@@ -38,7 +38,7 @@ class TaskPanel(Widget):
         super().__init__(**kwargs)
         self._tasks: dict[str, _TaskEntry] = {}
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         yield SelectableRichLog(id="task-log", wrap=True, markup=True)
 
     @property

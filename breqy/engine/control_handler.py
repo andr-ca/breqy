@@ -6,7 +6,7 @@ AgentRegistry, AgentSpawner, ParticipantRepository, and A2AServer.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -111,7 +111,7 @@ class ControlHandler:
         participants = await self._participant_repo.get_active_by_session(
             session_id
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for p in participants:
             await self._participant_repo.set_left_at(p.id, now)
 

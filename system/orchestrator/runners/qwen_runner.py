@@ -1,9 +1,11 @@
 from __future__ import annotations
-import subprocess
+
 import os
+import subprocess
+
+from system.orchestrator.auth.credential_store import CredentialStore
 from system.orchestrator.runners.base import AgentRunner
 from system.orchestrator.schemas.run_result import RunContext
-from system.orchestrator.auth.credential_store import CredentialStore
 
 _PROVIDER_NAME = "qwen"
 _ENV_KEY = "DASHSCOPE_API_KEY"

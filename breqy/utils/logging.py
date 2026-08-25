@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -39,7 +39,7 @@ def _resolve_file_mode(log_file: Path, file_mode: str) -> str:
         return "a"
 
     if file_mode == "backup" and log_file.exists():
-        stamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
+        stamp = datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S")
         backup_path = log_file.with_name(f"{log_file.name}.{stamp}")
         log_file.rename(backup_path)
         return "w"
@@ -120,7 +120,7 @@ def setup_logging(
     for h in list(root_logger.handlers):
         try:
             h.close()
-        except Exception:  # noqa: BLE001
+        except OSError:
             pass
     root_logger.handlers.clear()
     root_logger.setLevel(numeric_level)

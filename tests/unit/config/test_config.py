@@ -140,7 +140,7 @@ def test_agent_config_requires_provider() -> None:
 
 @pytest.mark.parametrize(
     "provider",
-    ["copilot", "codex", "claude", "gemini", "qwen"],
+    ["copilot", "codex", "claude", "gemini", "qwen", "ollama"],
 )
 def test_agent_config_accepts_supported_provider_values(provider: str) -> None:
     """AgentConfig accepts every supported provider identifier."""
@@ -398,7 +398,7 @@ def test_load_agent_config_rejects_non_mapping_yaml(tmp_path: Path, yaml_content
     """load_agent_config() rejects agent manifests that are not YAML mappings."""
     (tmp_path / "agent.yaml").write_text(yaml_content)
 
-    with pytest.raises(ValueError, match="agent.yaml"):
+    with pytest.raises(TypeError, match="agent.yaml"):
         load_agent_config(str(tmp_path))
 
 

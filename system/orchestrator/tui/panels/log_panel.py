@@ -1,7 +1,10 @@
 # system/orchestrator/tui/panels/log_panel.py
 from __future__ import annotations
+
+from textual.css.query import NoMatches
 from textual.widget import Widget
 from textual.widgets import RichLog
+
 from system.orchestrator.schemas.events import OrchestratorEvent
 
 _COLOURS = {
@@ -25,5 +28,5 @@ class LogPanel(Widget):
         msg = f"[{colour}]{ts}  {event.event_type:<22} {event.task_id}  {event.notes[:50]}[/{colour}]"
         try:
             self.query_one("#event-log", RichLog).write(msg)
-        except Exception:
+        except NoMatches:
             pass

@@ -1,26 +1,27 @@
 # system/orchestrator/orchestrator.py
 from __future__ import annotations
+
 import datetime
 import queue
 import threading
 import time
 from pathlib import Path
+
+from system.orchestrator.agent_adapters.base import TaskContext
 from system.orchestrator.artifact_store import ArtifactStore
 from system.orchestrator.auth.credential_store import CredentialStore
-from system.orchestrator.branch_manager import BranchManager
+from system.orchestrator.branch_manager import BranchError, BranchManager
 from system.orchestrator.ci_adapter import CIAdapter
 from system.orchestrator.config import OrchestratorConfig
 from system.orchestrator.event_log import EventLog
 from system.orchestrator.github_adapter import GitHubAdapter
 from system.orchestrator.router import Router
-from system.orchestrator.agent_adapters.base import TaskContext
 from system.orchestrator.schemas.artifacts import MergeReadinessArtifact, ParsedOutput
 from system.orchestrator.schemas.events import OrchestratorEvent
 from system.orchestrator.schemas.run_result import RunContext, RunResult
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.state_machine import ConcreteStateMachine, Task, TaskState
 from system.orchestrator.task_loader import TaskLoader
-
 
 _HANDLERS: dict[TaskState, str] = {
     TaskState.READY_FOR_SHAPING:           "_handle_ready_for_shaping",
@@ -88,7 +89,7 @@ class OrchestratorLoop:
         state_path = Path(config.orchestrator.runtime_state)
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text(_yaml.dump({
-            "shutdown_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "shutdown_at": datetime.datetime.now(datetime.UTC).isoformat(),
             "note": "graceful shutdown",
         }))
 
@@ -175,7 +176,7 @@ class OrchestratorLoop:
             slug = self._branch_manager.make_slug(env.title)
             branch = self._branch_manager.create_branch(task.task_id, env.task_type, slug)
             self._branch_manager.push(branch)
-        except Exception as exc:
+        except (BranchError, OSError, RuntimeError) as exc:
             return self._sm.force_block(task, notes=f"branch creation failed: {exc}")
         task = task.model_copy(update={"branch": branch})
         task = self._sm.transition(task, TaskState.READY_FOR_TEST_CASE_DESIGN)
@@ -275,7 +276,7 @@ class OrchestratorLoop:
         ))
         try:
             output = self._run_agent(task, env, "doer")
-        except Exception:
+        except (OSError, RuntimeError, ValueError):
             task = self._sm.transition(task, TaskState.RETRY_PENDING)
             self._emit(OrchestratorEvent(
                 task_id=task.task_id, event_type="state_transition",
@@ -389,7 +390,7 @@ class OrchestratorLoop:
         # CI green — use base computed above (no second merge_target call)
         artifact = MergeReadinessArtifact(
             task_id=task.task_id,
-            checked_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            checked_at=datetime.datetime.now(datetime.UTC).isoformat(),
             artifacts_present=[],
             branch=task.branch or "",
             merge_target=base,

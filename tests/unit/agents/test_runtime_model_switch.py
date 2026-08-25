@@ -209,7 +209,7 @@ class TestModelListHandler:
 
     @pytest.mark.asyncio
     async def test_discover_models_includes_all_providers(self):
-        """_discover_models() returns entries for all 5 providers, not just active."""
+        """_discover_models() returns entries for all supported providers, not just active."""
         from breqy.a2a.envelope import Envelope
 
         provider = FakeProvider(
@@ -229,8 +229,8 @@ class TestModelListHandler:
         responses = [e for e in client.sent_events if isinstance(e, ModelListResponseEvent)]
         assert len(responses) == 1
         providers_in_response = {m.provider for m in responses[0].models}
-        # Should include all 5 providers
-        assert providers_in_response == {"copilot", "claude", "codex", "gemini", "qwen"}
+        # Should include all supported providers
+        assert providers_in_response == {"copilot", "claude", "codex", "gemini", "qwen", "ollama"}
 
 
 # --------------------------------------------------------------------------- #

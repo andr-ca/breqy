@@ -7,11 +7,12 @@ raw dicts.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from breqy.agents.providers.base import ToolDefinition
 from breqy.domain.enums import (
     ApprovalGrantScope,
     ApprovalStatus,
@@ -24,7 +25,6 @@ from breqy.domain.enums import (
     ToolStatus,
 )
 from breqy.domain.ids import generate_prefixed_id
-from breqy.agents.providers.base import ToolDefinition
 from breqy.domain.models import (
     ModelEntry,
     SessionContextBundle,
@@ -35,7 +35,7 @@ from breqy.domain.models import (
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Event(BaseModel):

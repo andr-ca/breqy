@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 
@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 class ShellTool(ToolExecutor):
     name = "shell"
     description = "Execute a shell command and return its output"
-    input_schema: dict[str, object] = {
+    input_schema: ClassVar[dict[str, object]] = {
         "type": "object",
         "properties": {
             "command": {"type": "string", "description": "The shell command to execute"},
@@ -64,7 +64,7 @@ class ShellTool(ToolExecutor):
 
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "Shell command timed out", command=command, cwd=cwd, timeout=timeout_seconds
             )

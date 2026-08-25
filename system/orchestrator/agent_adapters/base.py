@@ -1,11 +1,14 @@
 from __future__ import annotations
+
 import json as _json
 from abc import ABC, abstractmethod
 from pathlib import Path
+
 from pydantic import BaseModel
+
 from system.orchestrator.schemas.artifacts import ParsedOutput
-from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.schemas.run_result import RunResult
+from system.orchestrator.schemas.task_envelope import TaskEnvelope
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 

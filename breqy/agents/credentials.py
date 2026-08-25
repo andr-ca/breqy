@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 
 import structlog
+from pydantic import ValidationError
 
 from breqy.agents.models import ProviderCredential
 from breqy.secrets.provider import SecretProvider
@@ -23,7 +24,7 @@ class CredentialStore:
             return None
         try:
             return ProviderCredential.model_validate(json.loads(payload))
-        except (json.JSONDecodeError, Exception) as exc:
+        except (json.JSONDecodeError, ValidationError) as exc:
             logger.warning(
                 "Ignoring unreadable credential in keyring",
                 provider=provider,

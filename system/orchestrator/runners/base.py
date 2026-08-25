@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import subprocess
 from abc import ABC, abstractmethod
-from system.orchestrator.schemas.run_result import RunContext, RunResult
+
+from system.orchestrator.schemas.run_result import RunContext, RunResult, RunStatus
 
 
 class AgentRunner(ABC):
@@ -14,5 +16,5 @@ class AgentRunner(ABC):
         """Default implementation: start() + communicate(). Override for custom logic."""
         proc = self.start(prompt, context)
         output, _ = proc.communicate()
-        status = "completed" if proc.returncode == 0 else "failed"
+        status: RunStatus = "completed" if proc.returncode == 0 else "failed"
         return RunResult(status=status, output=output, exit_code=proc.returncode)

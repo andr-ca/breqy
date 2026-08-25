@@ -79,7 +79,7 @@ class CopilotApiClient:
                 try:
                     for chunk in response.iter_text():
                         error_text += chunk
-                except Exception:
+                except (httpx.HTTPError, OSError):
                     error_text = f"HTTP {response.status_code}"
                 logger.warning(
                     "copilot_api_error",
@@ -141,7 +141,7 @@ class CopilotApiClient:
                 try:
                     for chunk in response.iter_text():
                         error_text += chunk
-                except Exception:
+                except (httpx.HTTPError, OSError):
                     error_text = f"HTTP {response.status_code}"
                 logger.warning(
                     "copilot_responses_api_error",

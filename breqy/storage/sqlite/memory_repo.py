@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiosqlite
 
@@ -115,7 +115,7 @@ class SqliteMemoryRepository(MemoryRepository):
         record_id: str,
         promotion_id: str | None,
     ) -> None:
-        updated_at = datetime.now(timezone.utc).isoformat()
+        updated_at = datetime.now(UTC).isoformat()
         await self._conn.execute(
             "UPDATE memory_records SET promotion_id = ?, updated_at = ? WHERE id = ?",
             (promotion_id, updated_at, record_id),
@@ -164,7 +164,7 @@ class SqliteMemoryRepository(MemoryRepository):
         if status == MemoryPromotionStatus.APPROVED and target_record_id is None:
             raise ValueError("approved promotions require target_record_id")
 
-        updated_at = datetime.now(timezone.utc).isoformat()
+        updated_at = datetime.now(UTC).isoformat()
         await self._conn.execute(
             """UPDATE memory_promotions
                SET status = ?, target_record_id = COALESCE(?, target_record_id), updated_at = ?

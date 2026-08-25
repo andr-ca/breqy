@@ -23,9 +23,8 @@ import textwrap
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 try:
     import yaml
@@ -70,20 +69,20 @@ class AgentConfig:
     project_dir: str
     prompt: str
     resume_prompt: str = "You were interrupted by a rate limit. Continue where you left off."
-    model: Optional[str] = None
+    model: str | None = None
     permission_mode: str = "acceptEdits"
 
 
 @dataclass
 class AgentState:
     config: AgentConfig
-    process: Optional[subprocess.Popen] = None
-    session_id: Optional[str] = None
+    process: subprocess.Popen | None = None
+    session_id: str | None = None
     status: str = "idle"  # idle | running | rate_limited | completed | failed
-    last_exit_code: Optional[int] = None
+    last_exit_code: int | None = None
     spawn_count: int = 0
-    stdout_path: Optional[str] = None
-    stderr_path: Optional[str] = None
+    stdout_path: str | None = None
+    stderr_path: str | None = None
     color: str = ""           # ANSI color for this agent's output
     reader_threads: list = field(default_factory=list)
     stderr_lines: list = field(default_factory=list)  # captured for rate-limit detection
@@ -121,7 +120,7 @@ def load_config(path: str) -> tuple[dict, list[AgentConfig]]:
     return settings, agents
 
 
-def get_active_block() -> Optional[dict]:
+def get_active_block() -> dict | None:
     """Query ccusage for the current active billing block."""
     try:
         result = subprocess.run(
@@ -129,6 +128,7 @@ def get_active_block() -> Optional[dict]:
             capture_output=True,
             text=True,
             timeout=30,
+            check=False,
         )
         if result.returncode != 0:
             log.debug("ccusage returned %d: %s", result.returncode, result.stderr.strip())
@@ -142,15 +142,15 @@ def get_active_block() -> Optional[dict]:
     except FileNotFoundError:
         log.error("ccusage not found. Install with: npm i -g ccusage")
         return None
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
         log.warning("Failed to query ccusage: %s", e)
         return None
 
 
 def block_time_remaining(block: dict) -> float:
     """Seconds remaining in a billing block."""
-    end = datetime.fromisoformat(block["endTime"].replace("Z", "+00:00"))
-    now = datetime.now(timezone.utc)
+    end = datetime.fromisoformat(block["endTime"])
+    now = datetime.now(UTC)
     return max(0.0, (end - now).total_seconds())
 
 
@@ -195,7 +195,7 @@ def _extract_text(value) -> str:
     return str(value) if value else ""
 
 
-def _format_stream_event(event: dict) -> Optional[str]:
+def _format_stream_event(event: dict) -> str | None:
     """Extract a human-readable summary from a stream-json event."""
     etype = event.get("type", "")
 
@@ -331,7 +331,7 @@ def _agent_stderr_reader(
 def spawn_agent(state: AgentState, log_dir: str, dry_run: bool = False) -> None:
     """Spawn a Claude Code agent subprocess with live output streaming."""
     cfg = state.config
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
     cmd = ["claude"]
 
@@ -407,12 +407,12 @@ def collect_agent_output(state: AgentState) -> tuple[str, str]:
     try:
         if state.stdout_path and os.path.exists(state.stdout_path):
             stdout_text = Path(state.stdout_path).read_text()
-    except Exception:
+    except OSError:
         pass
     try:
         if state.stderr_path and os.path.exists(state.stderr_path):
             stderr_text = Path(state.stderr_path).read_text()
-    except Exception:
+    except OSError:
         pass
     # Use in-memory stderr captured by reader thread only if file content is unavailable
     if not stderr_text and state.stderr_lines:
@@ -420,7 +420,7 @@ def collect_agent_output(state: AgentState) -> tuple[str, str]:
     return stdout_text, stderr_text
 
 
-def extract_session_id(stdout_text: str) -> Optional[str]:
+def extract_session_id(stdout_text: str) -> str | None:
     """Try to extract session_id from Claude's JSON output."""
     # Already captured by the reader thread in state.session_id, but
     # also scan log file as fallback.
@@ -459,7 +459,7 @@ def wait_for_next_window(cooldown_buffer: int, shutdown_event: threading.Event) 
         total_wait = cooldown_buffer
         log.info("No active block found. Waiting buffer period.")
 
-    resume_at = datetime.now() + timedelta(seconds=total_wait)
+    resume_at = datetime.now(UTC) + timedelta(seconds=total_wait)
     log.info(
         "Waiting %.1f minutes before respawning (resume ~%s)",
         total_wait / 60,

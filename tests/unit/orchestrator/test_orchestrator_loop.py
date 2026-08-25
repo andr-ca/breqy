@@ -3,6 +3,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from system.orchestrator.orchestrator import OrchestratorLoop
+from system.orchestrator.branch_manager import BranchError
 from system.orchestrator.state_machine import Task, TaskState, ConcreteStateMachine
 from system.orchestrator.schemas.task_envelope import TaskEnvelope
 from system.orchestrator.schemas.artifacts import ParsedOutput
@@ -407,7 +408,7 @@ def test_handle_branch_prep_creates_and_pushes_branch(tmp_path):
 def test_handle_branch_prep_blocks_on_exception(tmp_path):
     mock_bm = MagicMock()
     mock_bm.make_slug.return_value = "add-feature"
-    mock_bm.create_branch.side_effect = Exception("git error")
+    mock_bm.create_branch.side_effect = BranchError("git error")
     loop = _make_loop(tmp_path, branch_manager=mock_bm)
     task = Task(task_id="BRQ-1", state=TaskState.READY_FOR_BRANCH_PREP)
     env = TaskEnvelope(task_id="BRQ-1", title="Add feature", task_type="feature", component="backend")

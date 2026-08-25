@@ -37,7 +37,7 @@ class ControlBar(Widget):
         super().__init__(**kwargs)
         self._pending_event_type: EventType | None = None
 
-    def compose(self):  # noqa: ANN201
+    def compose(self):
         with Horizontal():
             yield Button("Stop", id="btn-stop", classes="control-button", disabled=True)
             yield Button("Steer", id="btn-steer", classes="control-button", disabled=True)

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import subprocess
 import sys
 from pathlib import Path
 
@@ -28,14 +29,13 @@ def _load_dotenv() -> None:
     candidates = [Path.cwd() / ".env"]
     # Also check if we're inside a git repo
     try:
-        import subprocess
         root = subprocess.check_output(
             ["git", "rev-parse", "--show-toplevel"],
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
         candidates.append(Path(root) / ".env")
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         pass
 
     for candidate in candidates:
@@ -158,7 +158,7 @@ def engine_start(
                 try:
                     pid = await daemon.start_default_agent()
                     click.echo(f"  Default agent spawned (PID {pid})")
-                except Exception as exc:
+                except (OSError, RuntimeError) as exc:
                     click.echo(f"  Warning: failed to spawn default agent: {exc}", err=True)
             else:
                 click.echo(f"  Warning: agent dir '{agent_dir}' not found, skipping agent spawn", err=True)
@@ -280,9 +280,10 @@ def auth(provider: str) -> None:
     status = service.get_status(provider)
     click.echo(f"Current status for {provider}: {status.status.value}")
 
-    if status.status.value == "authenticated":
-        if not click.confirm("Already authenticated. Re-authenticate?"):
-            return
+    if status.status.value == "authenticated" and not click.confirm(
+        "Already authenticated. Re-authenticate?"
+    ):
+        return
 
     # Start auth flow
     session = service.start(provider)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path as PathLib
 from typing import Any
 
@@ -14,9 +14,9 @@ from breqy.domain.events import (
     ToolInvocationStartedEvent,
 )
 from breqy.domain.models import ToolInvocation
-from breqy.policy.filesystem import FilesystemPolicyChecker
 from breqy.policy.approval import ApprovalService
 from breqy.policy.evaluator import PolicyEvaluator
+from breqy.policy.filesystem import FilesystemPolicyChecker
 from breqy.storage.interfaces import ToolInvocationRepository
 from breqy.tools.executor import ToolResult
 from breqy.tools.filesystem import derive_operations
@@ -157,7 +157,7 @@ class ToolService:
                         approval_id=approval_id,
                     )
 
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         await self._invocation_repo.update_result(
             invocation_id=invocation.id,
             status=ToolStatus.RUNNING,
@@ -268,7 +268,7 @@ class ToolService:
 
         try:
             workspace_paths = await session_manager.get_workspace_paths(session_id)
-        except Exception:
+        except (OSError, RuntimeError, LookupError, ValueError):
             # If session not found or any error, skip workspace check
             return None
 

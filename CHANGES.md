@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Static Astro + Tailwind website under `web/` for the public Breqy Early Access marketing/docs presence, including tested content contracts, SEO metadata, deployment markers, built-site smoke checks, and a polished local-first product landing page.
+- `breqy/agents/providers/ollama.py` and `breqy/agents/providers/ollama_client.py`: Ollama HTTP provider for local/remote Ollama servers via `/api/chat` streaming and `/api/tags` model discovery. Supports text streaming, tool calls, persona/system prompts, conversation history with Ollama-native tool result messages, and optional `OLLAMA_HOST` configuration.
+- `tests/unit/agents/providers/test_ollama.py` and `tests/unit/agents/providers/test_ollama_client.py`: unit coverage for Ollama provider message conversion, stream mapping, model listing fallback, and HTTP client behavior.
+
 - GitHub Actions workflows for CI and Cloudflare Pages website deployment: merges to `develop` publish and validate `https://develop.breqy.com`, while merges to `main` publish and validate `https://breqy.com` using commit-SHA metadata checks.
 - `docs/deployment.md` with Cloudflare Pages project setup, GitHub secrets/variables, branch-to-environment mapping, local website commands, post-deploy validation, and rollback guidance.
 - Reasoning text display: the Copilot Responses API is now requested with `reasoning:{summary:"auto"}`, causing `response.reasoning_summary_text.delta` events to stream. Each delta is yielded as a `ProviderEvent(kind="reasoning_text")`, dispatched through `runtime.py` as a `ReasoningTextChunkEvent`, buffered in `ChatView._reasoning_chunks`, and flushed as a dim italic block in the chat log when `reasoning_done` fires. The full pipeline—provider → domain event → TUI—is covered by new unit and TUI tests.
