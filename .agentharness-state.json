@@ -2,7 +2,7 @@
   "version": 1,
   "mode": "copy",
   "source": {
-    "path": "/home/andrey/agentharness",
+    "path": null,
     "revision": "9cb9292eaf2612b62806b624a2f6fbb387797e42",
     "remote": "https://github.com/andr-ca/agentharness.git"
   },
