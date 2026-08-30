@@ -154,9 +154,12 @@ jobs:
           fi
           jq -e '.success == true' "${records_response}" >/dev/null
 
-          conflicting_records="$(jq '[.result[]? | select(.type != "CNAME")] | length' "${records_response}")"
+          # Cloudflare permits other record types (e.g. TXT for domain
+          # verification) to coexist with a proxied CNAME at the same name
+          # via CNAME flattening. Only A/AAAA records actually conflict.
+          conflicting_records="$(jq '[.result[]? | select(.type == "A" or .type == "AAAA")] | length' "${records_response}")"
           if [[ "${conflicting_records}" != "0" ]]; then
-            echo "Refusing to replace non-CNAME DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
+            echo "Refusing to replace conflicting A/AAAA DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
             jq '.result[]? | {type, name, content}' "${records_response}" >&2
             exit 1
           fi
@@ -352,9 +355,12 @@ jobs:
           fi
           jq -e '.success == true' "${records_response}" >/dev/null
 
-          conflicting_records="$(jq '[.result[]? | select(.type != "CNAME")] | length' "${records_response}")"
+          # Cloudflare permits other record types (e.g. TXT for domain
+          # verification) to coexist with a proxied CNAME at the same name
+          # via CNAME flattening. Only A/AAAA records actually conflict.
+          conflicting_records="$(jq '[.result[]? | select(.type == "A" or .type == "AAAA")] | length' "${records_response}")"
           if [[ "${conflicting_records}" != "0" ]]; then
-            echo "Refusing to replace non-CNAME DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
+            echo "Refusing to replace conflicting A/AAAA DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
             jq '.result[]? | {type, name, content}' "${records_response}" >&2
             exit 1
           fi
