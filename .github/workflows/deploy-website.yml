@@ -160,7 +160,7 @@ jobs:
           conflicting_records="$(jq '[.result[]? | select(.type == "A" or .type == "AAAA")] | length' "${records_response}")"
           if [[ "${conflicting_records}" != "0" ]]; then
             echo "Refusing to replace conflicting A/AAAA DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
-            jq '.result[]? | {type, name, content}' "${records_response}" >&2
+            jq '.result[]? | select(.type == "A" or .type == "AAAA") | {type, name, content}' "${records_response}" >&2
             exit 1
           fi
 
@@ -361,7 +361,7 @@ jobs:
           conflicting_records="$(jq '[.result[]? | select(.type == "A" or .type == "AAAA")] | length' "${records_response}")"
           if [[ "${conflicting_records}" != "0" ]]; then
             echo "Refusing to replace conflicting A/AAAA DNS records for ${CLOUDFLARE_PAGES_CUSTOM_DOMAIN}." >&2
-            jq '.result[]? | {type, name, content}' "${records_response}" >&2
+            jq '.result[]? | select(.type == "A" or .type == "AAAA") | {type, name, content}' "${records_response}" >&2
             exit 1
           fi
 
